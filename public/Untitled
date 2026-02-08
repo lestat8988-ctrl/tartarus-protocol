@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Tartarus Protocol</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
+    <style>
+      /* 기존 스타일 그대로 유지 (CSS는 완벽합니다) */
+      :root { color-scheme: dark; --terminal-green: #39ff14; --bg-black: #111; }
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 20px; min-height: 100vh; background: #000; color: var(--terminal-green); font-family: 'Share Tech Mono', monospace; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+      
+      /* ... (기존 CSS 스타일들은 지면 관계상 생략하지만, 실제로는 그대로 두시면 됩니다. 
+         만약 복붙이 번거로우시면 <style> 태그 안의 내용은 기존 것을 쓰시고 아래 <body> 부터만 바꾸셔도 됩니다.
+         하지만 안전을 위해 스타일까지 포함된 전체 코드를 드립니다.) ... */
+         
+      .crt-bezel { width: 95%; max-width: 1200px; background: repeating-linear-gradient( 0deg, #dcdcdc 0px, #d0d0c0 1px, #dcdcdc 2px, #c8c8b8 3px, #dcdcdc 4px ), linear-gradient(135deg, #c0c0b0 0%, #d4d4c4 50%, #b8b8a8 100%); background-blend-mode: overlay; border: 35px solid #b0b0a0; border-radius: 20px; box-shadow: 0 25px 80px rgba(0, 0, 0, 0.6), inset 0 0 80px rgba(0, 0, 0, 0.7); padding: 20px; position: relative; }
+      #game-container { background: var(--bg-black); color: var(--terminal-green); border: 2px solid #333; border-radius: 8px; padding: 20px; min-height: 600px; position: relative; display: flex; flex-direction: column; overflow: hidden; }
+      .scanlines { position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; z-index: 10; background: repeating-linear-gradient( 0deg, rgba(0, 0, 0, 0.15) 0px, rgba(0, 0, 0, 0.15) 1px, transparent 1px, transparent 2px ); opacity: 0.5; }
+      .terminal { flex: 1; min-height: 0; border-top: 1px solid var(--terminal-green); padding-top: 6px; display: flex; flex-direction: column; overflow: hidden; position: relative; z-index: 2; }
+      #log { flex: 1; overflow-y: auto; padding-bottom: 20px; font-size: 14px; line-height: 1.6; }
+      #log::-webkit-scrollbar { width: 8px; }
+      #log::-webkit-scrollbar-thumb { background: var(--terminal-green); border-radius: 4px; }
+      .line { white-space: pre-wrap; margin-bottom: 8px; }
+      .input-row { display: flex; align-items: center; border-top: 1px solid rgba(57, 255, 20, 0.4); padding-top: 10px; margin-top: 10px; }
+      #input { flex: 1; background: transparent; border: none; color: var(--terminal-green); font-family: 'Share Tech Mono', monospace; font-size: 16px; outline: none; }
+      .accuse-btn { background: transparent; border: 2px solid #ff0000; color: #ff0000; padding: 8px; margin-top: 10px; cursor: pointer; font-family: inherit; width: 100%; }
+      .accuse-btn:hover { background: rgba(255, 0, 0, 0.2); }
+      
+      /* 모달 및 오버레이 스타일 */
+      .accuse-modal, .game-over-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: none; align-items: center; justify-content: center; z-index: 100; flex-direction: column; }
+      .accuse-modal.active, .game-over-overlay.active { display: flex; }
+      .accuse-modal-content { border: 2px solid red; padding: 20px; background: #111; text-align: center; }
+      .accuse-options button { display: block; width: 100%; margin: 10px 0; padding: 10px; background: transparent; border: 1px solid red; color: red; cursor: pointer; font-family: inherit; }
+      .accuse-options button:hover { background: rgba(255,0,0,0.2); }
+      .title-bar { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 12px; }
+      .time-display { color: var(--terminal-green); }
+      .user-msg { color: #fff; }
+      .system-msg { color: #ffff00; }
+    </style>
+  </head>
+  <body>
+    <div class="crt-bezel">
+      <div id="game-container">
+        <div class="scanlines"></div>
+        <div class="title-bar">
+          <div>TARTARUS PROTOCOL v2.0 (VERCEL EDITION)</div>
+          <div id="timeDisplay">[TIME] 10:00</div>
+        </div>
+        
+        <div class="terminal">
+          <div id="log"></div>
+          
+          <div class="input-row">
+            <span style="margin-right: 10px;">&gt;</span>
+            <input id="input" type="text" autocomplete="off" placeholder="명령 대기 중..." />
+          </div>
+          
+          <button class="accuse-btn" id="accuseBtn">[긴급 처형 (ACCUSE)]</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="accuse-modal" id="accuseModal">
+      <div class="accuse-modal-content">
+        <h3 style="color: red; margin-top: 0;">배신자 지목</h3>
+        <div class="accuse-options">
+          <button onclick="triggerAccuse('선장')">선장 (Captain)</button>
+          <button onclick="triggerAccuse('엔지니어')">엔지니어 (Engineer)</button>
+          <button onclick="triggerAccuse('의사')">의사 (Doctor)</button>
+          <button onclick="triggerAccuse('파일럿')">파일럿 (Pilot)</button>
+          <button onclick="closeAccuseModal()" style="border-color: #555; color: #555;">취소</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="game-over-overlay" id="gameOverOverlay">
+      <h1 id="gameOverTitle" style="font-size: 40px; margin-bottom: 20px;">GAME OVER</h1>
+      <p id="gameOverMsg" style="margin-bottom: 30px; text-align: center; max-width: 80%;"></p>
+      <button class="accuse-btn" onclick="location.reload()" style="width: 200px; border-color: var(--terminal-green); color: var(--terminal-green);">SYSTEM REBOOT</button>
+    </div>
+
+    <script>
+      const logEl = document.getElementById('log');
+      const inputEl = document.getElementById('input');
+      const timeDisplay = document.getElementById('timeDisplay');
+      const accuseModal = document.getElementById('accuseModal');
+      const gameOverOverlay = document.getElementById('gameOverOverlay');
+
+      // 게임 상태 관리
+      let conversationHistory = [];
+      let timeLeft = 600; // 10분
+      let isProcessing = false;
+      let timerInterval;
+
+      // 1. 초기화 및 타이머 시작
+      window.onload = () => {
+        appendLog("[SYSTEM] 타르타로스 프로토콜에 접속했습니다.", "system-msg");
+        appendLog("[SYSTEM] 승무원 중 배신자를 찾아내십시오. 시간이 없습니다.", "system-msg");
+        startTimer();
+      };
+
+      // 2. 타이머 로직 (클라이언트 사이드)
+      function startTimer() {
+        timerInterval = setInterval(() => {
+          timeLeft--;
+          const min = Math.floor(timeLeft / 60);
+          const sec = String(timeLeft % 60).padStart(2, '0');
+          timeDisplay.innerText = `[TIME] ${min}:${sec}`;
+
+          if (timeLeft <= 0) {
+            clearInterval(timerInterval);
+            endGame("DEFEAT", "시간이 초과되었습니다. 타르타로스 호는 파괴되었습니다.");
+          }
+        }, 1000);
+      }
+
+      // 3. 메시지 전송 (Fetch API 사용)
+      async function sendMessage(text) {
+        if (!text || isProcessing) return;
+        
+        isProcessing = true;
+        inputEl.disabled = true;
+        inputEl.value = "";
+        
+        // 내 메시지 표시
+        appendLog(`> ${text}`, "user-msg");
+        conversationHistory.push({ role: "user", content: text });
+
+        try {
+          // Vercel Serverless Function 호출
+          const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: text, history: conversationHistory })
+          });
+
+          const data = await response.json();
+          
+          if (data.error) throw new Error(data.error);
+
+          // AI 응답 표시
+          appendLog(data.result);
+          conversationHistory.push({ role: "assistant", content: data.result });
+
+          // 승리/패배 판정
+          if (data.state === 'victory') endGame("VICTORY", "배신자를 색출했습니다. 작전 성공.");
+          if (data.state === 'defeat') endGame("DEFEAT", "잘못된 판단이었습니다. 작전 실패.");
+
+        } catch (error) {
+          appendLog(`[ERROR] 통신 실패: ${error.message}`, "system-msg");
+        } finally {
+          isProcessing = false;
+          inputEl.disabled = false;
+          inputEl.focus();
+        }
+      }
+
+      // 4. 화면 출력 유틸리티
+      function appendLog(text, className = "") {
+        const div = document.createElement('div');
+        div.className = `line ${className}`;
+        div.innerText = text;
+        logEl.appendChild(div);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      // 5. 처형(Accuse) 로직
+      document.getElementById('accuseBtn').onclick = () => {
+        accuseModal.classList.add('active');
+      };
+
+      function closeAccuseModal() {
+        accuseModal.classList.remove('active');
+      }
+
+      function triggerAccuse(target) {
+        closeAccuseModal();
+        const msg = `[ACCUSE] ${target}을(를) 배신자로 지목하고 에어록 밖으로 사출합니다.`;
+        sendMessage(msg);
+      }
+
+      // 6. 게임 종료 처리
+      function endGame(result, msg) {
+        clearInterval(timerInterval);
+        const title = document.getElementById('gameOverTitle');
+        const desc = document.getElementById('gameOverMsg');
+        
+        title.innerText = result;
+        title.style.color = result === "VICTORY" ? "#39ff14" : "#ff0000";
+        desc.innerText = msg;
+        
+        gameOverOverlay.classList.add('active');
+      }
+
+      // 7. 키보드 입력 처리
+      inputEl.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') sendMessage(inputEl.value);
+      });
+    </script>
+  </body>
+</html>
