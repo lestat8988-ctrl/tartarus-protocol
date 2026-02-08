@@ -1,12 +1,32 @@
 const OpenAI = require("openai");
 
-// 1. 캐릭터 정의 (대표님 코드 그대로 이식)
+// ★ 1. 대표님 원래 코드에 있던 '캐릭터 설정' 완벽 이식 ★
 const characters = [
-  { id: 'captain', name: '선장', description: '권위적이고 차분한 성격. 하지만 무언가를 숨기고 있을 수 있습니다.' },
-  { id: 'engineer', name: '엔지니어', description: '거친 말투를 사용하는 실용주의자. 우주선 상태에 불만이 많습니다. 겁이 많음.' },
-  { id: 'doctor', name: '의사', description: '침착하고 분석적인 성격. 과학적 접근을 선호하며 의심이 많습니다.' },
-  { id: 'pilot', name: '파일럿', description: '성격이 급하고 행동파. 갇혀있는 것을 못 견디며 불안해합니다.' },
-  { id: 'system', name: '타르타로스', description: '우주선 중앙 AI 시스템. 냉정하고 논리적인 말투.' }
+  { 
+    id: 'captain', 
+    name: '선장', 
+    description: '권위적이고 차분한 성격. 함선의 생존을 최우선으로 생각합니다. 말투: 하십시오체 ("자네, 보고하게", "조용히 해라").' 
+  },
+  { 
+    id: 'engineer', 
+    name: '엔지니어', 
+    description: '거친 말투를 사용하는 실용주의자. 우주선 상태에 불만이 많고 겁이 많습니다. 말투: 해요체+반말 섞임, 비속어 가끔 사용 ("젠장! 이게 뭐야!", "망했어요").' 
+  },
+  { 
+    id: 'doctor', 
+    name: '의사', 
+    description: '침착하고 분석적인 성격. 과학적 접근을 선호하며 의심이 많습니다. 말투: 건조하고 분석적인 존댓말 ("생체 신호가 불안정합니다.", "논리적이지 않군요").' 
+  },
+  { 
+    id: 'pilot', 
+    name: '파일럿', 
+    description: '성격이 급하고 행동파. 갇혀있는 것을 못 견디며 탈출하고 싶어 안달이 났습니다. 말투: 다급하고 감정적인 말투 ("빨리 여기서 나가야 돼!", "뭐라도 좀 해봐요!").' 
+  },
+  { 
+    id: 'system', 
+    name: '타르타로스', 
+    description: '우주선 중앙 AI 시스템. 감정이 없고 기계적인 말투. ("경고. 엔진 과부하.", "확인되었습니다.").' 
+  }
 ];
 
 module.exports = async (req, res) => {
@@ -18,43 +38,35 @@ module.exports = async (req, res) => {
 
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-    // 2. 현재 상황 및 프롬프트 구성 (대표님 코드 로직 적용)
-    // Vercel은 상태 저장이 안 되므로, 매 요청마다 랜덤하게 화자를 선정하거나 문맥에 맞게 설정합니다.
-    const randomCharacter = characters[Math.floor(Math.random() * 4)]; // 시스템 제외 4명 중 1명이 주도적으로 말함
-    
-    const situationContext = `
-    **현재 상황:**
-    - 우주선 타르타로스에서 이상 징후가 발생했습니다.
-    - 승무원(선장, 엔지니어, 의사, 파일럿) 중 한 명이 배신자(외계인)입니다.
-    - 함장(플레이어)은 대화를 통해 배신자를 찾아내야 합니다.
-    - 배신자는 들키지 않으려고 거짓말을 섞어 혼란을 주고 시간을 끌려고 합니다.
-    - 배신자가 아닌 승무원들은 진실을 말하고 범인을 찾으려 노력합니다.
-    `;
-
-    // 배신자 로직: AI가 매번 상황에 맞춰 "누가 배신자인지" 연기하도록 유도 (상태 비저장 환경 대응)
+    // ★ 2. 상황극 프롬프트 (한 명씩 말하게 유도) ★
     const systemPrompt = `
-    당신은 SF 서스펜스 게임 "타르타로스 프로토콜"의 시뮬레이션 AI입니다.
-    
-    ${situationContext}
+    당신은 SF 서스펜스 게임 "타르타로스 프로토콜"의 시나리오 작가입니다.
+    플레이어(함장)의 말에 반응하여, 가장 적절한 **승무원 1명(또는 최대 2명)**의 대사를 출력하십시오.
 
-    [캐릭터 설정]
+    [캐릭터 프로필]
     ${JSON.stringify(characters)}
 
-    [규칙 - 중요]
-    1. 사용자는 **'함장님'**입니다. 모든 승무원은 함장에게 존댓말을 쓰고 복종해야 합니다.
-    2. 당신은 상황에 맞춰 **1명 이상의 승무원**이 되어 대사를 출력해야 합니다.
-    3. 대사 형식: "**직책**: 대사내용" (반드시 지킬 것)
-    4. 텍스트 출력 후, 맨 마지막 줄에 플레이어가 할 수 있는 행동(선택지)을 1~2개 제안해주는 것도 좋습니다.
-    5. **절대** JSON 형식이 아닌, **줄글(Text)** 형식으로 답변하세요.
+    [규칙 - 매우 중요]
+    1. **절대** 상황을 설명하거나 요약하지 마십시오. 오직 **캐릭터의 대사**만 출력하십시오.
+    2. 함장의 명령이나 질문에 가장 관련 있는 캐릭터가 대답하게 하십시오.
+       (예: "엔진 어때?" -> 엔지니어가 대답, "부상자는?" -> 의사가 대답)
+    3. 누구에게 말하는지 명확하지 않으면 '선장'이나 '타르타로스(시스템)'가 대답하십시오.
+    4. **출력 형식:** 반드시 아래 포맷을 지키십시오. (프론트엔드에서 색상을 입히기 위함)
+       
+       직책: 대사내용
+       (줄바꿈)
+       직책: 대사내용
 
-    [게임 종료 판정]
-    - 함장이 "[ACCUSE] 대상"을 입력했을 때:
-      - 그 대상이 배신자라고 판단되면 "VICTORY"를 포함하여 승리 묘사.
-      - 엉뚱한 사람이라면 "DEFEAT"를 포함하여 패배 묘사.
-      - 패배 시, 문장 맨 끝에 "진짜 배신자 식별 코드 : [직책]"을 반드시 출력.
+    5. **예시:**
+       함장: "상황 보고해."
+       
+       (출력)
+       선장: 함장님, 현재 궤도를 이탈했습니다. 상황이 좋지 않습니다.
+       엔지니어: 엔진이 완전히 맛이 갔다고요! 수리하려면 시간이 필요해요!
+
+    6. 배신자 설정: 승무원 중 1명은 외계인(배신자)입니다. 가끔 수상한 말을 하거나 거짓말을 섞으십시오.
     `;
 
-    // 3. AI 요청
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -62,13 +74,13 @@ module.exports = async (req, res) => {
         ...(history || []),
         { role: "user", content: message }
       ],
-      max_tokens: 600,
-      temperature: 0.9, // 창의성 높임
+      max_tokens: 500,
+      temperature: 0.8, // 캐릭터의 개성을 위해 창의성 높임
     });
 
     const aiResponse = completion.choices[0].message.content;
 
-    // 4. 승패 감지 로직
+    // 승패 판정 로직 (기존 유지)
     let gameState = "playing";
     if (aiResponse.includes("VICTORY")) gameState = "victory";
     if (aiResponse.includes("DEFEAT")) gameState = "defeat";
@@ -77,6 +89,6 @@ module.exports = async (req, res) => {
 
   } catch (err) {
     console.error("API Error:", err);
-    return res.status(500).json({ error: "AI System Error: " + err.message });
+    return res.status(500).json({ error: "AI Error: " + err.message });
   }
 };
