@@ -6,52 +6,102 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
     <style>
-      :root { --terminal-green: #39ff14; --bg-black: #111; }
+      :root { --terminal-green: #39ff14; --bg-black: #050505; }
       * { box-sizing: border-box; }
-      body { margin: 0; padding: 20px; min-height: 100vh; background: #000; color: var(--terminal-green); font-family: 'Share Tech Mono', monospace; display: flex; align-items: center; justify-content: center; overflow: hidden; }
       
-      .crt-bezel { width: 95%; max-width: 1200px; background: #111; border: 30px solid #444; border-radius: 20px; padding: 20px; position: relative; box-shadow: 0 0 50px rgba(0,0,0,0.8); }
-      #game-container { height: 700px; display: flex; flex-direction: column; position: relative; border: 2px solid #333; padding: 10px; background: #000; overflow: hidden; }
-      
-      .scanlines { position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgba(0,0,0,0.15) 0px, transparent 1px, transparent 2px); pointer-events: none; z-index: 10; }
-      
-      .title-bar { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 14px; color: var(--terminal-green); border-bottom: 1px solid var(--terminal-green); padding-bottom: 5px; }
-      
-      #log { flex: 1; overflow-y: auto; padding-bottom: 20px; font-size: 16px; line-height: 1.6; }
-      #log::-webkit-scrollbar { width: 8px; }
-      #log::-webkit-scrollbar-thumb { background: var(--terminal-green); }
-
-      /* 버튼 컨테이너 (부활) */
-      .action-bar { display: flex; gap: 10px; margin-bottom: 10px; z-index: 20; }
-      .action-btn { 
-        flex: 1; background: transparent; border: 1px solid var(--terminal-green); color: var(--terminal-green); 
-        padding: 10px; font-family: inherit; cursor: pointer; text-align: center; font-size: 14px; 
-        transition: all 0.2s; text-transform: uppercase;
+      body {
+        margin: 0; padding: 20px; min-height: 100vh; background: #000;
+        color: var(--terminal-green); font-family: 'Share Tech Mono', monospace;
+        display: flex; align-items: center; justify-content: center; overflow: hidden;
       }
-      .action-btn:hover { background: var(--terminal-green); color: #000; font-weight: bold; }
-
-      .input-row { display: flex; align-items: center; border-top: 1px solid var(--terminal-green); padding-top: 10px; }
-      #input { flex: 1; background: transparent; border: none; color: var(--terminal-green); font-size: 16px; font-family: inherit; outline: none; }
       
-      .accuse-btn { width: 100%; margin-top: 10px; border: 2px solid #ff0000; color: #ff0000; background: transparent; padding: 8px; cursor: pointer; font-family: inherit; }
-      .accuse-btn:hover { background: rgba(255,0,0,0.2); }
+      /* 모니터 베젤 (외관) */
+      .crt-bezel {
+        width: 95%; max-width: 1200px;
+        background: #151515; border: 25px solid #333; border-radius: 20px;
+        padding: 20px; position: relative;
+        box-shadow: 0 0 50px rgba(0,0,0,0.8), inset 0 0 20px rgba(0,0,0,0.8);
+      }
 
-      /* 텍스트 컬러 (별표 없이 작동하도록 수정됨) */
-      .role-captain { color: #ff5555; }
-      .role-engineer { color: #ffaa00; }
-      .role-doctor { color: #00ffff; }
-      .role-pilot { color: #5588ff; }
-      .role-system { color: var(--terminal-green); opacity: 0.8; }
-      .role-alert { color: #ff0000; font-weight: bold; }
+      /* 게임 화면 (내부) */
+      #game-container {
+        height: 700px; display: flex; flex-direction: column; position: relative;
+        border: 2px solid #222; padding: 20px; background: var(--bg-black); overflow: hidden;
+        
+        /* ★ 핵심: 테두리 어둡게 만드는 효과 (Vignette) ★ */
+        box-shadow: inset 0 0 150px rgba(0,0,0, 0.9);
+      }
+      
+      /* 스캔라인 (가로줄) */
+      .scanlines {
+        position: absolute; inset: 0; pointer-events: none; z-index: 10;
+        background: repeating-linear-gradient(0deg, rgba(0,0,0,0.1) 0px, transparent 1px, transparent 2px);
+      }
+      
+      /* 화면 전체 글로우 (은은한 빛) */
+      .screen-glow {
+        position: absolute; inset: 0; pointer-events: none; z-index: 5;
+        background: radial-gradient(circle, rgba(57,255,20,0.05) 0%, rgba(0,0,0,0) 80%);
+      }
+
+      /* 상단 타이틀 바 */
+      .title-bar {
+        display: flex; justify-content: space-between; margin-bottom: 10px;
+        font-size: 14px; color: var(--terminal-green); border-bottom: 1px solid rgba(57,255,20,0.3);
+        padding-bottom: 5px; z-index: 20; position: relative;
+      }
+      
+      /* 로그 영역 */
+      #log {
+        flex: 1; overflow-y: auto; padding-bottom: 20px; font-size: 16px; line-height: 1.6;
+        z-index: 20; position: relative;
+        text-shadow: 0 0 2px var(--terminal-green); /* 글자 번짐 효과 */
+      }
+      #log::-webkit-scrollbar { width: 8px; }
+      #log::-webkit-scrollbar-thumb { background: rgba(57,255,20,0.3); }
+
+      /* 버튼 영역 */
+      .action-bar { display: flex; gap: 10px; margin-bottom: 10px; z-index: 20; position: relative; }
+      .action-btn { 
+        flex: 1; background: rgba(0, 20, 0, 0.5); border: 1px solid var(--terminal-green); color: var(--terminal-green); 
+        padding: 12px; font-family: inherit; cursor: pointer; text-align: center; font-size: 14px; 
+        transition: all 0.2s; text-transform: uppercase; box-shadow: 0 0 5px rgba(57,255,20,0.2);
+      }
+      .action-btn:hover { background: var(--terminal-green); color: #000; box-shadow: 0 0 15px var(--terminal-green); }
+
+      /* 입력창 */
+      .input-row { display: flex; align-items: center; border-top: 1px solid rgba(57,255,20,0.3); padding-top: 10px; z-index: 20; position: relative; }
+      #input { 
+        flex: 1; background: transparent; border: none; color: var(--terminal-green); 
+        font-size: 16px; font-family: inherit; outline: none; text-shadow: 0 0 2px var(--terminal-green);
+      }
+      
+      .accuse-btn { 
+        width: 100%; margin-top: 10px; border: 1px solid #ff0000; color: #ff0000; 
+        background: rgba(50,0,0,0.3); padding: 10px; cursor: pointer; font-family: inherit; z-index: 20; position: relative;
+      }
+      .accuse-btn:hover { background: #ff0000; color: #000; box-shadow: 0 0 15px #ff0000; }
+
+      /* 텍스트 컬러 */
+      .role-captain { color: #ff5555; text-shadow: 0 0 3px #ff0000; }
+      .role-engineer { color: #ffaa00; text-shadow: 0 0 3px #ffaa00; }
+      .role-doctor { color: #00ffff; text-shadow: 0 0 3px #00ffff; }
+      .role-pilot { color: #5588ff; text-shadow: 0 0 3px #5588ff; }
+      .role-system { color: var(--terminal-green); }
+      .role-alert { color: #ff0000; font-weight: bold; animation: blink 1s infinite; }
       .role-user { color: #ff00ff; font-weight: bold; }
+      
+      @keyframes blink { 50% { opacity: 0; } }
     </style>
   </head>
   <body>
     <div class="crt-bezel">
       <div id="game-container">
         <div class="scanlines"></div>
+        <div class="screen-glow"></div>
+
         <div class="title-bar">
-          <span>TARTARUS PROTOCOL v2.1</span>
+          <span>TARTARUS PROTOCOL v2.2</span>
           <span id="timer">[TIME] 10:00</span>
         </div>
 
@@ -76,18 +126,29 @@
       const inputEl = document.getElementById('input');
       let history = [];
       
-      // 초기 메시지 출력
       window.onload = () => {
-        printLine("[SYSTEM] 접속 성공. 타르타로스 프로토콜 가동.", "role-system");
-        printLine("[ALERT] 비상 사태! 워프 엔진 파괴됨.", "role-alert");
-        printLine("[MISSION] 승무원들과 대화하여 숨어있는 AI 배신자를 찾으십시오.", "role-system");
+        printLine("[SYSTEM BOOT SEQUENCE...]", "role-system");
+        printLine("접속 대상: USSC 타르타로스 (Tartarus)", "role-system");
+        printLine("목표: 해왕성 궤도 워프 (Neptune Warp)", "role-system");
+        printLine(" ", "line"); 
+        
+        printLine("[SYSTEM] 생명 유지 장치 해제... 냉동 수면 종료.", "role-system");
         printLine(" ", "line");
-        printLine(">> '현재 상황 보고해'라고 명령하여 게임을 시작하세요.", "role-system");
+
+        printLine("[ALERT] 함장님(Commander), 비상 사태입니다.", "role-alert");
+        printLine("현재 타르타로스 호는 궤도를 이탈했습니다.", "role-system");
+        printLine("승무원 중 누군가가 고의로 워프 엔진을 파괴했습니다.", "role-system");
+        printLine(" ", "line");
+
+        printLine("[MISSION]", "role-system");
+        printLine("1. 대화를 통해 숨어있는 '범인(AI)'을 찾아내십시오.", "role-system");
+        printLine("2. 원자로를 수리하여 함선을 구하십시오.", "role-system");
+        printLine(" ", "line");
+
+        printLine(">> 엔지니어에게 \"현재 상황 보고해\"라고 명령하십시오.", "role-system");
       };
 
-      // 텍스트 출력 함수 (별표 제거 로직 포함)
       function printLine(text, className) {
-        // AI가 **엔지니어** 처럼 보내면, 별표를 떼고 색깔을 입힘
         let cleanText = text.replace(/\*\*/g, ""); 
         let finalClass = className;
 
@@ -97,6 +158,7 @@
           else if (cleanText.includes("의사:")) finalClass = "role-doctor";
           else if (cleanText.includes("파일럿:")) finalClass = "role-pilot";
           else if (cleanText.includes("시스템:") || cleanText.includes("[SYSTEM]")) finalClass = "role-system";
+          else if (cleanText.includes("[ALERT]")) finalClass = "role-alert";
         }
 
         const div = document.createElement('div');
@@ -106,7 +168,6 @@
         logEl.scrollTop = logEl.scrollHeight;
       }
 
-      // 메시지 전송
       async function send(msg) {
         if (!msg) msg = inputEl.value;
         if (!msg.trim()) return;
