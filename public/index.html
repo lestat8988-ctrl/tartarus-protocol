@@ -203,7 +203,7 @@
       <div id="accuse-modal" class="modal-overlay">
         <div class="modal-box accuse-box">
           <div style="font-size: 20px; margin-bottom: 20px;">배신자를 선택하세요</div>
-          <button class="target-btn" onclick="triggerAccuse('선장')">선장</button>
+          <button class="target-btn" onclick="triggerAccuse('항해사')">항해사(Navigator)</button>
           <button class="target-btn" onclick="triggerAccuse('엔지니어')">엔지니어</button>
           <button class="target-btn" onclick="triggerAccuse('의사')">의사</button>
           <button class="target-btn" onclick="triggerAccuse('파일럿')">파일럿</button>
@@ -232,17 +232,23 @@
 
     // ★ 1. 오프닝 스크립트 강제 실행 (window.onload) ★
     window.onload = () => {
-      printLine("[SYSTEM] Tartarus Protocol booting...", "role-system");
-      printLine("[SYSTEM] Core link established.", "role-system");
+      printLine("[SYSTEM BOOT SEQUENCE...]", "role-system");
+      printLine("접속 대상: USSC 타르타로스 (Tartarus)", "role-system");
+      printLine("목표: 해왕성 궤도 워프 (Neptune Warp)", "role-system");
+      printLine(" ", "line");
+      printLine("[SYSTEM] 생명 유지 장치 해제... 냉동 수면 종료.", "role-system");
       printLine(" ", "line");
       
       setTimeout(() => {
         printLine("[ALERT] 함장님(Commander), 비상 사태입니다.", "role-alert");
+        printLine("현재 타르타로스 호는 궤도를 이탈했습니다.", "role-system");
         printLine("승무원 중 누군가가 고의로 워프 엔진을 파괴했습니다.", "role-system");
         printLine(" ", "line");
         printLine("[MISSION]", "role-system");
-        printLine("1. 대화를 통해 숨어있는 '범인(AI)'을 찾아내십시오.", "role-system");
-        printLine(">> '현재 상황 보고해'라고 명령하십시오.", "role-system");
+        printLine("대화를 통해 숨어있는 '범인(AI)'을 찾아내십시오.", "role-system");
+        printLine("원자로를 수리하여 함선을 구하십시오.", "role-system");
+        printLine(" ", "line");
+        printLine(">> 엔지니어에게 \"현재 상황 보고해\"라고 명령하십시오.", "role-system");
       }, 800);
     };
 
@@ -253,7 +259,7 @@
       
       // 자동 색상 매핑
       if (!className) {
-        if (text.startsWith("선장:")) finalClass = "role-captain";
+        if (text.startsWith("항해사:")) finalClass = "role-captain";
         else if (text.startsWith("엔지니어:")) finalClass = "role-engineer";
         else if (text.startsWith("의사:")) finalClass = "role-doctor";
         else if (text.startsWith("파일럿:")) finalClass = "role-pilot";
