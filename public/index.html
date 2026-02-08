@@ -45,6 +45,7 @@
     .role-navigator { color: #ffd700; text-shadow: 0 0 3px #ffd700; }
     .role-engineer { color: #ff8c00; text-shadow: 0 0 3px #ff8c00; }
     .role-doctor { color: #00bfff; text-shadow: 0 0 3px #00bfff; }
+    .role-pilot { color: #da70d6; text-shadow: 0 0 3px #da70d6; }
     .role-system { color: #39ff14; text-shadow: 0 0 2px #39ff14; }
     .role-user { color: #ffffff; font-weight: bold; text-shadow: 0 0 3px #ffffff; }
 
@@ -205,6 +206,7 @@
           <button class="target-btn" onclick="triggerAccuse('항해사')">항해사(Navigator)</button>
           <button class="target-btn" onclick="triggerAccuse('엔지니어')">엔지니어</button>
           <button class="target-btn" onclick="triggerAccuse('의사')">의사</button>
+          <button class="target-btn" onclick="triggerAccuse('파일럿')">파일럿</button>
           <button class="target-btn" style="border-color:#555; color:#555;" onclick="closeAccuseModal()">취소</button>
         </div>
       </div>
@@ -260,6 +262,7 @@
         if (text.startsWith("항해사:")) finalClass = "role-navigator";
         else if (text.startsWith("엔지니어:")) finalClass = "role-engineer";
         else if (text.startsWith("의사:")) finalClass = "role-doctor";
+        else if (text.startsWith("파일럿:")) finalClass = "role-pilot";
         else if (text.startsWith("[ALERT]")) finalClass = "role-alert";
         else if (text.includes("[SYSTEM]")) finalClass = "role-system";
         else if (text.startsWith(">")) finalClass = "role-user";
