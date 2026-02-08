@@ -82,6 +82,96 @@
     .result-title { font-size: 32px; font-weight: bold; margin-bottom: 20px; }
     .restart-btn { padding: 10px 30px; background: transparent; border: 2px solid currentColor; color: currentColor; font-family: inherit; cursor: pointer; font-weight: bold; }
     .restart-btn:hover { background: currentColor; color: #000; }
+
+    /* 모바일 반응형 디자인 */
+    @media (max-width: 768px) {
+      body { padding: 5px; }
+      
+      /* 1. CRT 베젤 테두리와 패딩 대폭 축소 */
+      .crt-bezel {
+        width: 100%;
+        border: 8px solid #b0b0a0;
+        padding: 8px;
+        border-radius: 10px;
+      }
+      
+      /* 4. 게임 컨테이너 높이를 유동적으로 변경 */
+      #game-container {
+        height: 80vh;
+        padding: 12px;
+        min-height: 500px;
+      }
+      
+      /* 3. 폰트 크기 축소 */
+      .title-bar {
+        font-size: 12px;
+        margin-bottom: 8px;
+        padding-bottom: 4px;
+      }
+      
+      #log {
+        font-size: 13px;
+        line-height: 1.5;
+        padding-bottom: 12px;
+      }
+      
+      .line {
+        font-size: 13px;
+        margin-bottom: 4px;
+      }
+      
+      /* 2. 액션 바를 세로로 쌓기 */
+      .action-bar {
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      
+      .action-btn {
+        font-size: 13px;
+        padding: 10px;
+        width: 100%;
+      }
+      
+      .input-row {
+        padding-top: 8px;
+        margin-top: 8px;
+      }
+      
+      #input {
+        font-size: 13px;
+        margin-left: 6px;
+      }
+      
+      .accuse-btn-main {
+        font-size: 13px;
+        padding: 10px;
+        margin-top: 8px;
+      }
+      
+      /* 모달도 모바일에 맞게 조정 */
+      .modal-box {
+        padding: 20px;
+        width: 90%;
+        max-width: none;
+      }
+      
+      .target-btn {
+        font-size: 13px;
+        padding: 10px;
+        margin-bottom: 8px;
+      }
+      
+      .result-title {
+        font-size: 24px;
+        margin-bottom: 15px;
+      }
+      
+      .restart-btn {
+        font-size: 13px;
+        padding: 10px 20px;
+      }
+    }
   </style>
 </head>
 <body>
