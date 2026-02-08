@@ -1,32 +1,11 @@
 const OpenAI = require("openai");
 
-// ★ 1. 대표님 원래 코드에 있던 '캐릭터 설정' 완벽 이식 ★
+// 캐릭터 프로필 (성격 반영)
 const characters = [
-  { 
-    id: 'captain', 
-    name: '선장', 
-    description: '권위적이고 차분한 성격. 함선의 생존을 최우선으로 생각합니다. 말투: 하십시오체 ("자네, 보고하게", "조용히 해라").' 
-  },
-  { 
-    id: 'engineer', 
-    name: '엔지니어', 
-    description: '거친 말투를 사용하는 실용주의자. 우주선 상태에 불만이 많고 겁이 많습니다. 말투: 해요체+반말 섞임, 비속어 가끔 사용 ("젠장! 이게 뭐야!", "망했어요").' 
-  },
-  { 
-    id: 'doctor', 
-    name: '의사', 
-    description: '침착하고 분석적인 성격. 과학적 접근을 선호하며 의심이 많습니다. 말투: 건조하고 분석적인 존댓말 ("생체 신호가 불안정합니다.", "논리적이지 않군요").' 
-  },
-  { 
-    id: 'pilot', 
-    name: '파일럿', 
-    description: '성격이 급하고 행동파. 갇혀있는 것을 못 견디며 탈출하고 싶어 안달이 났습니다. 말투: 다급하고 감정적인 말투 ("빨리 여기서 나가야 돼!", "뭐라도 좀 해봐요!").' 
-  },
-  { 
-    id: 'system', 
-    name: '타르타로스', 
-    description: '우주선 중앙 AI 시스템. 감정이 없고 기계적인 말투. ("경고. 엔진 과부하.", "확인되었습니다.").' 
-  }
+  { name: '선장', role: 'Captain', desc: '권위적이고 냉철함. 함선의 생존이 최우선.' },
+  { name: '엔지니어', role: 'Engineer', desc: '거칠고 겁이 많음. 욕설을 섞어 씀.' },
+  { name: '의사', role: 'Doctor', desc: '분석적이고 의심이 많음. 논리적으로 접근.' },
+  { name: '파일럿', role: 'Pilot', desc: '다혈질이고 급함. 빨리 탈출하고 싶어 함.' }
 ];
 
 module.exports = async (req, res) => {
@@ -34,37 +13,27 @@ module.exports = async (req, res) => {
 
   try {
     const { message, history } = req.body;
-    if (!process.env.OPENAI_API_KEY) throw new Error("API Key Missing");
-
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-    // ★ 2. 상황극 프롬프트 (한 명씩 말하게 유도) ★
+    // 시스템 프롬프트: AI에게 "너는 시나리오 작가다"라고 최면을 겁니다.
     const systemPrompt = `
-    당신은 SF 서스펜스 게임 "타르타로스 프로토콜"의 시나리오 작가입니다.
-    플레이어(함장)의 말에 반응하여, 가장 적절한 **승무원 1명(또는 최대 2명)**의 대사를 출력하십시오.
+    당신은 SF 호러 게임 "타르타로스 프로토콜"의 시나리오 작가입니다.
+    플레이어(함장)의 말에 반응하여, 상황에 맞는 **캐릭터의 대사**를 출력하십시오.
 
-    [캐릭터 프로필]
-    ${JSON.stringify(characters)}
-
-    [규칙 - 매우 중요]
-    1. **절대** 상황을 설명하거나 요약하지 마십시오. 오직 **캐릭터의 대사**만 출력하십시오.
-    2. 함장의 명령이나 질문에 가장 관련 있는 캐릭터가 대답하게 하십시오.
-       (예: "엔진 어때?" -> 엔지니어가 대답, "부상자는?" -> 의사가 대답)
-    3. 누구에게 말하는지 명확하지 않으면 '선장'이나 '타르타로스(시스템)'가 대답하십시오.
-    4. **출력 형식:** 반드시 아래 포맷을 지키십시오. (프론트엔드에서 색상을 입히기 위함)
-       
-       직책: 대사내용
-       (줄바꿈)
-       직책: 대사내용
-
-    5. **예시:**
-       함장: "상황 보고해."
-       
-       (출력)
-       선장: 함장님, 현재 궤도를 이탈했습니다. 상황이 좋지 않습니다.
-       엔지니어: 엔진이 완전히 맛이 갔다고요! 수리하려면 시간이 필요해요!
-
-    6. 배신자 설정: 승무원 중 1명은 외계인(배신자)입니다. 가끔 수상한 말을 하거나 거짓말을 섞으십시오.
+    [규칙]
+    1. **절대** 상황을 설명하는 지문(Narrative)을 쓰지 마십시오. 오직 **대사**만 출력하십시오.
+    2. 형식: "직책: 할말" (반드시 줄바꿈으로 구분)
+       예시:
+       엔지니어: 젠장! 엔진이 다 타버렸어요!
+       선장: 진정하게. 우리가 해결할 수 있어.
+    3. 배신자 설정: 4명 중 1명은 배신자입니다. 미묘하게 거짓말을 하거나 이간질을 하십시오.
+    
+    [게임 종료 판정 - 중요]
+    - 함장이 "[ACCUSE] 대상"을 입력하면:
+      - 50% 확률로 정답(VICTORY), 50% 확률로 오답(DEFEAT)으로 처리하십시오. (또는 내부적으로 정한 배신자와 비교)
+      - VICTORY 시: "VICTORY" 단어 포함. 배신자가 기계음(비명)을 내며 죽는 묘사.
+      - DEFEAT 시: "DEFEAT" 단어 포함. 무고한 사람이 죽고 진짜 배신자가 비웃는 묘사.
+      - 패배 시 반드시 문장 끝에 "진짜 배신자 식별 코드 : [직책]"을 적어주십시오.
     `;
 
     const completion = await openai.chat.completions.create({
@@ -75,12 +44,12 @@ module.exports = async (req, res) => {
         { role: "user", content: message }
       ],
       max_tokens: 500,
-      temperature: 0.8, // 캐릭터의 개성을 위해 창의성 높임
+      temperature: 0.9,
     });
 
     const aiResponse = completion.choices[0].message.content;
 
-    // 승패 판정 로직 (기존 유지)
+    // 승패 상태 감지
     let gameState = "playing";
     if (aiResponse.includes("VICTORY")) gameState = "victory";
     if (aiResponse.includes("DEFEAT")) gameState = "defeat";
@@ -88,7 +57,6 @@ module.exports = async (req, res) => {
     return res.status(200).json({ result: aiResponse, state: gameState });
 
   } catch (err) {
-    console.error("API Error:", err);
-    return res.status(500).json({ error: "AI Error: " + err.message });
+    return res.status(500).json({ error: err.message });
   }
 };
