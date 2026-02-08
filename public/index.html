@@ -40,13 +40,12 @@
 
     .line { margin-bottom: 5px; } /* 글자 춤추는 효과 제거됨 */
 
-    /* 캐릭터별 색상 (형광 효과) */
+    /* 캐릭터별 색상 (형광 효과) - 고정된 역할만 존재 */
     .role-alert { color: #ff0000; font-weight: bold; text-shadow: 0 0 3px #ff0000; }
     .role-navigator { color: #ffd700; text-shadow: 0 0 3px #ffd700; }
     .role-engineer { color: #ff8c00; text-shadow: 0 0 3px #ff8c00; }
     .role-doctor { color: #00bfff; text-shadow: 0 0 3px #00bfff; }
-    .role-pilot { color: #da70d6; text-shadow: 0 0 3px #da70d6; }
-    .role-system { color: var(--terminal-green); text-shadow: 0 0 2px var(--terminal-green); }
+    .role-system { color: #39ff14; text-shadow: 0 0 2px #39ff14; }
     .role-user { color: #ffffff; font-weight: bold; text-shadow: 0 0 3px #ffffff; }
 
     /* ★ 하단 버튼 3개 (스타일 복구) ★ */
@@ -206,7 +205,6 @@
           <button class="target-btn" onclick="triggerAccuse('항해사')">항해사(Navigator)</button>
           <button class="target-btn" onclick="triggerAccuse('엔지니어')">엔지니어</button>
           <button class="target-btn" onclick="triggerAccuse('의사')">의사</button>
-          <button class="target-btn" onclick="triggerAccuse('파일럿')">파일럿</button>
           <button class="target-btn" style="border-color:#555; color:#555;" onclick="closeAccuseModal()">취소</button>
         </div>
       </div>
@@ -257,12 +255,11 @@
       if(!text) return;
       let finalClass = className || "line";
       
-      // 자동 색상 매핑
+      // 자동 색상 매핑 - 고정된 역할만 인식
       if (!className) {
         if (text.startsWith("항해사:")) finalClass = "role-navigator";
         else if (text.startsWith("엔지니어:")) finalClass = "role-engineer";
         else if (text.startsWith("의사:")) finalClass = "role-doctor";
-        else if (text.startsWith("파일럿:")) finalClass = "role-pilot";
         else if (text.startsWith("[ALERT]")) finalClass = "role-alert";
         else if (text.includes("[SYSTEM]")) finalClass = "role-system";
         else if (text.startsWith(">")) finalClass = "role-user";
