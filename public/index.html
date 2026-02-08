@@ -41,13 +41,13 @@
     .line { margin-bottom: 5px; } /* 글자 춤추는 효과 제거됨 */
 
     /* 캐릭터별 색상 (형광 효과) */
-    .role-captain { color: #ff5555; text-shadow: 0 0 3px #ff0000; }
-    .role-engineer { color: #ffaa00; text-shadow: 0 0 3px #ffaa00; }
-    .role-doctor { color: #00ffff; text-shadow: 0 0 3px #00ffff; }
-    .role-pilot { color: #5588ff; text-shadow: 0 0 3px #5588ff; }
-    .role-system { color: var(--terminal-green); }
-    .role-alert { color: #ff0000; font-weight: bold; }
-    .role-user { color: #ff00ff; font-weight: bold; }
+    .role-alert { color: #ff0000; font-weight: bold; text-shadow: 0 0 3px #ff0000; }
+    .role-navigator { color: #ffd700; text-shadow: 0 0 3px #ffd700; }
+    .role-engineer { color: #ff8c00; text-shadow: 0 0 3px #ff8c00; }
+    .role-doctor { color: #00bfff; text-shadow: 0 0 3px #00bfff; }
+    .role-pilot { color: #da70d6; text-shadow: 0 0 3px #da70d6; }
+    .role-system { color: var(--terminal-green); text-shadow: 0 0 2px var(--terminal-green); }
+    .role-user { color: #ffffff; font-weight: bold; text-shadow: 0 0 3px #ffffff; }
 
     /* ★ 하단 버튼 3개 (스타일 복구) ★ */
     .action-bar { display: flex; gap: 10px; margin-top: 10px; z-index: 20; }
@@ -259,7 +259,7 @@
       
       // 자동 색상 매핑
       if (!className) {
-        if (text.startsWith("항해사:")) finalClass = "role-captain";
+        if (text.startsWith("항해사:")) finalClass = "role-navigator";
         else if (text.startsWith("엔지니어:")) finalClass = "role-engineer";
         else if (text.startsWith("의사:")) finalClass = "role-doctor";
         else if (text.startsWith("파일럿:")) finalClass = "role-pilot";
