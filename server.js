@@ -31,6 +31,16 @@ const gameState = {
   gameResult: null, // 'victory' 또는 'defeat'
 };
 
+// ===== Rate Limiting 시스템 =====
+// 전역 일일 제한
+let dailyCallCount = 0;
+const MAX_DAILY_CALLS = 300;
+
+// 유저별 속도 제한 (소켓 ID -> 마지막 요청 시간)
+const userLastRequestTime = new Map();
+const MIN_REQUEST_INTERVAL = 2000; // 2초 (밀리초)
+// ===== Rate Limiting 시스템 끝 =====
+
 // simulation.js와의 통신을 위한 소켓 (내부 통신)
 let simulationSocket = null;
 let gameTimer = null; // 타이머 인터벌
@@ -117,6 +127,25 @@ io.on('connection', (socket) => {
       return;
     }
 
+    // ===== Rate Limiting 체크 =====
+    // 1. 전역 일일 제한 체크
+    if (dailyCallCount >= MAX_DAILY_CALLS) {
+      socket.emit('chat message', '[SYSTEM] [일일 데모 사용량이 초과되었습니다. 내일 다시 방문해주세요.]');
+      console.log(`[RATE LIMIT] 일일 제한 초과: ${dailyCallCount}/${MAX_DAILY_CALLS}`);
+      return;
+    }
+
+    // 2. 유저별 속도 제한 체크 (2초 이내 재요청 무시)
+    const now = Date.now();
+    const lastRequestTime = userLastRequestTime.get(socket.id);
+    if (lastRequestTime && (now - lastRequestTime) < MIN_REQUEST_INTERVAL) {
+      // 경고 메시지 없이 그냥 무시
+      console.log(`[RATE LIMIT] 유저 ${socket.id} 속도 제한: ${now - lastRequestTime}ms 전 요청`);
+      return;
+    }
+    userLastRequestTime.set(socket.id, now);
+    // ===== Rate Limiting 체크 끝 =====
+
     const { message, playerAction } = actionData;
 
     // 플레이어 메시지 로그
@@ -132,6 +161,10 @@ io.on('connection', (socket) => {
 
     // AI 응답 생성 요청 (simulation.js로)
     if (simulationSocket) {
+      // 정상 호출 시 일일 카운터 증가
+      dailyCallCount++;
+      console.log(`[RATE LIMIT] 일일 호출 수: ${dailyCallCount}/${MAX_DAILY_CALLS}`);
+      
       simulationSocket.emit('generateResponse', {
         turn: gameState.turn,
         playerAction: playerAction || message,
@@ -307,6 +340,9 @@ io.on('connection', (socket) => {
 
   // 클라이언트 연결 해제
   socket.on('disconnect', () => {
+    // 유저별 속도 제한 데이터 정리
+    userLastRequestTime.delete(socket.id);
+    
     if (socket === simulationSocket) {
       simulationSocket = null;
       console.log('[SYSTEM] AI 시뮬레이션 모듈 연결 종료');

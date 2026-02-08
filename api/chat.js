@@ -1,5 +1,13 @@
 const OpenAI = require("openai");
 
+// ===== 비용 방지 및 도배 방지 시스템 =====
+// 전역 일일 제한
+let dailyCallCount = 0; // 일일 호출 횟수
+const MAX_DAILY_CALLS = 300; // 최대 300회 (약 2~3달러)
+const userLastRequest = new Map(); // 유저별 마지막 요청 시간 저장 (IP 기준)
+const MIN_REQUEST_INTERVAL = 2000; // 2초 (밀리초)
+// ===== 비용 방지 및 도배 방지 시스템 끝 =====
+
 // 캐릭터 프로필 (성격 반영) - 고정된 4명의 NPC만 존재
 const characters = [
   { name: '항해사', role: 'Navigator', desc: '조종실과 보안 담당. 규정을 중시하고 방어적임. 함장에게 절대 복종.' },
@@ -10,6 +18,29 @@ const characters = [
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") return res.status(405).json({ error: "Method Not Allowed" });
+
+  // ===== 비용 방지 및 도배 방지 체크 =====
+  // 1. 유저 IP 추출
+  const forwardedFor = req.headers['x-forwarded-for'];
+  const userIP = forwardedFor ? forwardedFor.split(',')[0].trim() : (req.connection?.remoteAddress || 'unknown');
+  
+  // 2. 도배 방지: 2초 이내 재요청 체크
+  const now = Date.now();
+  const lastRequestTime = userLastRequest.get(userIP);
+  if (lastRequestTime && (now - lastRequestTime) < MIN_REQUEST_INTERVAL) {
+    // 2초 이내 재요청 시 무시
+    return res.status(429).end();
+  }
+  userLastRequest.set(userIP, now);
+  
+  // 3. 일일 제한 체크
+  if (dailyCallCount >= MAX_DAILY_CALLS) {
+    return res.status(200).json({ 
+      result: "시스템: [일일 데모 사용량이 초과되었습니다. 내일 다시 방문해주세요.]",
+      state: "playing"
+    });
+  }
+  // ===== 비용 방지 및 도배 방지 체크 끝 =====
 
   try {
     const { message, history } = req.body;
@@ -77,6 +108,10 @@ module.exports = async (req, res) => {
     let gameState = "playing";
     if (aiResponse.includes("VICTORY")) gameState = "victory";
     if (aiResponse.includes("DEFEAT")) gameState = "defeat";
+
+    // OpenAI API 호출 성공 후 일일 카운터 증가
+    dailyCallCount++;
+    console.log(`[RATE LIMIT] 일일 호출 수: ${dailyCallCount}/${MAX_DAILY_CALLS} (IP: ${userIP})`);
 
     return res.status(200).json({ result: aiResponse, state: gameState });
 
