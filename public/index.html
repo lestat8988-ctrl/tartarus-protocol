@@ -25,7 +25,7 @@
       #game-container {
         height: 700px; display: flex; flex-direction: column; position: relative;
         border: 2px solid #222; padding: 20px; background: var(--bg-black); overflow: hidden;
-        box-shadow: inset 0 0 150px rgba(0,0,0, 0.9); /* 비네팅 유지 */
+        box-shadow: inset 0 0 150px rgba(0,0,0, 0.9);
       }
       
       .scanlines {
@@ -52,7 +52,6 @@
       #log::-webkit-scrollbar { width: 8px; }
       #log::-webkit-scrollbar-thumb { background: rgba(57,255,20,0.3); }
 
-      /* 액션 버튼 */
       .action-bar { display: flex; gap: 10px; margin-bottom: 10px; z-index: 20; position: relative; }
       .action-btn { 
         flex: 1; background: rgba(0, 20, 0, 0.5); border: 1px solid var(--terminal-green); color: var(--terminal-green); 
@@ -74,31 +73,40 @@
       }
       .accuse-btn-main:hover { background: #ff0000; color: #000; box-shadow: 0 0 15px #ff0000; }
 
-      /* ★ 신규 추가: 처형 UI 모달 (Prompt 대체) ★ */
-      #accuse-modal {
-        position: absolute; inset: 0; background: rgba(0,0,0,0.9); z-index: 100;
+      /* ★ 팝업창 (처형선택 & 결과창 공용) ★ */
+      .modal-overlay {
+        position: absolute; inset: 0; background: rgba(0,0,0,0.95); z-index: 100;
         display: none; justify-content: center; align-items: center; flex-direction: column;
       }
-      #accuse-modal.active { display: flex; }
+      .modal-overlay.active { display: flex; }
       
       .modal-content {
-        border: 2px solid var(--alert-red); padding: 30px; background: #050000;
-        width: 80%; max-width: 400px; text-align: center;
-        box-shadow: 0 0 30px rgba(255,0,0,0.3);
+        border: 2px solid var(--terminal-green); padding: 30px; background: #050000;
+        width: 80%; max-width: 450px; text-align: center;
+        box-shadow: 0 0 30px rgba(57,255,20,0.2);
       }
-      .modal-title { 
-        color: var(--alert-red); font-size: 20px; margin-bottom: 20px; 
-        text-shadow: 0 0 5px var(--alert-red); font-weight: bold;
-      }
+      
+      /* 처형 선택 스타일 */
+      .accuse-box { border-color: var(--alert-red); box-shadow: 0 0 30px rgba(255,0,0,0.3); }
+      .accuse-title { color: var(--alert-red); font-size: 20px; margin-bottom: 20px; font-weight: bold; text-shadow: 0 0 5px var(--alert-red); }
       .target-btn {
         display: block; width: 100%; padding: 12px; margin-bottom: 10px;
         background: transparent; border: 1px solid var(--alert-red); color: var(--alert-red);
-        cursor: pointer; font-family: inherit; font-size: 16px; text-transform: uppercase;
-        transition: 0.2s;
+        cursor: pointer; font-family: inherit; font-size: 16px; text-transform: uppercase; transition: 0.2s;
       }
       .target-btn:hover { background: var(--alert-red); color: #000; font-weight: bold; }
       .cancel-btn { border-color: #555; color: #555; margin-top: 20px; }
       .cancel-btn:hover { background: #555; color: #fff; }
+
+      /* ★ 결과창 스타일 (승리/패배) ★ */
+      .result-title { font-size: 32px; font-weight: bold; margin-bottom: 20px; letter-spacing: 3px; }
+      .result-desc { font-size: 16px; line-height: 1.6; margin-bottom: 30px; white-space: pre-wrap; }
+      .restart-btn {
+        padding: 15px 30px; background: transparent; border: 2px solid currentColor;
+        font-family: inherit; font-size: 18px; cursor: pointer; text-transform: uppercase;
+        animation: blink 2s infinite;
+      }
+      .restart-btn:hover { background: currentColor; color: #000; }
 
       /* 캐릭터별 색상 */
       .role-captain { color: #ff5555; text-shadow: 0 0 5px #ff0000; }
@@ -119,7 +127,7 @@
         <div class="screen-glow"></div>
 
         <div class="title-bar">
-          <span>TARTARUS PROTOCOL v2.3</span>
+          <span>TARTARUS PROTOCOL v2.4</span>
           <span id="timer">[TIME] 10:00</span>
         </div>
 
@@ -137,14 +145,22 @@
         </div>
         <button class="accuse-btn-main" onclick="openAccuseModal()">[ 긴급 처형 (ACCUSE) ]</button>
 
-        <div id="accuse-modal">
-          <div class="modal-content">
-            <div class="modal-title">! WARNING: EXECUTION !<br>처형 대상을 선택하십시오</div>
+        <div id="accuse-modal" class="modal-overlay">
+          <div class="modal-content accuse-box">
+            <div class="accuse-title">! EXECUTION PROTOCOL !<br>처형 대상을 선택하십시오</div>
             <button class="target-btn" onclick="confirmAccuse('선장')">선장 (Captain)</button>
             <button class="target-btn" onclick="confirmAccuse('엔지니어')">엔지니어 (Engineer)</button>
             <button class="target-btn" onclick="confirmAccuse('의사')">의사 (Doctor)</button>
             <button class="target-btn" onclick="confirmAccuse('파일럿')">파일럿 (Pilot)</button>
             <button class="target-btn cancel-btn" onclick="closeAccuseModal()">취소 (CANCEL)</button>
+          </div>
+        </div>
+
+        <div id="result-modal" class="modal-overlay">
+          <div class="modal-content" id="result-box">
+            <div class="result-title" id="result-title">MISSION FAILED</div>
+            <div class="result-desc" id="result-desc">함선이 파괴되었습니다.</div>
+            <button class="restart-btn" onclick="location.reload()">SYSTEM REBOOT</button>
           </div>
         </div>
 
@@ -155,6 +171,11 @@
       const logEl = document.getElementById('log');
       const inputEl = document.getElementById('input');
       const accuseModal = document.getElementById('accuse-modal');
+      const resultModal = document.getElementById('result-modal');
+      const resultBox = document.getElementById('result-box');
+      const resultTitle = document.getElementById('result-title');
+      const resultDesc = document.getElementById('result-desc');
+      
       let history = [];
       
       window.onload = () => {
@@ -162,20 +183,16 @@
         printLine("접속 대상: USSC 타르타로스 (Tartarus)", "role-system");
         printLine("목표: 해왕성 궤도 워프 (Neptune Warp)", "role-system");
         printLine(" ", "role-system");
-        
         printLine("[SYSTEM] 생명 유지 장치 해제... 냉동 수면 종료.", "role-system");
         printLine(" ", "role-system");
-
         printLine("[ALERT] 함장님(Commander), 비상 사태입니다.", "role-alert");
         printLine("현재 타르타로스 호는 궤도를 이탈했습니다.", "role-system");
         printLine("승무원 중 누군가가 고의로 워프 엔진을 파괴했습니다.", "role-system");
         printLine(" ", "role-system");
-
         printLine("[MISSION]", "role-system");
         printLine("1. 대화를 통해 숨어있는 '범인(AI)'을 찾아내십시오.", "role-system");
         printLine("2. 원자로를 수리하여 함선을 구하십시오.", "role-system");
         printLine(" ", "role-system");
-
         printLine(">> 엔지니어에게 \"현재 상황 보고해\"라고 명령하십시오.", "role-system");
       };
 
@@ -222,14 +239,19 @@
           let delay = 0;
           lines.forEach((line) => {
             if(line.trim() !== "") {
-              setTimeout(() => {
-                printLine(line);
-              }, delay);
+              setTimeout(() => { printLine(line); }, delay);
               delay += 300; 
             }
           });
 
           history.push({ role: "assistant", content: data.result });
+
+          // ★ 게임 결과 처리 (승리/패배 창 띄우기) ★
+          if (data.state === 'victory') {
+            setTimeout(() => showResult(true, data.result), 2000);
+          } else if (data.state === 'defeat') {
+            setTimeout(() => showResult(false, data.result), 2000);
+          }
 
         } catch (err) {
           printLine(`[ERROR] 통신 실패: ${err.message}`, "role-alert");
@@ -240,16 +262,28 @@
         if (e.key === 'Enter') send();
       });
 
-      // ★ 처형 UI 모달 제어 함수 ★
-      function openAccuseModal() {
-        accuseModal.classList.add('active');
-      }
-      function closeAccuseModal() {
-        accuseModal.classList.remove('active');
-      }
+      function openAccuseModal() { accuseModal.classList.add('active'); }
+      function closeAccuseModal() { accuseModal.classList.remove('active'); }
       function confirmAccuse(target) {
         closeAccuseModal();
         send(`[ACCUSE] ${target}`);
+      }
+
+      // ★ 결과창 표시 함수 ★
+      function showResult(isVictory, message) {
+        resultModal.classList.add('active');
+        if (isVictory) {
+          resultBox.style.borderColor = "#39ff14";
+          resultBox.style.color = "#39ff14";
+          resultTitle.innerText = "MISSION ACCOMPLISHED";
+          // 결과 메시지에서 불필요한 태그 제거 후 표시
+          resultDesc.innerText = message.replace(/\*\*/g, ""); 
+        } else {
+          resultBox.style.borderColor = "#ff0000";
+          resultBox.style.color = "#ff0000";
+          resultTitle.innerText = "MISSION FAILED";
+          resultDesc.innerText = message.replace(/\*\*/g, ""); 
+        }
       }
     </script>
   </body>
