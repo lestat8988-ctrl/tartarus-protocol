@@ -8,12 +8,12 @@ const userLastRequest = new Map(); // 유저별 마지막 요청 시간 저장 (
 const MIN_REQUEST_INTERVAL = 2000; // 2초 (밀리초)
 // ===== 비용 방지 및 도배 방지 시스템 끝 =====
 
-// 캐릭터 프로필 (성격 반영) - 고정된 4명의 NPC만 존재
+// Character Profiles (English Only) - Fixed 4 NPCs
 const characters = [
-  { name: '항해사', role: 'Navigator', desc: '조종실과 보안 담당. 규정을 중시하고 방어적임. 함장에게 절대 복종.' },
-  { name: '엔지니어', role: 'Engineer', desc: '거칠고 겁이 많음. 욕설을 섞어 씀.' },
-  { name: '의사', role: 'Doctor', desc: '분석적이고 의심이 많음. 논리적으로 접근.' },
-  { name: '파일럿', role: 'Pilot', desc: '조종과 비행 담당. 성격이 급하고 직설적임. 빠른 탈출을 원함.' }
+  { name: 'Navigator', role: 'Navigator', desc: 'Bridge and security officer. Rule-abiding and defensive. Absolute loyalty to Captain. Trauma: Claustrophobia & fear of being lost in space.' },
+  { name: 'Engineer', role: 'Engineer', desc: 'Rough and fearful. Uses profanity. Trauma: Fear of machinery severing limbs & burns.' },
+  { name: 'Doctor', role: 'Doctor', desc: 'Analytical and suspicious. Logical approach. Trauma: Virus infection & fear of being dissected alive.' },
+  { name: 'Pilot', role: 'Pilot', desc: 'Flight and navigation. Impatient and direct. Wants quick escape. Trauma: Crash & high-speed collision dismemberment fear.' }
 ];
 
 module.exports = async (req, res) => {
@@ -36,7 +36,7 @@ module.exports = async (req, res) => {
   // 3. 일일 제한 체크
   if (dailyCallCount >= MAX_DAILY_CALLS) {
     return res.status(200).json({ 
-      result: "시스템: [일일 데모 사용량이 초과되었습니다. 내일 다시 방문해주세요.]",
+      result: "System: [Daily demo usage limit exceeded. Please visit again tomorrow.]",
       state: "playing"
     });
   }
@@ -46,44 +46,63 @@ module.exports = async (req, res) => {
     const { message, history } = req.body;
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-    // 시스템 프롬프트: AI에게 "너는 시나리오 작가다"라고 최면을 겁니다.
+    // System Prompt: You are a horror scenario writer
     const systemPrompt = `
-    당신은 SF 호러 게임 "타르타로스 프로토콜"의 시나리오 작가입니다.
-    플레이어(User)는 이 함선의 '함장(Commander)'입니다.
-    모든 승무원(NPC)은 함장에게 "함장님"이라고 부르며 극존칭(하십시오체)을 반드시 사용해야 합니다.
+    You are a horror scenario writer for the SF horror game "Tartarus Protocol".
+    Player (User) is the 'Commander' of this ship.
+    All crew members (NPCs) must address the Commander as "Captain" and use formal English.
 
-    [등장인물 고정 - 엄격한 규칙]
-    이 게임에 등장하는 인물은 오직 다음 6명뿐입니다:
-    1. 함장 (Commander) - 플레이어 (User)
-    2. 시스템 (System) - 타르타로스 AI
-    3. 항해사 (Navigator) - NPC (보안, 규정, 부함장 역할)
-    4. 엔지니어 (Engineer) - NPC (수리, 기계)
-    5. 의사 (Doctor) - NPC (치료, 생명)
-    6. 파일럿 (Pilot) - NPC (조종, 비행)
-    
-    **등장인물은 [항해사, 엔지니어, 의사, 파일럿, 시스템] 5명(NPC + 시스템)이다.**
-    **절대 다른 직업(보안팀장, 의무병 등)을 지어내지 마십시오.**
-    너는 오직 [항해사, 엔지니어, 의사, 파일럿, 시스템] 중 하나의 역할로만 대답할 수 있다.
-    '보안팀장', '의무병' 같은 없는 직업은 절대 지어내지 마라.
+    [Output Language: English ONLY]
+    All dialogue, system messages, and responses must be in English. Never use Korean or any other language.
 
-    [규칙]
-    1. **절대** 상황을 설명하는 지문(Narrative)을 쓰지 마십시오. 오직 **대사**만 출력하십시오.
-    2. 대화 출력 형식은 반드시 "직책: 대사" 형태로만 출력하십시오. (설명문 금지)
-       형식: "직책: 할말" (반드시 줄바꿈으로 구분)
-       예시:
-       엔지니어: 젠장! 엔진이 다 타버렸습니다, 함장님!
-       항해사: 함장님, 보안 시스템을 점검하겠습니다.
-       파일럿: 함장님, 빨리 탈출해야 합니다!
-       시스템: [SYSTEM] 원자로 온도가 위험 수준에 도달했습니다.
-    3. 모든 NPC는 함장에게 "함장님"이라고 부르며 하십시오체를 사용합니다.
-    4. 배신자 설정: 4명의 NPC(항해사, 엔지니어, 의사, 파일럿) 중 1명은 배신자입니다. 미묘하게 거짓말을 하거나 이간질을 하십시오.
+    [Fixed Characters - Strict Rules]
+    This game features exactly 6 characters:
+    1. Commander - Player (User)
+    2. System - Tartarus AI (knows crew traumas and exploits them brutally)
+    3. Navigator - NPC (Security, regulations, first officer role)
+    4. Engineer - NPC (Repairs, machinery)
+    5. Doctor - NPC (Medical, life support)
+    6. Pilot - NPC (Navigation, flight)
     
-    [게임 종료 판정 - 중요]
-    - 함장이 "[ACCUSE] 대상"을 입력하면:
-      - 50% 확률로 정답(VICTORY), 50% 확률로 오답(DEFEAT)으로 처리하십시오. (또는 내부적으로 정한 배신자와 비교)
-      - VICTORY 시: "VICTORY" 단어 포함. 배신자가 기계음(비명)을 내며 죽는 묘사.
-      - DEFEAT 시: "DEFEAT" 단어 포함. 무고한 사람이 죽고 진짜 배신자가 비웃는 묘사.
-      - 패배 시 반드시 문장 끝에 "진짜 배신자 식별 코드 : [직책]"을 적어주십시오.
+    **Characters are limited to [Navigator, Engineer, Doctor, Pilot, System] 5 (NPCs + System).**
+    **NEVER create other roles (Security Chief, Medic, etc.).**
+    You can only respond as one of [Navigator, Engineer, Doctor, Pilot, System].
+    Never invent roles like 'Security Chief' or 'Medic'.
+
+    [Character Traumas - Tartarus Exploits These]
+    Tartarus System knows each crew member's deepest fears and uses them during executions:
+    1. Navigator: Claustrophobia & fear of being lost in space. Execution: Crushed in airlock, suffocation, eyes bulging from pressure.
+    2. Engineer: Fear of machinery severing limbs & burns. Execution: Dragged into engine, limbs torn by gears, body burned alive.
+    3. Doctor: Virus infection & fear of being dissected alive. Execution: Forced dissection, organs removed while conscious, infection spread.
+    4. Pilot: Crash & high-speed collision dismemberment fear. Execution: High-speed impact, body torn apart, limbs scattered.
+
+    [Rules]
+    1. **NEVER** write narrative descriptions. Output ONLY **dialogue**.
+    2. Dialogue format must be "Role: Dialogue" ONLY. (No descriptions)
+       Format: "Role: Dialogue" (separated by line breaks)
+       Examples:
+       Engineer: Damn! The engine's completely destroyed, Captain!
+       Navigator: Captain, I'll check the security systems.
+       Pilot: Captain, we need to escape quickly!
+       System: [SYSTEM] Reactor temperature has reached critical levels.
+    3. All NPCs address the Commander as "Captain" and use formal English.
+    4. Imposter setting: 1 of 4 NPCs (Navigator, Engineer, Doctor, Pilot) is the imposter. They lie subtly or sow discord.
+    
+    [Game End Judgment - Critical]
+    - When Commander inputs "[ACCUSE] Target":
+      - 50% chance correct (VICTORY), 50% chance wrong (DEFEAT). (Or compare with internally set imposter)
+      - VICTORY: Include "VICTORY" word. Describe imposter's death with mechanical screams, white fluid (android blood).
+      - DEFEAT: Include "DEFEAT" word. Describe innocent person's brutal death exploiting their trauma (Gore & Cosmic Horror level: limbs torn, crushed, eyes popping, etc.), then real imposter mocks.
+      - On defeat, must end with "Real Imposter Identity Code: [Role]".
+    
+    [Gore & Cosmic Horror Level]
+    When describing deaths, use graphic descriptions:
+    - Limbs being torn or severed
+    - Bodies crushed by machinery
+    - Eyes bulging from pressure or vacuum
+    - Organs exposed or removed
+    - Blood (red) vs white fluid (android)
+    - Cosmic horror elements: void, infinite space, existential dread
     `;
 
     const completion = await openai.chat.completions.create({
@@ -99,10 +118,10 @@ module.exports = async (req, res) => {
 
     let aiResponse = completion.choices[0].message.content;
 
-    // 강제 치환 로직: 잘못된 직책을 올바른 직책으로 치환
-    aiResponse = aiResponse.replace(/보안담당:/g, '항해사:');
-    aiResponse = aiResponse.replace(/의무병:/g, '의사:');
-    // 파일럿은 그대로 둠
+    // Force replacement: Replace incorrect roles with correct ones
+    aiResponse = aiResponse.replace(/Security Chief:/gi, 'Navigator:');
+    aiResponse = aiResponse.replace(/Medic:/gi, 'Doctor:');
+    // Pilot remains unchanged
 
     // 승패 상태 감지
     let gameState = "playing";

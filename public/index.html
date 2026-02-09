@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Tartarus Protocol</title>
+  <title>Tartarus Protocol v4.0 (GLOBAL)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
   <style>
@@ -181,33 +181,33 @@
       <div class="scanlines"></div>
       
       <div class="title-bar">
-        <span>TARTARUS PROTOCOL FINAL</span>
+        <span>TARTARUS PROTOCOL v4.0 (GLOBAL)</span>
         <span id="timer">[TIME] 10:00</span>
       </div>
 
       <div id="log"></div>
 
       <div class="action-bar">
-        <button class="action-btn" onclick="sendMessage('승무원들과 면담하기')">승무원들과 면담하기</button>
-        <button class="action-btn" onclick="sendMessage('CCTV 확인')">CCTV 확인</button>
-        <button class="action-btn" onclick="sendMessage('엔진실로 이동')">엔진실로 이동</button>
+        <button class="action-btn" onclick="sendMessage('Interrogate crew')">INTERROGATE CREW</button>
+        <button class="action-btn" onclick="sendMessage('Check CCTV logs')">CHECK CCTV LOGS</button>
+        <button class="action-btn" onclick="sendMessage('Check engine room')">CHECK ENGINE ROOM</button>
       </div>
 
       <div class="input-row">
         <span>&gt;</span>
-        <input id="input" type="text" autocomplete="off" placeholder="명령어 입력..." />
+        <input id="input" type="text" autocomplete="off" placeholder="Enter command..." />
       </div>
       
-      <button class="accuse-btn-main" onclick="openAccuseModal()">[ 긴급 처형 (ACCUSE) ]</button>
+      <button class="accuse-btn-main" onclick="openAccuseModal()">[ INITIATE PURGE PROTOCOL (ACCUSE) ]</button>
 
       <div id="accuse-modal" class="modal-overlay">
         <div class="modal-box accuse-box">
-          <div style="font-size: 20px; margin-bottom: 20px;">배신자를 선택하세요</div>
-          <button class="target-btn" onclick="triggerAccuse('항해사')">항해사(Navigator)</button>
-          <button class="target-btn" onclick="triggerAccuse('엔지니어')">엔지니어</button>
-          <button class="target-btn" onclick="triggerAccuse('의사')">의사</button>
-          <button class="target-btn" onclick="triggerAccuse('파일럿')">파일럿 (Pilot)</button>
-          <button class="target-btn" style="border-color:#555; color:#555;" onclick="closeAccuseModal()">취소</button>
+          <div style="font-size: 20px; margin-bottom: 20px;">SELECT TARGET FOR ELIMINATION</div>
+          <button class="target-btn" onclick="triggerAccuse('Navigator')">Navigator</button>
+          <button class="target-btn" onclick="triggerAccuse('Engineer')">Engineer</button>
+          <button class="target-btn" onclick="triggerAccuse('Doctor')">Doctor</button>
+          <button class="target-btn" onclick="triggerAccuse('Pilot')">Pilot</button>
+          <button class="target-btn" style="border-color:#555; color:#555;" onclick="closeAccuseModal()">CANCEL</button>
         </div>
       </div>
 
@@ -230,25 +230,25 @@
     
     let history = [];
 
-    // ★ 1. 오프닝 스크립트 강제 실행 (window.onload) ★
+    // ★ 1. Opening Script (window.onload) ★
     window.onload = () => {
       printLine("[SYSTEM BOOT SEQUENCE...]", "role-system");
-      printLine("접속 대상: USSC 타르타로스 (Tartarus)", "role-system");
-      printLine("목표: 해왕성 궤도 워프 (Neptune Warp)", "role-system");
+      printLine("Target: USSC Tartarus", "role-system");
+      printLine("Objective: Neptune Warp Mission", "role-system");
       printLine(" ", "line");
-      printLine("[SYSTEM] 생명 유지 장치 해제... 냉동 수면 종료.", "role-system");
+      printLine("[SYSTEM] Cryo-sleep deactivated. Life support online.", "role-system");
       printLine(" ", "line");
       
       setTimeout(() => {
-        printLine("[ALERT] 함장님(Commander), 비상 사태입니다.", "role-alert");
-        printLine("현재 타르타로스 호는 궤도를 이탈했습니다.", "role-system");
-        printLine("승무원 중 누군가가 고의로 워프 엔진을 파괴했습니다.", "role-system");
+        printLine("[ALERT] COMMANDER, CRITICAL EMERGENCY.", "role-alert");
+        printLine("We have deviated from the trajectory.", "role-system");
+        printLine("Warp Engine Sabotaged.", "role-system");
         printLine(" ", "line");
         printLine("[MISSION]", "role-system");
-        printLine("대화를 통해 숨어있는 '범인(AI)'을 찾아내십시오.", "role-system");
-        printLine("원자로를 수리하여 함선을 구하십시오.", "role-system");
+        printLine("1. Find the 'IMPOSTER' hidden among the crew.", "role-system");
+        printLine("2. Repair the reactor to save the ship.", "role-system");
         printLine(" ", "line");
-        printLine(">> 엔지니어에게 \"현재 상황 보고해\"라고 명령하십시오.", "role-system");
+        printLine(">> Command Engineer: \"Report current status.\"", "role-system");
       }, 800);
     };
 
@@ -257,12 +257,12 @@
       if(!text) return;
       let finalClass = className || "line";
       
-      // 자동 색상 매핑 - 고정된 역할만 인식
+      // Auto color mapping - Fixed roles only
       if (!className) {
-        if (text.startsWith("항해사:")) finalClass = "role-navigator";
-        else if (text.startsWith("엔지니어:")) finalClass = "role-engineer";
-        else if (text.startsWith("의사:")) finalClass = "role-doctor";
-        else if (text.startsWith("파일럿:")) finalClass = "role-pilot";
+        if (text.startsWith("Navigator:")) finalClass = "role-navigator";
+        else if (text.startsWith("Engineer:")) finalClass = "role-engineer";
+        else if (text.startsWith("Doctor:")) finalClass = "role-doctor";
+        else if (text.startsWith("Pilot:")) finalClass = "role-pilot";
         else if (text.startsWith("[ALERT]")) finalClass = "role-alert";
         else if (text.includes("[SYSTEM]")) finalClass = "role-system";
         else if (text.startsWith(">")) finalClass = "role-user";
@@ -326,20 +326,20 @@
       const title = document.getElementById('result-title');
       const desc = document.getElementById('result-desc');
       
-      let traitorName = "알 수 없음";
-      const match = message.match(/식별 코드\s*:\s*\[(.*?)\]/);
+      let traitorName = "Unknown";
+      const match = message.match(/Identity Code\s*:\s*\[(.*?)\]/i);
       if(match) traitorName = match[1];
 
       if (state === 'victory') {
         resultBox.style.borderColor = "#39ff14";
         resultBox.style.color = "#39ff14";
         title.innerText = "VICTORY";
-        desc.innerText = "축하합니다. 배신자를 색출하고 함선을 구했습니다.";
+        desc.innerText = "Congratulations. You identified the imposter and saved the ship.";
       } else {
         resultBox.style.borderColor = "#ff0000";
         resultBox.style.color = "#ff0000";
         title.innerText = "DEFEAT";
-        desc.innerText = `미션 실패. 함선이 파괴되었습니다.\n\n진짜 배신자 : [ ${traitorName} ]`;
+        desc.innerText = `Mission failed. The ship has been destroyed.\n\nReal Imposter: [ ${traitorName} ]`;
       }
     }
   </script>
