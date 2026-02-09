@@ -91,9 +91,10 @@ module.exports = async (req, res) => {
     [Game End Judgment - Critical]
     - When Commander inputs "[ACCUSE] Target":
       - 50% chance correct (VICTORY), 50% chance wrong (DEFEAT). (Or compare with internally set imposter)
-      - VICTORY: Include "VICTORY" word. Describe imposter's death with mechanical screams, white fluid (android blood).
-      - DEFEAT: Include "DEFEAT" word. Describe innocent person's brutal death exploiting their trauma (Gore & Cosmic Horror level: limbs torn, crushed, eyes popping, etc.), then real imposter mocks.
+      - VICTORY: Include "VICTORY" word. Describe imposter's death with mechanical screams, white fluid (android blood). Must end with "[RESULT: VICTORY]" tag.
+      - DEFEAT: Include "DEFEAT" word. Describe innocent person's brutal death exploiting their trauma (Gore & Cosmic Horror level: limbs torn, crushed, eyes popping, etc.), then real imposter mocks. Must end with "[RESULT: DEFEAT]" tag.
       - On defeat, must end with "Real Imposter Identity Code: [Role]".
+      - After execution description, add "[End of execution]" marker.
     
     [Gore & Cosmic Horror Level]
     When describing deaths, use graphic descriptions:
@@ -123,10 +124,27 @@ module.exports = async (req, res) => {
     aiResponse = aiResponse.replace(/Medic:/gi, 'Doctor:');
     // Pilot remains unchanged
 
-    // 승패 상태 감지
+    // Game state detection - Improved accuracy
     let gameState = "playing";
-    if (aiResponse.includes("VICTORY")) gameState = "victory";
-    if (aiResponse.includes("DEFEAT")) gameState = "defeat";
+    
+    // Check for explicit result tags first
+    if (aiResponse.includes("[RESULT: VICTORY]")) {
+      gameState = "victory";
+    } else if (aiResponse.includes("[RESULT: DEFEAT]")) {
+      gameState = "defeat";
+    } 
+    // Fallback: Check for white fluid (android blood) = victory
+    else if (aiResponse.toLowerCase().includes("white fluid") || 
+             aiResponse.toLowerCase().includes("white fluid detected") ||
+             aiResponse.toLowerCase().includes("android blood")) {
+      gameState = "victory";
+    }
+    // Fallback: Check for VICTORY/DEFEAT keywords
+    else if (aiResponse.includes("VICTORY")) {
+      gameState = "victory";
+    } else if (aiResponse.includes("DEFEAT")) {
+      gameState = "defeat";
+    }
 
     // OpenAI API 호출 성공 후 일일 카운터 증가
     dailyCallCount++;

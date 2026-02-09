@@ -75,6 +75,9 @@
     .modal-overlay.active { display: flex; }
     .modal-box { border: 2px solid; padding: 30px; background: #050505; width: 80%; max-width: 450px; text-align: center; box-shadow: 0 0 30px rgba(0,0,0,0.5); }
     
+    /* 결과창 모달은 최상위에 표시 */
+    #result-modal { z-index: 2000; }
+    
     .accuse-box { border-color: var(--alert-red); color: var(--alert-red); }
     .target-btn { display: block; width: 100%; padding: 12px; margin-bottom: 10px; background: transparent; border: 1px solid var(--alert-red); color: var(--alert-red); cursor: pointer; font-family: inherit; }
     .target-btn:hover { background: var(--alert-red); color: #000; }
@@ -294,15 +297,33 @@
         
         // 줄바꿈이 있으면 나눠서 출력
         const lines = data.result.split('\n');
+        let executionEndDetected = false;
+        
         lines.forEach(line => {
-          if (line.trim()) printLine(line);
+          if (line.trim()) {
+            printLine(line);
+            // [End of execution] 마커 감지
+            if (line.includes("[End of execution]") || line.includes("End of execution")) {
+              executionEndDetected = true;
+            }
+          }
         });
         
         history.push({ role: "assistant", content: data.result });
 
-        // 승패 감지
+        // 승패 감지 및 결과창 표시
         if (data.state === 'victory' || data.state === 'defeat') {
-          setTimeout(() => showResult(data.state, data.result), 2000);
+          // [End of execution] 감지 시 1초 후 자동 표시, 아니면 2초 후
+          const delay = executionEndDetected ? 1000 : 2000;
+          setTimeout(() => showResult(data.state, data.result), delay);
+        } else if (executionEndDetected) {
+          // 상태가 명확하지 않지만 실행 종료가 감지된 경우, 응답 내용에서 재확인
+          const resultText = data.result.toLowerCase();
+          if (resultText.includes("victory") || resultText.includes("white fluid")) {
+            setTimeout(() => showResult('victory', data.result), 1000);
+          } else if (resultText.includes("defeat") || resultText.includes("innocent")) {
+            setTimeout(() => showResult('defeat', data.result), 1000);
+          }
         }
 
       } catch (err) {
@@ -334,12 +355,12 @@
         resultBox.style.borderColor = "#39ff14";
         resultBox.style.color = "#39ff14";
         title.innerText = "VICTORY";
-        desc.innerText = "Congratulations. You identified the imposter and saved the ship.";
+        desc.innerText = "IMPOSTER ELIMINATED. SHIP SECURED.";
       } else {
         resultBox.style.borderColor = "#ff0000";
         resultBox.style.color = "#ff0000";
         title.innerText = "DEFEAT";
-        desc.innerText = `Mission failed. The ship has been destroyed.\n\nReal Imposter: [ ${traitorName} ]`;
+        desc.innerText = `INNOCENT TERMINATED. MISSION FAILED.\n\nReal Imposter: [ ${traitorName} ]`;
       }
     }
   </script>
