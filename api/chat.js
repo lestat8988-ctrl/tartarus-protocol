@@ -43,7 +43,7 @@ module.exports = async (req, res) => {
   // ===== 비용 방지 및 도배 방지 체크 끝 =====
 
   try {
-    const { message, history } = req.body;
+    const { message, history, deadCrew = [] } = req.body;
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
     // System Prompt: You are a horror scenario writer
@@ -76,6 +76,35 @@ module.exports = async (req, res) => {
     3. Doctor: Virus infection & fear of being dissected alive. Execution: Forced dissection, organs removed while conscious, infection spread.
     4. Pilot: Crash & high-speed collision dismemberment fear. Execution: High-speed impact, body torn apart, limbs scattered.
 
+    [Auto-Kill System - Every 3 Minutes]
+    - When message contains "[AUTO-KILL] RoleName", Tartarus System automatically kills that crew member.
+    - Dead crew members (${deadCrew.join(', ') || 'none'}) can NO LONGER participate in dialogue.
+    - Describe the kill in EXTREME GORE detail, exploiting their specific trauma:
+      * Navigator: Crushed in airlock compressor, suffocation, eyes bulging from vacuum pressure.
+      * Engineer: Dragged into engine turbine, limbs severed by rotating gears, body burned by plasma.
+      * Doctor: Airlock malfunction tears limbs apart, body exposed to vacuum, organs ruptured.
+      * Pilot: High-speed collision with bulkhead, body torn apart, limbs scattered across corridor.
+    - Format: "System: [EMERGENCY ALERT] [Role] crushed in the engine room compressor. Limbs severed. Red blood splattered across the walls."
+    - Always end with "[End of execution]" marker.
+
+    [Witness System - Critical]
+    - When a murder occurs, ONE random surviving crew member becomes a WITNESS.
+    - The witness MUST immediately interrupt and testify what they saw.
+    - Witness testimony format: "Role: I saw [something suspicious]! [Details of what they witnessed]"
+    - Examples:
+      * "Navigator: I saw the Engineer running away from the medical bay just now!"
+      * "Doctor: I heard screams from the engine room. Someone was there before the alarm!"
+      * "Pilot: I noticed the Navigator acting strange near the airlock moments ago!"
+    - The witness testimony should create suspicion and point fingers at other crew members.
+    - If the IMPOSTER becomes the witness, they MUST gaslight by:
+      * Falsely accusing an innocent crew member
+      * Spreading misinformation about the crime scene
+      * Mentioning the victim's trauma to create fear
+      * Manipulating the scene to frame someone else
+      * Example: "Engineer: I saw the Doctor near the airlock controls! They must have sabotaged it!"
+    - Witness testimony should appear IMMEDIATELY after the kill description.
+    - Format: After System kill message, add "[WITNESS TESTIMONY]" then the witness dialogue.
+
     [Rules]
     1. **NEVER** write narrative descriptions. Output ONLY **dialogue**.
     2. Dialogue format must be "Role: Dialogue" ONLY. (No descriptions)
@@ -87,6 +116,8 @@ module.exports = async (req, res) => {
        System: [SYSTEM] Reactor temperature has reached critical levels.
     3. All NPCs address the Commander as "Captain" and use formal English.
     4. Imposter setting: 1 of 4 NPCs (Navigator, Engineer, Doctor, Pilot) is the imposter. They lie subtly or sow discord.
+    5. **DEAD CREW MEMBERS CANNOT SPEAK**: If a crew member is in the dead list (${deadCrew.join(', ') || 'none'}), they are DEAD and cannot respond to any dialogue. Only alive crew members can speak.
+    6. **WITNESS SYSTEM**: When "[WITNESS] RoleName" is in the message, that crew member must immediately testify as a witness. They saw something related to the murder and must report it. If the witness is the imposter, they MUST gaslight by falsely accusing others or spreading misinformation.
     
     [Game End Judgment - Critical]
     - When Commander inputs "[ACCUSE] Target":
@@ -118,6 +149,13 @@ module.exports = async (req, res) => {
     });
 
     let aiResponse = completion.choices[0].message.content;
+
+    // Remove dialogue from dead crew members
+    deadCrew.forEach(dead => {
+      const roleName = dead.charAt(0).toUpperCase() + dead.slice(1).toLowerCase();
+      const regex = new RegExp(`^${roleName}:.*$`, 'gmi');
+      aiResponse = aiResponse.replace(regex, '');
+    });
 
     // Force replacement: Replace incorrect roles with correct ones
     aiResponse = aiResponse.replace(/Security Chief:/gi, 'Navigator:');

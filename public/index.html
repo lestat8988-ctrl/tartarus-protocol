@@ -33,6 +33,74 @@
     /* 상단 정보 */
     .title-bar { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 14px; border-bottom: 1px solid var(--terminal-green); padding-bottom: 5px; z-index: 20; }
     
+    /* 타이머 표시 */
+    #countdown-timer { 
+      position: absolute; 
+      top: 10px; 
+      left: 50%; 
+      transform: translateX(-50%); 
+      color: #ff0000; 
+      font-size: 18px; 
+      font-weight: bold; 
+      text-shadow: 0 0 10px #ff0000, 0 0 20px #ff0000; 
+      z-index: 30;
+      animation: pulse 1s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+    
+    /* 살해 메시지 글리치 효과 */
+    .kill-glitch {
+      position: fixed;
+      inset: 0;
+      background: rgba(255, 0, 0, 0.3);
+      z-index: 1500;
+      display: none;
+      justify-content: center;
+      align-items: center;
+      animation: glitch 0.3s infinite;
+    }
+    .kill-glitch.active {
+      display: flex;
+    }
+    @keyframes glitch {
+      0%, 100% { transform: translate(0); }
+      20% { transform: translate(-2px, 2px); }
+      40% { transform: translate(-2px, -2px); }
+      60% { transform: translate(2px, 2px); }
+      80% { transform: translate(2px, -2px); }
+    }
+    .kill-message {
+      color: #ff0000;
+      font-size: 24px;
+      font-weight: bold;
+      text-shadow: 0 0 20px #ff0000, 0 0 40px #ff0000;
+      text-align: center;
+      padding: 20px;
+      background: rgba(0, 0, 0, 0.9);
+      border: 3px solid #ff0000;
+    }
+    
+    /* 목격자 증언 강조 */
+    .witness-testimony {
+      color: #ffff00;
+      font-weight: bold;
+      text-shadow: 0 0 10px #ffff00, 0 0 20px #ffff00;
+      animation: witnessPulse 1s infinite;
+    }
+    @keyframes witnessPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.8; }
+    }
+    .witness-alert {
+      color: #ffff00;
+      font-size: 18px;
+      font-weight: bold;
+      text-shadow: 0 0 10px #ffff00, 0 0 20px #ffff00;
+    }
+    
     /* 로그 영역 */
     #log { flex: 1; overflow-y: auto; padding-bottom: 20px; font-size: 16px; line-height: 1.6; z-index: 20; text-shadow: 0 0 2px var(--terminal-green); }
     #log::-webkit-scrollbar { width: 8px; }
@@ -187,6 +255,12 @@
         <span>TARTARUS PROTOCOL v4.0 (GLOBAL)</span>
         <span id="timer">[TIME] 10:00</span>
       </div>
+      
+      <div id="countdown-timer">TIME UNTIL TOTAL SHIP COLLAPSE : 10:00</div>
+      
+      <div id="kill-glitch" class="kill-glitch">
+        <div class="kill-message" id="kill-message-text"></div>
+      </div>
 
       <div id="log"></div>
 
@@ -232,9 +306,15 @@
     const resultBox = document.getElementById('result-box');
     
     let history = [];
+    let timeRemaining = 600; // 10 minutes in seconds
+    let gameTimer = null;
+    let autoKillIntervals = [];
+    let deadCrew = []; // Track dead crew members
+    let gameEnded = false;
 
     // ★ 1. Opening Script (window.onload) ★
     window.onload = () => {
+      startGameTimer();
       printLine("[SYSTEM BOOT SEQUENCE...]", "role-system");
       printLine("Target: USSC Tartarus", "role-system");
       printLine("Objective: Neptune Warp Mission", "role-system");
@@ -255,6 +335,165 @@
       }, 800);
     };
 
+    // Game Timer and Auto-Kill System
+    function startGameTimer() {
+      const timerEl = document.getElementById('countdown-timer');
+      let elapsed = 0; // Track elapsed time
+      
+      // Update timer every second
+      gameTimer = setInterval(() => {
+        if (gameEnded) return;
+        
+        elapsed++;
+        timeRemaining--;
+        const minutes = Math.floor(timeRemaining / 60);
+        const seconds = timeRemaining % 60;
+        timerEl.textContent = `TIME UNTIL TOTAL SHIP COLLAPSE : ${minutes}:${String(seconds).padStart(2, '0')}`;
+        
+        // 3-minute auto-kill triggers (at 180s, 360s, 540s elapsed)
+        if (elapsed === 180 || elapsed === 360 || elapsed === 540) {
+          triggerAutoKill();
+        }
+        
+        // Time's up - all crew dead
+        if (timeRemaining <= 0) {
+          clearInterval(gameTimer);
+          triggerTotalFailure();
+        }
+      }, 1000);
+    }
+
+    async function triggerAutoKill() {
+      if (gameEnded) return;
+      
+      // Get alive crew members
+      const aliveCrew = ['Navigator', 'Engineer', 'Doctor', 'Pilot'].filter(crew => !deadCrew.includes(crew));
+      
+      if (aliveCrew.length === 0) {
+        triggerTotalFailure();
+        return;
+      }
+      
+      // Randomly select one to kill
+      const victim = aliveCrew[Math.floor(Math.random() * aliveCrew.length)];
+      deadCrew.push(victim);
+      
+      // Show glitch effect
+      const glitchEl = document.getElementById('kill-glitch');
+      const messageEl = document.getElementById('kill-message-text');
+      messageEl.textContent = `[EMERGENCY ALERT]\n${victim.toUpperCase()} TERMINATED`;
+      glitchEl.classList.add('active');
+      
+      // Send auto-kill request to API
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            message: `[AUTO-KILL] ${victim}`,
+            history: history,
+            deadCrew: deadCrew
+          })
+        });
+        const data = await res.json();
+        
+        // Display kill message
+        printLine(`[EMERGENCY ALERT]`, "role-alert");
+        const lines = data.result.split('\n');
+        let witnessTestimonyFound = false;
+        
+        lines.forEach(line => {
+          if (line.trim()) {
+            // Check for witness testimony marker
+            if (line.includes("[WITNESS TESTIMONY]") || line.includes("WITNESS TESTIMONY")) {
+              witnessTestimonyFound = true;
+              printLine(`[WITNESS TESTIMONY INCOMING]`, "witness-alert");
+            } else if (witnessTestimonyFound && line.includes(":")) {
+              // This is witness testimony - highlight it
+              printLine(line, "witness-testimony");
+            } else {
+              printLine(line);
+            }
+          }
+        });
+        
+        history.push({ role: "assistant", content: data.result });
+        
+        // Request witness testimony if not already included
+        if (!witnessTestimonyFound && aliveCrew.length > 1) {
+          setTimeout(() => {
+            requestWitnessTestimony(victim, aliveCrew.filter(c => c !== victim));
+          }, 2000);
+        }
+        
+        // Remove glitch after 3 seconds
+        setTimeout(() => {
+          glitchEl.classList.remove('active');
+        }, 3000);
+        
+        // Check if all crew are dead
+        if (deadCrew.length >= 4) {
+          setTimeout(() => triggerTotalFailure(), 2000);
+        }
+      } catch (err) {
+        printLine(`[ERROR] ${err.message}`, "role-alert");
+        glitchEl.classList.remove('active');
+      }
+    }
+
+    async function requestWitnessTestimony(victim, aliveCrew) {
+      if (gameEnded || aliveCrew.length === 0) return;
+      
+      // Randomly select one witness from alive crew
+      const witness = aliveCrew[Math.floor(Math.random() * aliveCrew.length)];
+      
+      printLine(`[WITNESS TESTIMONY INCOMING]`, "witness-alert");
+      
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            message: `[WITNESS] ${witness} witnessed the murder of ${victim}`,
+            history: history,
+            deadCrew: deadCrew
+          })
+        });
+        const data = await res.json();
+        
+        // Display witness testimony with highlight
+        const lines = data.result.split('\n');
+        lines.forEach(line => {
+          if (line.trim()) {
+            if (line.includes(":") && (line.startsWith("Navigator:") || line.startsWith("Engineer:") || 
+                line.startsWith("Doctor:") || line.startsWith("Pilot:"))) {
+              printLine(line, "witness-testimony");
+            } else {
+              printLine(line);
+            }
+          }
+        });
+        
+        history.push({ role: "assistant", content: data.result });
+      } catch (err) {
+        printLine(`[ERROR] ${err.message}`, "role-alert");
+      }
+    }
+
+    function triggerTotalFailure() {
+      if (gameEnded) return;
+      gameEnded = true;
+      clearInterval(gameTimer);
+      
+      printLine("[TOTAL SYSTEM FAILURE]", "role-alert");
+      printLine("All crew members have been terminated.", "role-system");
+      printLine("Mission failed. Ship destroyed.", "role-system");
+      
+      setTimeout(() => {
+        showResult('defeat', 'TOTAL SYSTEM FAILURE. All crew members terminated. Real Imposter: [Unknown]');
+      }, 2000);
+    }
+
     // ★ 2. 텍스트 출력 함수 (색상 자동 적용) ★
     function printLine(text, className) {
       if(!text) return;
@@ -262,17 +501,31 @@
       
       // Auto color mapping - Fixed roles only
       if (!className) {
-        if (text.startsWith("Navigator:")) finalClass = "role-navigator";
-        else if (text.startsWith("Engineer:")) finalClass = "role-engineer";
-        else if (text.startsWith("Doctor:")) finalClass = "role-doctor";
-        else if (text.startsWith("Pilot:")) finalClass = "role-pilot";
+        if (text.startsWith("Navigator:")) {
+          finalClass = className === "witness-testimony" ? "role-navigator witness-testimony" : "role-navigator";
+        }
+        else if (text.startsWith("Engineer:")) {
+          finalClass = className === "witness-testimony" ? "role-engineer witness-testimony" : "role-engineer";
+        }
+        else if (text.startsWith("Doctor:")) {
+          finalClass = className === "witness-testimony" ? "role-doctor witness-testimony" : "role-doctor";
+        }
+        else if (text.startsWith("Pilot:")) {
+          finalClass = className === "witness-testimony" ? "role-pilot witness-testimony" : "role-pilot";
+        }
         else if (text.startsWith("[ALERT]")) finalClass = "role-alert";
         else if (text.includes("[SYSTEM]")) finalClass = "role-system";
         else if (text.startsWith(">")) finalClass = "role-user";
+        else if (text.includes("[WITNESS TESTIMONY INCOMING]")) finalClass = "witness-alert";
       }
 
       const div = document.createElement('div');
-      div.className = "line " + finalClass;
+      // Handle multiple classes (e.g., "role-navigator witness-testimony")
+      if (finalClass.includes(" ")) {
+        div.className = "line " + finalClass;
+      } else {
+        div.className = "line " + finalClass;
+      }
       div.innerText = text;
       logEl.appendChild(div);
       logEl.scrollTop = logEl.scrollHeight;
@@ -280,6 +533,7 @@
 
     // ★ 3. 메시지 전송 (Vercel API 통신) ★
     async function sendMessage(text) {
+      if (gameEnded) return;
       if (!text) text = inputEl.value;
       if (!text.trim()) return;
 
@@ -291,7 +545,7 @@
         const res = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: text, history: history })
+          body: JSON.stringify({ message: text, history: history, deadCrew: deadCrew })
         });
         const data = await res.json();
         
@@ -334,15 +588,46 @@
     inputEl.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage(); });
 
     // 모달 제어
-    function openAccuseModal() { accuseModal.classList.add('active'); }
+    function openAccuseModal() {
+      if (gameEnded) return;
+      
+      // Disable dead crew buttons
+      const buttons = accuseModal.querySelectorAll('.target-btn');
+      buttons.forEach(btn => {
+        const role = btn.textContent.trim().split('(')[0].trim();
+        if (deadCrew.includes(role)) {
+          btn.disabled = true;
+          btn.style.opacity = '0.3';
+          btn.style.cursor = 'not-allowed';
+          btn.textContent = `${role} (DECEASED)`;
+        } else {
+          btn.disabled = false;
+          btn.style.opacity = '1';
+          btn.style.cursor = 'pointer';
+        }
+      });
+      
+      accuseModal.classList.add('active');
+    }
     function closeAccuseModal() { accuseModal.classList.remove('active'); }
     
     function triggerAccuse(target) {
+      if (gameEnded) return;
       closeAccuseModal();
       sendMessage(`[ACCUSE] ${target}`);
     }
 
     function showResult(state, message) {
+      gameEnded = true;
+      if (gameTimer) clearInterval(gameTimer);
+      
+      // Disable all buttons
+      document.querySelectorAll('.action-btn, .accuse-btn-main').forEach(btn => {
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+        btn.style.cursor = 'not-allowed';
+      });
+      
       resultModal.classList.add('active');
       const title = document.getElementById('result-title');
       const desc = document.getElementById('result-desc');
