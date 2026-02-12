@@ -46,9 +46,9 @@ module.exports = async (req, res) => {
     const { message, history, deadCrew = [] } = req.body;
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-    // Model Swapping: gpt-4o for critical moments, gpt-4o-mini for routine dialogue
+    // Model Swapping: gpt-4o for critical events (gore/gaslighting), gpt-4o-mini for routine (cost savings)
     const isCriticalEvent = /\[ACCUSE\]|\[AUTO-KILL\]|\[WITNESS\]/i.test(message);
-    const model = isCriticalEvent ? "gpt-4o" : "gpt-4o-mini";
+    const model = isCriticalEvent ? "gpt-4o" : "gpt-4o-mini"; // Accuse, Auto-Kill, Witness -> gpt-4o
 
     // System Prompt: You are a horror scenario writer
     const systemPrompt = `

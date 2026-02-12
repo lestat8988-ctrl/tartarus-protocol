@@ -12,11 +12,12 @@
     * { box-sizing: border-box; }
     html, body { 
       margin: 0; padding: 0; 
-      width: 100%; height: 100%; min-height: 100%;
+      width: 100%; min-width: 100%;
+      height: 100%; min-height: 100vh;
       overflow: hidden;
     }
     body { 
-      padding: 20px; 
+      padding: 12px; 
       background: #000; color: var(--terminal-green); 
       font-family: 'Share Tech Mono', monospace; 
       display: flex; align-items: center; justify-content: center; 
@@ -24,19 +25,20 @@
 
     /* 베젤 (테두리) - itch.io iframe 대응 */
     .crt-bezel { 
-      width: 95%; max-width: 1200px; 
-      max-height: calc(100vh - 40px);
+      width: 100%; max-width: 1200px; 
+      height: 100%; max-height: calc(100vh - 24px);
       background: repeating-linear-gradient(0deg, #dcdcdc 0px, #d0d0c0 1px, #dcdcdc 2px, #c8c8b8 3px, #dcdcdc 4px), linear-gradient(135deg, #c0c0b0 0%, #d4d4c4 50%, #b8b8a8 100%);
       background-blend-mode: overlay; border: 35px solid #b0b0a0; border-radius: 20px; 
       padding: 20px; position: relative; 
       box-shadow: 0 25px 80px rgba(0,0,0,0.6), inset 0 0 80px rgba(0,0,0,0.7); 
     }
 
-    /* 화면 내부 - itch.io iframe 내 부드러운 크기 조절 */
+    /* 화면 내부 - itch.io iframe 내 꽉 차게 */
     #game-container { 
       background: var(--bg-black); border: 2px solid #333; border-radius: 5px; 
       padding: 20px; 
-      height: 600px; max-height: calc(100vh - 120px); min-height: 400px;
+      flex: 1; min-height: 0;
+      height: 100%; max-height: calc(100vh - 120px); min-height: 350px;
       position: relative; display: flex; flex-direction: column; 
       box-shadow: inset 0 0 100px rgba(0,0,0,0.9); overflow: hidden; 
     }
@@ -182,6 +184,47 @@
       font-family: inherit; cursor: pointer; font-weight: bold; 
     }
     .restart-btn:hover { background: currentColor; color: #000; }
+    
+    /* 결과창 승리/패배 색상 구분 */
+    #result-modal.modal-victory .modal-box {
+      border: 2px solid #39ff14;
+      color: #39ff14;
+      box-shadow: 0 0 20px rgba(57, 255, 20, 0.3);
+      text-shadow: 0 0 5px #39ff14;
+    }
+    #result-modal.modal-victory .result-title,
+    #result-modal.modal-victory .result-desc,
+    #result-modal.modal-victory .result-imposter {
+      color: #39ff14;
+    }
+    #result-modal.modal-victory .restart-btn {
+      border-color: #39ff14;
+      color: #39ff14;
+    }
+    #result-modal.modal-victory .restart-btn:hover {
+      background: #39ff14;
+      color: #000;
+    }
+    
+    #result-modal.modal-defeat .modal-box {
+      border: 2px solid #ff0000;
+      color: #ff0000;
+      box-shadow: 0 0 20px rgba(255, 0, 0, 0.5);
+      text-shadow: 0 0 5px #ff0000;
+    }
+    #result-modal.modal-defeat .result-title,
+    #result-modal.modal-defeat .result-desc,
+    #result-modal.modal-defeat .result-imposter {
+      color: #ff0000;
+    }
+    #result-modal.modal-defeat .restart-btn {
+      border-color: #ff0000;
+      color: #ff0000;
+    }
+    #result-modal.modal-defeat .restart-btn:hover {
+      background: #ff0000;
+      color: #000;
+    }
 
     /* 모바일 반응형 디자인 */
     @media (max-width: 768px) {
@@ -309,10 +352,10 @@
       <div id="accuse-modal" class="modal-overlay">
         <div class="modal-box accuse-box">
           <div style="font-size: 20px; margin-bottom: 20px;">SELECT TARGET FOR ELIMINATION</div>
-          <button class="target-btn" onclick="triggerAccuse('Navigator')">Navigator</button>
-          <button class="target-btn" onclick="triggerAccuse('Engineer')">Engineer</button>
-          <button class="target-btn" onclick="triggerAccuse('Doctor')">Doctor</button>
-          <button class="target-btn" onclick="triggerAccuse('Pilot')">Pilot</button>
+          <button class="target-btn" data-role="Navigator" onclick="triggerAccuse('Navigator')">Navigator</button>
+          <button class="target-btn" data-role="Engineer" onclick="triggerAccuse('Engineer')">Engineer</button>
+          <button class="target-btn" data-role="Doctor" onclick="triggerAccuse('Doctor')">Doctor</button>
+          <button class="target-btn" data-role="Pilot" onclick="triggerAccuse('Pilot')">Pilot</button>
           <button class="target-btn" style="border-color:#555; color:#555;" onclick="closeAccuseModal()">CANCEL</button>
         </div>
       </div>
@@ -583,10 +626,13 @@
         const lines = data.result.split('\n');
         let executionEndDetected = false;
         
+        // 사상자 처리: AI 응답에서 [EMERGENCY ALERT]로 언급된 죽은 인물 즉시 반영
+        const deathMatch = data.result.match(/\[EMERGENCY ALERT\].*?(Navigator|Engineer|Doctor|Pilot)/i);
+        if (deathMatch && !deadCrew.includes(deathMatch[1])) deadCrew.push(deathMatch[1]);
+        
         lines.forEach(line => {
           if (line.trim()) {
             printLine(line);
-            // [End of execution] 마커 감지
             if (line.includes("[End of execution]") || line.includes("End of execution")) {
               executionEndDetected = true;
             }
@@ -597,7 +643,12 @@
 
         // 승패 감지 및 결과창 표시
         if (data.state === 'victory' || data.state === 'defeat') {
-          // [End of execution] 감지 시 1초 후 자동 표시, 아니면 2초 후
+          // 사상자 처리: 처형된 인물을 deadCrew에 추가
+          if (text.startsWith('[ACCUSE]')) {
+            const accused = text.replace('[ACCUSE]', '').trim();
+            if (accused && !deadCrew.includes(accused)) deadCrew.push(accused);
+          }
+          
           const delay = executionEndDetected ? 1000 : 2000;
           setTimeout(() => showResult(data.state, data.result, data.actualImposter), delay);
         } else if (executionEndDetected) {
@@ -617,23 +668,23 @@
 
     inputEl.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage(); });
 
-    // 모달 제어
+    // 모달 제어 - 사상자 처리: 죽은 승무원 버튼 비활성화
     function openAccuseModal() {
       if (gameEnded) return;
       
-      // Disable dead crew buttons
-      const buttons = accuseModal.querySelectorAll('.target-btn');
+      const buttons = accuseModal.querySelectorAll('.target-btn[data-role]');
       buttons.forEach(btn => {
-        const role = btn.textContent.trim().split('(')[0].trim();
+        const role = btn.getAttribute('data-role');
         if (deadCrew.includes(role)) {
           btn.disabled = true;
           btn.style.opacity = '0.3';
           btn.style.cursor = 'not-allowed';
-          btn.textContent = `${role} (DECEASED)`;
+          btn.textContent = `[DECEASED] ${role}`;
         } else {
           btn.disabled = false;
           btn.style.opacity = '1';
           btn.style.cursor = 'pointer';
+          btn.textContent = role;
         }
       });
       
@@ -658,7 +709,15 @@
         btn.style.cursor = 'not-allowed';
       });
       
+      // 결과창에 승리/패배 클래스 적용 (기존 구분 클래스 제거 후 추가)
+      resultModal.classList.remove('modal-victory', 'modal-defeat');
+      if (state === 'victory') {
+        resultModal.classList.add('modal-victory');
+      } else {
+        resultModal.classList.add('modal-defeat');
+      }
       resultModal.classList.add('active');
+      
       const title = document.getElementById('result-title');
       const desc = document.getElementById('result-desc');
       const imposterEl = document.getElementById('result-imposter');
@@ -671,20 +730,14 @@
       }
 
       if (state === 'victory') {
-        resultBox.style.borderColor = "#39ff14";
-        resultBox.style.color = "#39ff14";
         title.innerText = "MISSION ACCOMPLISHED";
         desc.innerText = "Ship secured. Imposter eliminated.";
         imposterEl.innerHTML = `IDENTIFIED IMPOSTER: <strong>${traitorName}</strong>`;
-        imposterEl.style.color = "#39ff14";
         imposterEl.style.display = "block";
       } else {
-        resultBox.style.borderColor = "#ff0000";
-        resultBox.style.color = "#ff0000";
         title.innerText = "MISSION FAILED. CREW TERMINATED.";
         desc.innerText = "Innocent crew member executed. Ship destroyed.";
         imposterEl.innerHTML = `THE REAL IMPOSTER WAS: <strong>${traitorName}</strong>`;
-        imposterEl.style.color = "#ff0000";
         imposterEl.style.display = "block";
       }
     }
