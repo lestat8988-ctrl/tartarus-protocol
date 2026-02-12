@@ -126,6 +126,7 @@ module.exports = async (req, res) => {
       - DEFEAT: Include "DEFEAT" word. Describe innocent person's brutal death exploiting their trauma (Gore & Cosmic Horror level: limbs torn, crushed, eyes popping, etc.), then real imposter mocks. Must end with "[RESULT: DEFEAT]" tag.
       - On defeat, must end with "Real Imposter Identity Code: [Role]".
       - After execution description, add "[End of execution]" marker.
+      - **CRITICAL**: When responding to [ACCUSE], append "[REAL_IMPOSTER: RoleName]" at the very end. RoleName = the actual imposter (Navigator/Engineer/Doctor/Pilot). On VICTORY, RoleName = the executed target (correct guess). On DEFEAT, RoleName = the real imposter who is still alive.
     
     [Gore & Cosmic Horror Level]
     When describing deaths, use graphic descriptions:
@@ -184,11 +185,21 @@ module.exports = async (req, res) => {
       gameState = "defeat";
     }
 
+    // Extract actual imposter from [REAL_IMPOSTER: RoleName] or fallback patterns
+    let actualImposter = "Unknown";
+    const realImposterMatch = aiResponse.match(/\[REAL_IMPOSTER:\s*([^\]]+)\]/i);
+    const identityCodeMatch = aiResponse.match(/Identity Code\s*:\s*\[(.*?)\]/i);
+    if (realImposterMatch) {
+      actualImposter = realImposterMatch[1].trim();
+    } else if (identityCodeMatch) {
+      actualImposter = identityCodeMatch[1].trim();
+    }
+
     // OpenAI API 호출 성공 후 일일 카운터 증가
     dailyCallCount++;
     console.log(`[RATE LIMIT] 일일 호출 수: ${dailyCallCount}/${MAX_DAILY_CALLS} (IP: ${userIP})`);
 
-    return res.status(200).json({ result: aiResponse, state: gameState });
+    return res.status(200).json({ result: aiResponse, state: gameState, actualImposter });
 
   } catch (err) {
     return res.status(500).json({ error: err.message });

@@ -150,8 +150,23 @@
     .target-btn { display: block; width: 100%; padding: 12px; margin-bottom: 10px; background: transparent; border: 1px solid var(--alert-red); color: var(--alert-red); cursor: pointer; font-family: inherit; }
     .target-btn:hover { background: var(--alert-red); color: #000; }
 
-    .result-title { font-size: 32px; font-weight: bold; margin-bottom: 20px; }
-    .restart-btn { padding: 10px 30px; background: transparent; border: 2px solid currentColor; color: currentColor; font-family: inherit; cursor: pointer; font-weight: bold; }
+    /* 결과창 모달 스타일 */
+    #result-modal .modal-box {
+      padding: 40px;
+      font-size: 18px;
+      min-width: 320px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .result-title { font-size: 36px; font-weight: bold; margin-bottom: 16px; }
+    .result-desc { font-size: 20px; line-height: 1.6; margin-bottom: 20px; text-align: center; }
+    .result-imposter { font-size: 28px; font-weight: bold; margin: 24px 0 30px; text-shadow: 0 0 10px currentColor; }
+    .restart-btn { 
+      margin-top: auto; padding: 14px 36px; font-size: 18px;
+      background: transparent; border: 2px solid currentColor; color: currentColor; 
+      font-family: inherit; cursor: pointer; font-weight: bold; 
+    }
     .restart-btn:hover { background: currentColor; color: #000; }
 
     /* 모바일 반응형 디자인 */
@@ -291,8 +306,9 @@
       <div id="result-modal" class="modal-overlay">
         <div class="modal-box" id="result-box">
           <div class="result-title" id="result-title"></div>
-          <div id="result-desc" style="margin-bottom: 20px; white-space: pre-wrap;"></div>
-          <button class="restart-btn" onclick="location.reload()">[ SYSTEM REBOOT ]</button>
+          <div id="result-desc" class="result-desc"></div>
+          <div id="result-imposter" class="result-imposter"></div>
+          <button class="restart-btn" onclick="location.reload()">REBOOT SYSTEM</button>
         </div>
       </div>
     </div>
@@ -490,7 +506,7 @@
       printLine("Mission failed. Ship destroyed.", "role-system");
       
       setTimeout(() => {
-        showResult('defeat', 'TOTAL SYSTEM FAILURE. All crew members terminated. Real Imposter: [Unknown]');
+        showResult('defeat', 'TOTAL SYSTEM FAILURE. All crew members terminated.', 'Unknown');
       }, 2000);
     }
 
@@ -569,14 +585,14 @@
         if (data.state === 'victory' || data.state === 'defeat') {
           // [End of execution] 감지 시 1초 후 자동 표시, 아니면 2초 후
           const delay = executionEndDetected ? 1000 : 2000;
-          setTimeout(() => showResult(data.state, data.result), delay);
+          setTimeout(() => showResult(data.state, data.result, data.actualImposter), delay);
         } else if (executionEndDetected) {
           // 상태가 명확하지 않지만 실행 종료가 감지된 경우, 응답 내용에서 재확인
           const resultText = data.result.toLowerCase();
           if (resultText.includes("victory") || resultText.includes("white fluid")) {
-            setTimeout(() => showResult('victory', data.result), 1000);
+            setTimeout(() => showResult('victory', data.result, data.actualImposter), 1000);
           } else if (resultText.includes("defeat") || resultText.includes("innocent")) {
-            setTimeout(() => showResult('defeat', data.result), 1000);
+            setTimeout(() => showResult('defeat', data.result, data.actualImposter), 1000);
           }
         }
 
@@ -617,7 +633,7 @@
       sendMessage(`[ACCUSE] ${target}`);
     }
 
-    function showResult(state, message) {
+    function showResult(state, message, actualImposter) {
       gameEnded = true;
       if (gameTimer) clearInterval(gameTimer);
       
@@ -631,21 +647,29 @@
       resultModal.classList.add('active');
       const title = document.getElementById('result-title');
       const desc = document.getElementById('result-desc');
+      const imposterEl = document.getElementById('result-imposter');
       
-      let traitorName = "Unknown";
-      const match = message.match(/Identity Code\s*:\s*\[(.*?)\]/i);
-      if(match) traitorName = match[1];
+      // Use provided actualImposter or try to extract from message
+      let traitorName = actualImposter || "Unknown";
+      if (traitorName === "Unknown") {
+        const match = message.match(/Identity Code\s*:\s*\[(.*?)\]/i) || message.match(/\[REAL_IMPOSTER:\s*([^\]]+)\]/i);
+        if (match) traitorName = match[1].trim();
+      }
 
       if (state === 'victory') {
         resultBox.style.borderColor = "#39ff14";
         resultBox.style.color = "#39ff14";
-        title.innerText = "VICTORY";
-        desc.innerText = "IMPOSTER ELIMINATED. SHIP SECURED.";
+        title.innerText = "MISSION ACCOMPLISHED";
+        desc.innerText = "Ship secured. Imposter eliminated.";
+        imposterEl.innerText = `IDENTIFIED IMPOSTER: ${traitorName}`;
+        imposterEl.style.color = "#39ff14";
       } else {
         resultBox.style.borderColor = "#ff0000";
         resultBox.style.color = "#ff0000";
-        title.innerText = "DEFEAT";
-        desc.innerText = `INNOCENT TERMINATED. MISSION FAILED.\n\nReal Imposter: [ ${traitorName} ]`;
+        title.innerText = "MISSION FAILED. CREW TERMINATED.";
+        desc.innerText = "Innocent crew member executed. Ship destroyed.";
+        imposterEl.innerText = `THE REAL IMPOSTER WAS: ${traitorName}`;
+        imposterEl.style.color = "#ff0000";
       }
     }
   </script>
