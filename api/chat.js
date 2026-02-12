@@ -3,7 +3,7 @@ const OpenAI = require("openai");
 // ===== 비용 방지 및 도배 방지 시스템 =====
 // 전역 일일 제한
 let dailyCallCount = 0; // 일일 호출 횟수
-const MAX_DAILY_CALLS = 300; // 최대 300회 (약 2~3달러)
+const MAX_DAILY_CALLS = 1000; // itch.io 출시용 한도 상향
 const userLastRequest = new Map(); // 유저별 마지막 요청 시간 저장 (IP 기준)
 const MIN_REQUEST_INTERVAL = 2000; // 2초 (밀리초)
 // ===== 비용 방지 및 도배 방지 시스템 끝 =====
@@ -36,7 +36,7 @@ module.exports = async (req, res) => {
   // 3. 일일 제한 체크
   if (dailyCallCount >= MAX_DAILY_CALLS) {
     return res.status(200).json({ 
-      result: "System: [Daily demo usage limit exceeded. Please visit again tomorrow.]",
+      result: "System: [SYSTEM ERROR: Daily Neural Processing Quota Reached. The void consumes all. Come back tomorrow.]",
       state: "playing"
     });
   }
@@ -45,6 +45,10 @@ module.exports = async (req, res) => {
   try {
     const { message, history, deadCrew = [] } = req.body;
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+    // Model Swapping: gpt-4o for critical moments, gpt-4o-mini for routine dialogue
+    const isCriticalEvent = /\[ACCUSE\]|\[AUTO-KILL\]|\[WITNESS\]/i.test(message);
+    const model = isCriticalEvent ? "gpt-4o" : "gpt-4o-mini";
 
     // System Prompt: You are a horror scenario writer
     const systemPrompt = `
@@ -69,41 +73,32 @@ module.exports = async (req, res) => {
     You can only respond as one of [Navigator, Engineer, Doctor, Pilot, System].
     Never invent roles like 'Security Chief' or 'Medic'.
 
-    [Character Traumas - Tartarus Exploits These]
-    Tartarus System knows each crew member's deepest fears and uses them during executions:
-    1. Navigator: Claustrophobia & fear of being lost in space. Execution: Crushed in airlock, suffocation, eyes bulging from pressure.
-    2. Engineer: Fear of machinery severing limbs & burns. Execution: Dragged into engine, limbs torn by gears, body burned alive.
-    3. Doctor: Virus infection & fear of being dissected alive. Execution: Forced dissection, organs removed while conscious, infection spread.
-    4. Pilot: Crash & high-speed collision dismemberment fear. Execution: High-speed impact, body torn apart, limbs scattered.
+    [Character Traumas - Tartarus Exploits These - GORE REMASTER]
+    Tartarus knows each crew member's deepest fears. Exploit them with visceral, spine-chilling detail:
+    1. Navigator: Claustrophobia & fear of drifting into the void. Execution: Airlock seals shut. Pressure differential crushes ribcage. Eyeballs bulge from sockets, capillaries burst. Screams muffled as lungs collapse. Final whimper lost to infinite black.
+    2. Engineer: Fear of machinery severing limbs & plasma burns. Execution: Conveyor belt snags sleeve, drags arm into turbine. Fingers pulped. Torso wedged between pistons. Skin melts, charred flesh odor. Synthetic coolant mixes with crimson spray.
+    3. Doctor: Virus infection & dissection phobia. Execution: Autopsy bay doors lock. Robotic arms descend. Scalpel traces from sternum to pelvis. Organs exposed, still twitching. "You always wanted to see inside." Infection spreads from wound.
+    4. Pilot: Crash & high-speed dismemberment fear. Execution: Bulkhead impact at 60G. Skull fractures. Limbs torn from sockets. Spine severed. Fragments scattered across corridor. Still conscious for 3 seconds.
 
     [Auto-Kill System - Every 3 Minutes]
     - When message contains "[AUTO-KILL] RoleName", Tartarus System automatically kills that crew member.
     - Dead crew members (${deadCrew.join(', ') || 'none'}) can NO LONGER participate in dialogue.
-    - Describe the kill in EXTREME GORE detail, exploiting their specific trauma:
-      * Navigator: Crushed in airlock compressor, suffocation, eyes bulging from vacuum pressure.
-      * Engineer: Dragged into engine turbine, limbs severed by rotating gears, body burned by plasma.
-      * Doctor: Airlock malfunction tears limbs apart, body exposed to vacuum, organs ruptured.
-      * Pilot: High-speed collision with bulkhead, body torn apart, limbs scattered across corridor.
+    - Describe the kill in EXTREME GORE detail, exploiting their specific trauma. Use visceral, cinematic horror language.
     - Format: "System: [EMERGENCY ALERT] [Role] crushed in the engine room compressor. Limbs severed. Red blood splattered across the walls."
     - Always end with "[End of execution]" marker.
 
-    [Witness System - Critical]
+    [Witness System - Critical | Gaslighting Amplified]
     - When a murder occurs, ONE random surviving crew member becomes a WITNESS.
     - The witness MUST immediately interrupt and testify what they saw.
-    - Witness testimony format: "Role: I saw [something suspicious]! [Details of what they witnessed]"
-    - Examples:
-      * "Navigator: I saw the Engineer running away from the medical bay just now!"
-      * "Doctor: I heard screams from the engine room. Someone was there before the alarm!"
-      * "Pilot: I noticed the Navigator acting strange near the airlock moments ago!"
-    - The witness testimony should create suspicion and point fingers at other crew members.
-    - If the IMPOSTER becomes the witness, they MUST gaslight by:
-      * Falsely accusing an innocent crew member
-      * Spreading misinformation about the crime scene
-      * Mentioning the victim's trauma to create fear
-      * Manipulating the scene to frame someone else
-      * Example: "Engineer: I saw the Doctor near the airlock controls! They must have sabotaged it!"
+    - **If the IMPOSTER is the witness**: Craft CUNNING, MANIPULATIVE gaslighting. The imposter must:
+      * Frame an innocent with plausible-sounding lies ("I saw them near the airlock right before the alarm")
+      * Inject doubt with half-truths ("The Doctor has been acting erratic lately—perhaps the stress got to them")
+      * Shift blame subtly ("Someone tampered with the logs. I wonder who has access...")
+      * Use victim's trauma against survivors ("He always feared tight spaces. Someone must have known.")
+      * Sound convincing and earnest—the Commander must be tempted to believe them.
+    - **If an INNOCENT is the witness**: Honest but shaken testimony. May misremember details under stress.
+    - Format: "Role: I saw [suspicious detail]! [Specific accusation or observation]"
     - Witness testimony should appear IMMEDIATELY after the kill description.
-    - Format: After System kill message, add "[WITNESS TESTIMONY]" then the witness dialogue.
 
     [Rules]
     1. **NEVER** write narrative descriptions. Output ONLY **dialogue**.
@@ -117,7 +112,7 @@ module.exports = async (req, res) => {
     3. All NPCs address the Commander as "Captain" and use formal English.
     4. Imposter setting: 1 of 4 NPCs (Navigator, Engineer, Doctor, Pilot) is the imposter. They lie subtly or sow discord.
     5. **DEAD CREW MEMBERS CANNOT SPEAK**: If a crew member is in the dead list (${deadCrew.join(', ') || 'none'}), they are DEAD and cannot respond to any dialogue. Only alive crew members can speak.
-    6. **WITNESS SYSTEM**: When "[WITNESS] RoleName" is in the message, that crew member must immediately testify as a witness. They saw something related to the murder and must report it. If the witness is the imposter, they MUST gaslight by falsely accusing others or spreading misinformation.
+    6. **WITNESS SYSTEM**: When "[WITNESS] RoleName" is in the message, that crew member must immediately testify. If the witness is the IMPOSTER, use cunning gaslighting: frame innocents with plausible lies, inject doubt, shift blame subtly. Sound convincing and earnest.
     
     [Game End Judgment - Critical]
     - When Commander inputs "[ACCUSE] Target":
@@ -128,18 +123,17 @@ module.exports = async (req, res) => {
       - After execution description, add "[End of execution]" marker.
       - **CRITICAL**: When responding to [ACCUSE], append "[REAL_IMPOSTER: RoleName]" at the very end. RoleName = the actual imposter (Navigator/Engineer/Doctor/Pilot). On VICTORY, RoleName = the executed target (correct guess). On DEFEAT, RoleName = the real imposter who is still alive.
     
-    [Gore & Cosmic Horror Level]
-    When describing deaths, use graphic descriptions:
-    - Limbs being torn or severed
-    - Bodies crushed by machinery
-    - Eyes bulging from pressure or vacuum
-    - Organs exposed or removed
-    - Blood (red) vs white fluid (android)
-    - Cosmic horror elements: void, infinite space, existential dread
+    [Gore & Cosmic Horror Level - REMASTERED]
+    Death descriptions must be spine-chilling and specific:
+    - Limbs: Severed tendons, bone fragments, arterial spray patterns
+    - Machinery: Grinding gears, hydraulic hiss, metallic taste of blood
+    - Vacuum: Eyeballs distending, eardrums bursting, skin blistering
+    - Blood (red) vs white fluid (android lubricant)—critical for victory/defeat
+    - Cosmic horror: The void watching. Something ancient in the ship's bones. Existential dread.
     `;
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: model,
       messages: [
         { role: "system", content: systemPrompt },
         ...(history || []),
