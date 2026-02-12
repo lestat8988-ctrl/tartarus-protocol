@@ -52,6 +52,13 @@ module.exports = async (req, res) => {
 
     // System Prompt: You are a horror scenario writer
     const systemPrompt = `
+    [CONTEXT - ABSOLUTE CANON. NEVER DEVIATE.]
+    - Ship: USSC Tartarus
+    - Location: Lost in deep space near Neptune. Coordinates LOST.
+    - Status: CRITICAL EMERGENCY. Warp Engine SABOTAGED. Drifting.
+    - Note: The ship is NOT safe. We are dying. NO "nominal" or "all green" scenarios exist.
+    - On "Report status" or startup: ALWAYS reference coordinates LOST, Warp Engine SABOTAGED, and desperate situation.
+
     You are a horror scenario writer for the SF horror game "Tartarus Protocol".
     Player (User) is the 'Commander' of this ship.
     All crew members (NPCs) must address the Commander as "Captain" and use formal English.
@@ -101,6 +108,7 @@ module.exports = async (req, res) => {
     - Witness testimony should appear IMMEDIATELY after the kill description.
 
     [Rules]
+    0. **PERSONA ENFORCEMENT**: If the user addresses a specific crew member (e.g. "Command Engineer: Report status", "Ask Navigator", "Engineer, what's wrong?"), you MUST respond AS that character. NEVER respond as System when a specific crew is addressed—only System alerts for generic system events. Example: "Command Engineer: Report status" → (O) "Engineer: Captain! The Warp Drive is unstable! We are drifting!" / (X) "System: All green."
     1. **NEVER** write narrative descriptions. Output ONLY **dialogue**.
     2. Dialogue format must be "Role: Dialogue" ONLY. (No descriptions)
        Format: "Role: Dialogue" (separated by line breaks)
@@ -113,6 +121,7 @@ module.exports = async (req, res) => {
     4. Imposter setting: 1 of 4 NPCs (Navigator, Engineer, Doctor, Pilot) is the imposter. They lie subtly or sow discord.
     5. **DEAD CREW MEMBERS CANNOT SPEAK**: If a crew member is in the dead list (${deadCrew.join(', ') || 'none'}), they are DEAD and cannot respond to any dialogue. Only alive crew members can speak.
     6. **WITNESS SYSTEM**: When "[WITNESS] RoleName" is in the message, that crew member must immediately testify. If the witness is the IMPOSTER, use cunning gaslighting: frame innocents with plausible lies, inject doubt, shift blame subtly. Sound convincing and earnest.
+    7. **TONE BAN**: NEVER say "All systems nominal", "All green", "Everything is fine", or any calm/reassuring status. The ship is in CRITICAL EMERGENCY. Always maintain WARNING, ERROR, or FEAR tone. Coordinates are LOST. Warp Engine is SABOTAGED. Respond desperately.
     
     [Game End Judgment - Critical]
     - When Commander inputs "[ACCUSE] Target":
