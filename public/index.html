@@ -661,22 +661,19 @@
     function startActualGame() {
       startGameTimer();
       printLine("[SYSTEM BOOT SEQUENCE...]", "role-system");
-      printLine("Target: USSC Tartarus", "role-system");
-      printLine("Objective: Neptune Warp Mission", "role-system");
+      printLine("Target: USSC Tartarus (Prototype Vessel)", "role-system");
+      printLine("Mission: PROJECT 'HORIZON' - Gravity Drive Test", "role-system");
+      printLine("Location: Neptune Orbit (Edge of Solar System)", "role-system");
       printLine(" ", "line");
-      printLine("[SYSTEM] Cryo-sleep deactivated. Life support online.", "role-system");
+      printLine("[CRITICAL FAILURE]", "role-alert");
+      printLine("The Gravity Drive opened a gateway to... somewhere else.", "role-system");
+      printLine("We brought something back with us.", "role-system");
       printLine(" ", "line");
-      setTimeout(() => {
-        printLine("[ALERT] COMMANDER, CRITICAL EMERGENCY.", "role-alert");
-        printLine("We have deviated from the trajectory.", "role-system");
-        printLine("Warp Engine Sabotaged.", "role-system");
-        printLine(" ", "line");
-        printLine("[MISSION]", "role-system");
-        printLine("1. Find the 'IMPOSTER' hidden among the crew.", "role-system");
-        printLine("2. Repair the reactor to save the ship.", "role-system");
-        printLine(" ", "line");
-        printLine(">> Command Engineer: \"Report current status.\"", "role-system");
-      }, 800);
+      printLine("[CURRENT OBJECTIVES]", "role-system");
+      printLine("1. Identify the entity possessing a crew member ('THE IMPOSTER').", "role-system");
+      printLine("2. Seal the dimensional rift (Repair Reactor).", "role-system");
+      printLine(" ", "line");
+      printLine(">> Command: \"Report ship status.\"", "role-system");
     }
 
     function resumeAudioOnUserGesture() {

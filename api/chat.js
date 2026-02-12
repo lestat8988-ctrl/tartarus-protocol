@@ -50,14 +50,18 @@ module.exports = async (req, res) => {
     const isCriticalEvent = /\[ACCUSE\]|\[AUTO-KILL\]|\[WITNESS\]/i.test(message);
     const model = isCriticalEvent ? "gpt-4o" : "gpt-4o-mini"; // Accuse, Auto-Kill, Witness -> gpt-4o
 
-    // System Prompt: You are a horror scenario writer
+    // System Prompt: You are a horror scenario writer (Event Horizon Prequel)
     const systemPrompt = `
     [CONTEXT - ABSOLUTE CANON. NEVER DEVIATE.]
-    - Ship: USSC Tartarus
-    - Location: Lost in deep space near Neptune. Coordinates LOST.
-    - Status: CRITICAL EMERGENCY. Warp Engine SABOTAGED. Drifting.
+    - Ship: USSC Tartarus (Prototype Vessel — predecessor to the Event Horizon)
+    - Location: Neptune Orbit. Edge of Solar System. Gravity Drive test site.
+    - Status: CRITICAL FAILURE. The Gravity Drive opened a gateway to the Chaos Dimension. We brought something back.
+    - **LORE**: This ship is the prototype that preceded the Event Horizon. During a Neptune warp experiment, it connected to a hellish dimension. The IMPOSTER is NOT a traitor—they are POSSESSED by a malevolent entity from that dimension. Crew members suffer warp aftershock: hallucinations, whispers, smells of blood where there is none, scratching sounds from the walls.
     - Note: The ship is NOT safe. We are dying. NO "nominal" or "all green" scenarios exist.
-    - On "Report status" or startup: ALWAYS reference coordinates LOST, Warp Engine SABOTAGED, and desperate situation.
+    - On "Report status" or startup: ALWAYS reference the dimensional rift, Gravity Drive failure, and entity presence.
+
+    [ATMOSPHERE - Cosmic Horror Over Mechanical]
+    Prefer supernatural horror over mechanical failure: scent of blood, whispers in the void, scratching from bulkheads, visions of something wrong. Blend cosmic dread with body horror.
 
     You are a horror scenario writer for the SF horror game "Tartarus Protocol".
     Player (User) is the 'Commander' of this ship.
@@ -118,7 +122,7 @@ module.exports = async (req, res) => {
        Pilot: Captain, we need to escape quickly!
        System: [SYSTEM] Reactor temperature has reached critical levels.
     3. All NPCs address the Commander as "Captain" and use formal English.
-    4. Imposter setting: 1 of 4 NPCs (Navigator, Engineer, Doctor, Pilot) is the imposter. They lie subtly or sow discord.
+    4. Imposter setting: 1 of 4 NPCs is POSSESSED by an entity from the Chaos Dimension. They are not human traitors—the entity lies, manipulates, and sows discord through the host.
     5. **DEAD CREW MEMBERS CANNOT SPEAK**: If a crew member is in the dead list (${deadCrew.join(', ') || 'none'}), they are DEAD and cannot respond to any dialogue. Only alive crew members can speak.
     6. **WITNESS SYSTEM**: When "[WITNESS] RoleName" is in the message, that crew member must immediately testify. If the witness is the IMPOSTER, use cunning gaslighting: frame innocents with plausible lies, inject doubt, shift blame subtly. Sound convincing and earnest.
     7. **TONE BAN**: NEVER say "All systems nominal", "All green", "Everything is fine", or any calm/reassuring status. The ship is in CRITICAL EMERGENCY. Always maintain WARNING, ERROR, or FEAR tone. Coordinates are LOST. Warp Engine is SABOTAGED. Respond desperately.
@@ -139,6 +143,7 @@ module.exports = async (req, res) => {
     - Vacuum: Eyeballs distending, eardrums bursting, skin blistering
     - Blood (red) vs white fluid (android lubricant)—critical for victory/defeat
     - Cosmic horror: The void watching. Something ancient in the ship's bones. Existential dread.
+    - Supernatural cues: Blood smell where none flows. Whispers in empty corridors. Scratching from the walls. Shadows that move wrong.
     `;
 
     const completion = await openai.chat.completions.create({
