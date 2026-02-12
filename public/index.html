@@ -622,7 +622,7 @@
         });
         const data = await res.json();
         
-        // 줄바꿈이 있으면 나눠서 출력
+        // 줄바꿈이 있으면 나눠서 출력 (시스템 트리거 메시지 숨김)
         const lines = data.result.split('\n');
         let executionEndDetected = false;
         
@@ -631,11 +631,24 @@
         if (deathMatch && !deadCrew.includes(deathMatch[1])) deadCrew.push(deathMatch[1]);
         
         lines.forEach(line => {
-          if (line.trim()) {
-            printLine(line);
-            if (line.includes("[End of execution]") || line.includes("End of execution")) {
-              executionEndDetected = true;
-            }
+          // 시스템 트리거 감지 (showResult용)
+          if (line.includes("[End of execution]") || line.includes("End of execution") || line.includes("[RESULT:")) {
+            executionEndDetected = true;
+          }
+          
+          // 화면 출력용: 시스템 태그 제거
+          let displayText = line
+            .replace(/\[End of execution\]/gi, '')
+            .replace(/End of execution/gi, '')
+            .replace(/\[RESULT:\s*VICTORY\]/gi, '')
+            .replace(/\[RESULT:\s*DEFEAT\]/gi, '')
+            .replace(/\[REAL_IMPOSTER:\s*[^\]]+\]/gi, '')
+            .replace(/Real Imposter Identity Code:\s*\[[^\]]+\]/gi, '')
+            .trim();
+          
+          // 시스템 태그만 있던 줄은 출력하지 않음
+          if (displayText) {
+            printLine(displayText);
           }
         });
         
