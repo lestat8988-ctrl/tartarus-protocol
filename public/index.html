@@ -43,6 +43,65 @@
       box-shadow: inset 0 0 100px rgba(0,0,0,0.9); overflow: hidden; 
     }
     
+    /* --- [인트로] 레트로 BIOS 부팅 화면 --- */
+    #intro-screen {
+      position: fixed;
+      inset: 0;
+      background: #000;
+      color: var(--terminal-green);
+      font-family: 'Share Tech Mono', monospace;
+      z-index: 10000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 40px 20px;
+      overflow: hidden;
+    }
+    #intro-screen.hidden { display: none; }
+    #intro-boot-log {
+      width: 100%;
+      max-width: 600px;
+      font-size: 14px;
+      line-height: 1.8;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    #intro-ascii-logo {
+      margin-top: 20px;
+      font-size: 8px;
+      line-height: 1.2;
+      white-space: pre;
+      text-align: center;
+      color: var(--terminal-green);
+      display: none;
+    }
+    #intro-ascii-logo.visible { display: block; }
+    #intro-ascii-logo.blink { animation: introBlink 0.5s steps(1) infinite; }
+    @keyframes introBlink {
+      0%, 49% { opacity: 1; }
+      50%, 100% { opacity: 0; }
+    }
+    #intro-press-enter {
+      margin-top: 24px;
+      font-size: 14px;
+      letter-spacing: 2px;
+      color: var(--terminal-green);
+      display: none;
+    }
+    #intro-press-enter.visible { display: block; }
+    #intro-press-enter.blink { animation: introBlink 0.5s steps(1) infinite; }
+    /* CRT 턴오프 효과 (TV 꺼지듯) */
+    #intro-screen.crt-turnoff {
+      animation: crtTurnOff 0.6s ease-out forwards;
+    }
+    @keyframes crtTurnOff {
+      0% { opacity: 1; transform: scale(1); filter: brightness(1); }
+      30% { filter: brightness(1.5); }
+      60% { opacity: 1; transform: scale(1.02); filter: brightness(0.3); }
+      100% { opacity: 0; transform: scale(0.98); filter: brightness(0); visibility: hidden; }
+    }
+    
     /* 스캔라인 (배경 효과) */
     .scanlines { position: absolute; inset: 0; pointer-events: none; z-index: 10; background: repeating-linear-gradient(0deg, rgba(0,0,0,0.1) 0px, transparent 1px, transparent 2px); }
     
@@ -87,6 +146,61 @@
       40% { transform: translate(-2px, -2px); }
       60% { transform: translate(2px, 2px); }
       80% { transform: translate(2px, -2px); }
+    }
+    
+    /* 타자기 커서 */
+    .typing-cursor {
+      display: inline-block;
+      width: 2px;
+      height: 1em;
+      background: currentColor;
+      margin-left: 2px;
+      vertical-align: text-bottom;
+      animation: cursorBlink 0.7s infinite;
+    }
+    @keyframes cursorBlink {
+      0%, 50% { opacity: 1; }
+      51%, 100% { opacity: 0; }
+    }
+    
+    /* 사망/경고 시 화면 흔들림 */
+    body.body-shake {
+      animation: screenShake 0.5s ease-out;
+    }
+    @keyframes screenShake {
+      0%, 100% { transform: translate(0, 0); }
+      10% { transform: translate(-8px, -4px); }
+      20% { transform: translate(8px, 4px); }
+      30% { transform: translate(-6px, 6px); }
+      40% { transform: translate(6px, -6px); }
+      50% { transform: translate(-4px, -2px); }
+      60% { transform: translate(4px, 2px); }
+      70% { transform: translate(-2px, 4px); }
+      80% { transform: translate(2px, -4px); }
+      90% { transform: translate(-2px, -2px); }
+    }
+    
+    /* 붉은색 노이즈 (Red Glitch) */
+    .red-glitch-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(255, 0, 0, 0.25);
+      z-index: 9999;
+      pointer-events: none;
+      opacity: 0;
+      animation: redGlitchFlash 0.5s ease-out;
+    }
+    @keyframes redGlitchFlash {
+      0% { opacity: 0; }
+      15% { opacity: 0.8; }
+      30% { opacity: 0.2; }
+      45% { opacity: 0.6; }
+      60% { opacity: 0.1; }
+      75% { opacity: 0.4; }
+      100% { opacity: 0; }
+    }
+    #red-glitch-overlay.active {
+      animation: redGlitchFlash 0.5s ease-out forwards;
     }
     .kill-message {
       color: #ff0000;
@@ -226,6 +340,13 @@
       color: #000;
     }
 
+    /* 인트로 화면 모바일 */
+    @media (max-width: 768px) {
+      #intro-boot-log { font-size: 12px; }
+      #intro-ascii-logo { font-size: 6px; }
+      #intro-press-enter { font-size: 12px; }
+    }
+
     /* 모바일 반응형 디자인 */
     @media (max-width: 768px) {
       body { padding: 5px; }
@@ -319,6 +440,19 @@
 </head>
 <body>
 
+  <div id="intro-screen">
+    <div id="intro-boot-log"></div>
+    <pre id="intro-ascii-logo">████████╗ █████╗ ██████╗ ████████╗ █████╗ ██████╗ ██╗   ██╗██████╗
+╚══██╔══╝██╔══██╗██╔══██╗╚══██╔══╝██╔══██╗██╔══██╗██║   ██║██╔════╝
+   ██║   ███████║██████╔╝   ██║   ███████║██████╔╝██║   ██║███████╗
+   ██║   ██╔══██║██╔══██╗   ██║   ██╔══██║██╔══██╗██║   ██║╚════██║
+   ██║   ██║  ██║██║  ██║   ██║   ██║  ██║██║  ██║╚██████╔╝███████║
+   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝</pre>
+    <div id="intro-press-enter">[ PRESS ENTER TO INITIALIZE PROTOCOL ]</div>
+  </div>
+
+  <div id="red-glitch-overlay" class="red-glitch-overlay"></div>
+
   <div class="crt-bezel">
     <div id="game-container">
       <div class="scanlines"></div>
@@ -384,9 +518,122 @@
     let autoKillIntervals = [];
     let deadCrew = []; // Track dead crew members
     let gameEnded = false;
+    let typingSkipped = false;
+    let currentTypingResolver = null;
 
-    // ★ 1. Opening Script (window.onload) ★
-    window.onload = () => {
+    // Web Audio API 기반 타이핑/경고 사운드 (mp3 파일 없음)
+    let audioCtx = null;
+    let lastBeepTime = 0;
+    const BEEP_THROTTLE_MS = 50;
+
+    function getAudioContext() {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      return audioCtx;
+    }
+
+    function playBeep(char) {
+      if (char === ' ' || char === '\n') return;
+      const now = Date.now();
+      if (now - lastBeepTime < BEEP_THROTTLE_MS) return;
+      lastBeepTime = now;
+      try {
+        const ctx = getAudioContext();
+        if (ctx.state === 'suspended') ctx.resume();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = 'square';
+        osc.frequency.value = 800 + Math.random() * 400;
+        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.05);
+      } catch (e) {}
+    }
+
+    function playAlarmBeep() {
+      try {
+        const ctx = getAudioContext();
+        if (ctx.state === 'suspended') ctx.resume();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = 'sine';
+        osc.frequency.value = 150;
+        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.3);
+      } catch (e) {}
+    }
+
+    // 화면 클릭 시 타자기 스킵 + 오디오 언락 (브라우저 정책)
+    document.addEventListener('click', () => { typingSkipped = true; });
+
+    document.addEventListener('click', () => { if (typeof resumeAudioOnUserGesture === 'function') resumeAudioOnUserGesture(); }, { once: true });
+
+    // --- [인트로] 레트로 BIOS 부팅 시퀀스 ---
+    const BOOT_LINES = [
+      "BIOS DATE 02/22/75 17:15:00 VER 1.02",
+      "CPU: NEC V20, SPEED: 8 MHz",
+      "640K RAM SYSTEM... OK",
+      "LOADING TARTARUS KERNEL... OK",
+      "MOUNTING DRIVE A:... OK"
+    ];
+    const bootLogEl = document.getElementById('intro-boot-log');
+    const asciiLogoEl = document.getElementById('intro-ascii-logo');
+    const pressEnterEl = document.getElementById('intro-press-enter');
+    const introScreenEl = document.getElementById('intro-screen');
+    let introBootDone = false;
+    let introSkipRequested = false;
+    let introExitStarted = false;
+
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    async function runBootSequence() {
+      let prev = '';
+      for (const line of BOOT_LINES) {
+        if (introSkipRequested) {
+          bootLogEl.textContent = BOOT_LINES.join('\n');
+          break;
+        }
+        const base = prev + (prev ? '\n' : '');
+        for (let i = 0; i < line.length; i++) {
+          if (introSkipRequested) break;
+          bootLogEl.textContent = base + line.slice(0, i + 1);
+          if (line[i] !== ' ') playBeep(line[i]);
+          await sleep(25);
+        }
+        prev = base + line;
+        bootLogEl.textContent = prev;
+      }
+      if (introSkipRequested) {
+        bootLogEl.textContent = BOOT_LINES.join('\n');
+      }
+      showIntroLogoAndPrompt();
+    }
+
+    function showIntroLogoAndPrompt() {
+      introBootDone = true;
+      asciiLogoEl.classList.add('visible', 'blink');
+      pressEnterEl.classList.add('visible', 'blink');
+      introSkipRequested = false;
+    }
+
+    function startGameFromIntro() {
+      if (!introBootDone || introExitStarted) return;
+      introExitStarted = true;
+      introScreenEl.classList.add('crt-turnoff');
+      setTimeout(() => {
+        introScreenEl.classList.add('hidden');
+        introScreenEl.classList.remove('crt-turnoff');
+        startActualGame();
+      }, 650);
+    }
+
+    function startActualGame() {
       startGameTimer();
       printLine("[SYSTEM BOOT SEQUENCE...]", "role-system");
       printLine("Target: USSC Tartarus", "role-system");
@@ -394,7 +641,6 @@
       printLine(" ", "line");
       printLine("[SYSTEM] Cryo-sleep deactivated. Life support online.", "role-system");
       printLine(" ", "line");
-      
       setTimeout(() => {
         printLine("[ALERT] COMMANDER, CRITICAL EMERGENCY.", "role-alert");
         printLine("We have deviated from the trajectory.", "role-system");
@@ -406,6 +652,32 @@
         printLine(" ", "line");
         printLine(">> Command Engineer: \"Report current status.\"", "role-system");
       }, 800);
+    }
+
+    function resumeAudioOnUserGesture() {
+      const ctx = getAudioContext();
+      if (ctx.state === 'suspended') ctx.resume();
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && introScreenEl && !introScreenEl.classList.contains('hidden')) {
+        resumeAudioOnUserGesture();
+        if (introBootDone) startGameFromIntro();
+        else { introSkipRequested = true; }
+      }
+    });
+
+    document.addEventListener('click', () => {
+      if (introScreenEl && !introScreenEl.classList.contains('hidden')) {
+        resumeAudioOnUserGesture();
+        if (introBootDone) startGameFromIntro();
+        else introSkipRequested = true;
+      }
+    }, { capture: true });
+
+    // ★ 1. Opening Script (window.onload) ★
+    window.onload = () => {
+      runBootSequence();
     };
 
     // Game Timer and Auto-Kill System
@@ -475,20 +747,19 @@
         const lines = data.result.split('\n');
         let witnessTestimonyFound = false;
         
-        lines.forEach(line => {
+        for (const line of lines) {
           if (line.trim()) {
-            // Check for witness testimony marker
+            typingSkipped = false;
             if (line.includes("[WITNESS TESTIMONY]") || line.includes("WITNESS TESTIMONY")) {
               witnessTestimonyFound = true;
-              printLine(`[WITNESS TESTIMONY INCOMING]`, "witness-alert");
+              await printLine(`[WITNESS TESTIMONY INCOMING]`, "witness-alert", { typewriter: true });
             } else if (witnessTestimonyFound && line.includes(":")) {
-              // This is witness testimony - highlight it
-              printLine(line, "witness-testimony");
+              await printLine(line, "witness-testimony", { typewriter: true });
             } else {
-              printLine(line);
+              await printLine(line, null, { typewriter: true });
             }
           }
-        });
+        }
         
         history.push({ role: "assistant", content: data.result });
         
@@ -536,16 +807,17 @@
         
         // Display witness testimony with highlight
         const lines = data.result.split('\n');
-        lines.forEach(line => {
+        for (const line of lines) {
           if (line.trim()) {
+            typingSkipped = false;
             if (line.includes(":") && (line.startsWith("Navigator:") || line.startsWith("Engineer:") || 
                 line.startsWith("Doctor:") || line.startsWith("Pilot:"))) {
-              printLine(line, "witness-testimony");
+              await printLine(line, "witness-testimony", { typewriter: true });
             } else {
-              printLine(line);
+              await printLine(line, null, { typewriter: true });
             }
           }
-        });
+        }
         
         history.push({ role: "assistant", content: data.result });
       } catch (err) {
@@ -567,41 +839,84 @@
       }, 2000);
     }
 
-    // ★ 2. 텍스트 출력 함수 (색상 자동 적용) ★
-    function printLine(text, className) {
-      if(!text) return;
-      let finalClass = className || "line";
-      
-      // Auto color mapping - Fixed roles only
-      if (!className) {
-        if (text.startsWith("Navigator:")) {
-          finalClass = className === "witness-testimony" ? "role-navigator witness-testimony" : "role-navigator";
-        }
-        else if (text.startsWith("Engineer:")) {
-          finalClass = className === "witness-testimony" ? "role-engineer witness-testimony" : "role-engineer";
-        }
-        else if (text.startsWith("Doctor:")) {
-          finalClass = className === "witness-testimony" ? "role-doctor witness-testimony" : "role-doctor";
-        }
-        else if (text.startsWith("Pilot:")) {
-          finalClass = className === "witness-testimony" ? "role-pilot witness-testimony" : "role-pilot";
-        }
-        else if (text.startsWith("[ALERT]")) finalClass = "role-alert";
-        else if (text.includes("[SYSTEM]")) finalClass = "role-system";
-        else if (text.startsWith(">")) finalClass = "role-user";
-        else if (text.includes("[WITNESS TESTIMONY INCOMING]")) finalClass = "witness-alert";
+    // 클래스 결정 헬퍼
+    function getLineClass(text, className) {
+      let base = "line";
+      if (text.startsWith("Navigator:")) base = "role-navigator";
+      else if (text.startsWith("Engineer:")) base = "role-engineer";
+      else if (text.startsWith("Doctor:")) base = "role-doctor";
+      else if (text.startsWith("Pilot:")) base = "role-pilot";
+      else if (text.startsWith("[ALERT]")) base = "role-alert";
+      else if (text.includes("[SYSTEM]")) base = "role-system";
+      else if (text.startsWith(">")) base = "role-user";
+      else if (text.includes("[WITNESS TESTIMONY INCOMING]")) base = "witness-alert";
+      else if (className) base = className;
+      if (className === "witness-testimony" && base !== "witness-testimony") base += " witness-testimony";
+      return base;
+    }
+
+    // 경고/사망 시 화면 글리치 & 쉐이크
+    function triggerVisualShock() {
+      playAlarmBeep();
+      document.body.classList.add('body-shake');
+      const glitchEl = document.getElementById('red-glitch-overlay');
+      glitchEl.classList.add('active');
+      setTimeout(() => {
+        document.body.classList.remove('body-shake');
+        glitchEl.classList.remove('active');
+      }, 500);
+    }
+
+    // ★ 2. 텍스트 출력 함수 (타자기 효과 포함) ★
+    function printLine(text, className, options = {}) {
+      if (!text) return Promise.resolve();
+      const finalClass = getLineClass(text, className) + (className === "witness-testimony" ? " witness-testimony" : "");
+      const useTypewriter = options.typewriter === true;
+
+      // 사망/경고 시 화면 글리치 & 쉐이크
+      if (/\[EMERGENCY ALERT\]|\[System Failure\]|\[TOTAL SYSTEM FAILURE\]/i.test(text)) {
+        triggerVisualShock();
       }
 
       const div = document.createElement('div');
-      // Handle multiple classes (e.g., "role-navigator witness-testimony")
-      if (finalClass.includes(" ")) {
-        div.className = "line " + finalClass;
-      } else {
-        div.className = "line " + finalClass;
-      }
-      div.innerText = text;
+      div.className = "line " + finalClass;
       logEl.appendChild(div);
-      logEl.scrollTop = logEl.scrollHeight;
+
+      if (useTypewriter) {
+        return printLineWithTypewriter(div, text);
+      } else {
+        div.innerText = text;
+        logEl.scrollTop = logEl.scrollHeight;
+        return Promise.resolve();
+      }
+    }
+
+    // 타자기 효과 (한 글자씩 10~15ms)
+    function printLineWithTypewriter(div, text) {
+      return new Promise(resolve => {
+        typingSkipped = false;
+        const cursor = document.createElement('span');
+        cursor.className = 'typing-cursor';
+        div.appendChild(cursor);
+        let idx = 0;
+        const CHAR_DELAY = 12;
+
+        function typeNext() {
+          if (typingSkipped || idx >= text.length) {
+            cursor.remove();
+            div.innerText = text;
+            logEl.scrollTop = logEl.scrollHeight;
+            resolve();
+            return;
+          }
+          div.insertBefore(document.createTextNode(text[idx]), cursor);
+          playBeep(text[idx]);
+          idx++;
+          logEl.scrollTop = logEl.scrollHeight;
+          setTimeout(typeNext, CHAR_DELAY);
+        }
+        typeNext();
+      });
     }
 
     // ★ 3. 메시지 전송 (Vercel API 통신) ★
@@ -630,7 +945,7 @@
         const deathMatch = data.result.match(/\[EMERGENCY ALERT\].*?(Navigator|Engineer|Doctor|Pilot)/i);
         if (deathMatch && !deadCrew.includes(deathMatch[1])) deadCrew.push(deathMatch[1]);
         
-        lines.forEach(line => {
+        for (const line of lines) {
           // 시스템 트리거 감지 (showResult용)
           if (line.includes("[End of execution]") || line.includes("End of execution") || line.includes("[RESULT:")) {
             executionEndDetected = true;
@@ -646,11 +961,11 @@
             .replace(/Real Imposter Identity Code:\s*\[[^\]]+\]/gi, '')
             .trim();
           
-          // 시스템 태그만 있던 줄은 출력하지 않음
           if (displayText) {
-            printLine(displayText);
+            typingSkipped = false;
+            await printLine(displayText, null, { typewriter: true });
           }
-        });
+        }
         
         history.push({ role: "assistant", content: data.result });
 
