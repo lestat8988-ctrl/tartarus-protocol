@@ -2,7 +2,7 @@
  * Static Game Data - Tartarus Protocol (itch.io / offline mode)
  * All dialogue and responses loaded from here. No API required.
  */
-const GAME_DATA = {
+window.GAME_DATA = {
   crew: ['Navigator', 'Engineer', 'Doctor', 'Pilot'],
   statusResponses: [
     "System: [SYSTEM] Coordinates LOST. Gravity Drive breached. Dimensional rift detected.\nEngineer: Captain! The core is bleeding... something came through!",
@@ -67,3 +67,4 @@ const GAME_DATA = {
     "Doctor: Captain, the crew's psychological profiles—one of us has changed. Since the jump.\nNavigator: The entity rewrites the host. They look human. They're not.\nEngineer: So we're hunting a ghost in a meat suit.\nPilot: And it's hunting us."
   ]
 };
+console.log("[BOOT] game-data.js loaded", !!window.GAME_DATA);

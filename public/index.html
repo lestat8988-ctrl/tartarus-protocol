@@ -570,14 +570,15 @@
     </div>
   </div>
 
-  <script src="game-data.js"></script>
-  <script src="locales.js"></script>
+  <script src="./game-data.js"></script>
+  <script src="./locales.js"></script>
   <script>
+    if (!window.GAME_DATA) { throw new Error("GAME_DATA missing: Check game-data.js path or load order."); }
     let selectedImposter = null;
 
     function pickImposter() {
       if (!selectedImposter) {
-        selectedImposter = GAME_DATA.crew[Math.floor(Math.random() * GAME_DATA.crew.length)];
+        selectedImposter = window.GAME_DATA.crew[Math.floor(Math.random() * window.GAME_DATA.crew.length)];
       }
       return selectedImposter;
     }
@@ -587,18 +588,18 @@
       if (message.startsWith('[ACCUSE]')) {
         const accused = message.replace('[ACCUSE]', '').trim();
         const isCorrect = accused === imposter;
-        const templates = isCorrect ? GAME_DATA.accuseVictory : GAME_DATA.accuseDefeat;
+        const templates = isCorrect ? window.GAME_DATA.accuseVictory : window.GAME_DATA.accuseDefeat;
         const text = templates[Math.floor(Math.random() * templates.length)].replace(/\{0\}/g, imposter);
         return { result: text, state: isCorrect ? 'victory' : 'defeat', actualImposter: imposter };
       }
       if (message.startsWith('[AUTO-KILL]')) {
         const victim = message.replace('[AUTO-KILL]', '').trim();
-        let text = GAME_DATA.killDescriptions[victim] || `System: [EMERGENCY ALERT] ${victim} terminated. [End of execution]`;
+        let text = window.GAME_DATA.killDescriptions[victim] || `System: [EMERGENCY ALERT] ${victim} terminated. [End of execution]`;
         if (Math.random() < 0.6) {
-          const alive = GAME_DATA.crew.filter(c => !deadCrew.includes(c) && c !== victim);
+          const alive = window.GAME_DATA.crew.filter(c => !deadCrew.includes(c) && c !== victim);
           if (alive.length > 0) {
             const witness = alive[Math.floor(Math.random() * alive.length)];
-            const testimonies = GAME_DATA.witnessTestimonies[witness];
+            const testimonies = window.GAME_DATA.witnessTestimonies[witness];
             const testimony = testimonies[Math.floor(Math.random() * testimonies.length)];
             text += '\n[WITNESS TESTIMONY]\n' + testimony;
           }
@@ -607,18 +608,18 @@
       }
       if (message.startsWith('[WITNESS]')) {
         const match = message.match(/\[WITNESS\]\s+(\w+)\s+witnessed/);
-        const witness = match ? match[1] : GAME_DATA.crew[Math.floor(Math.random() * GAME_DATA.crew.length)];
-        const testimonies = GAME_DATA.witnessTestimonies[witness] || GAME_DATA.witnessTestimonies.Navigator;
+        const witness = match ? match[1] : window.GAME_DATA.crew[Math.floor(Math.random() * window.GAME_DATA.crew.length)];
+        const testimonies = window.GAME_DATA.witnessTestimonies[witness] || window.GAME_DATA.witnessTestimonies.Navigator;
         const text = testimonies[Math.floor(Math.random() * testimonies.length)];
         return { result: text, state: 'playing', actualImposter: imposter };
       }
       const lower = message.toLowerCase();
       let pool;
-      if (lower.includes('report') || lower.includes('status')) pool = GAME_DATA.statusResponses;
-      else if (lower.includes('interrogate') || lower.includes('crew')) pool = GAME_DATA.interrogateResponses;
-      else if (lower.includes('cctv') || lower.includes('log')) pool = GAME_DATA.cctvResponses;
-      else if (lower.includes('engine') || lower.includes('reactor')) pool = GAME_DATA.engineResponses;
-      else pool = GAME_DATA.genericResponses;
+      if (lower.includes('report') || lower.includes('status')) pool = window.GAME_DATA.statusResponses;
+      else if (lower.includes('interrogate') || lower.includes('crew')) pool = window.GAME_DATA.interrogateResponses;
+      else if (lower.includes('cctv') || lower.includes('log')) pool = window.GAME_DATA.cctvResponses;
+      else if (lower.includes('engine') || lower.includes('reactor')) pool = window.GAME_DATA.engineResponses;
+      else pool = window.GAME_DATA.genericResponses;
       const text = pool[Math.floor(Math.random() * pool.length)];
       return { result: text, state: 'playing', actualImposter: imposter };
     }
