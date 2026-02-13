@@ -159,3 +159,7 @@ function t(key) {
   }
   return val !== undefined ? val : key;
 }
+window.textData = textData;
+window.t = t;
+window.LANG = LANG;
+console.log("[BOOT] locales.js loaded", !!window.textData);
