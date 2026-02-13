@@ -58,7 +58,7 @@ window.GAME_DATA = {
   accuseDefeat: [
     "System: [EMERGENCY ALERT] Innocent crew executed. The real imposter watches. DEFEAT.\nReal Imposter Identity Code: [{0}]\n[RESULT: DEFEAT]\n[REAL_IMPOSTER: {0}]\n[End of execution]",
     "System: Wrong target. The entity laughs. You killed an innocent. DEFEAT.\nReal Imposter Identity Code: [{0}]\n[RESULT: DEFEAT]\n[REAL_IMPOSTER: {0}]\n[End of execution]"
-  },
+  ],
   genericResponses: [
     "Navigator: Captain, we need to act. The entity is among us.\nEngineer: But which one?\nDoctor: Observe. The possessed one will slip.\nPilot: Or we all die waiting.",
     "System: [SYSTEM] Hull breach in sector 7. Sealed. For now.\nEngineer: It's testing us. Picking us off.\nNavigator: We have to find the host.\nDoctor: Before there's no one left.",

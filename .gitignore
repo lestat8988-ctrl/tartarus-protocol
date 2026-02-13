@@ -1,2 +1,8 @@
 /.env
 /node_modules
+
+# Git에 올리지 않을 목록
+*.zip
+Untitled_backup
+.DS_Store
+Thumbs.db

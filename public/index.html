@@ -295,22 +295,33 @@
     .modal-overlay.active { display: flex; }
     .modal-box { border: 2px solid; padding: 30px; background: #050505; width: 80%; max-width: 450px; text-align: center; box-shadow: 0 0 30px rgba(0,0,0,0.5); }
     
-    /* 결과창 모달은 최상위에 표시 */
-    #result-modal { z-index: 2000; }
+    /* 결과창 모달: viewport 기준 fixed + 레이아웃 제한 (itch.io iframe 대응) */
+    #result-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 2000;
+      padding: 12px;
+      box-sizing: border-box;
+      overflow: auto;
+    }
     
     .accuse-box { border-color: var(--alert-red); color: var(--alert-red); }
     .target-btn { display: block; width: 100%; padding: 12px; margin-bottom: 10px; background: transparent; border: 1px solid var(--alert-red); color: var(--alert-red); cursor: pointer; font-family: inherit; }
     .target-btn:hover { background: var(--alert-red); color: #000; }
 
-    /* 결과창 모달 스타일 */
+    /* 결과창 모달 스타일 (레이아웃: 화면 밖 이탈 방지) */
     #result-modal .modal-box {
       padding: 40px;
       font-size: 18px;
-      min-width: 320px;
+      width: min(92%, 720px);
+      max-height: 92%;
+      overflow: auto;
+      box-sizing: border-box;
       display: flex;
       flex-direction: column;
       align-items: center;
     }
+    #result-modal .modal-box * { box-sizing: border-box; }
     .result-title { font-size: 36px; font-weight: bold; margin-bottom: 16px; }
     .result-desc { font-size: 20px; line-height: 1.6; margin-bottom: 20px; text-align: center; }
     .result-imposter { font-size: 28px; font-weight: bold; margin: 24px 0 30px; text-shadow: 0 0 10px currentColor; }
@@ -470,11 +481,13 @@
         margin-top: 8px;
       }
       
-      /* 모달도 모바일에 맞게 조정 */
+      /* 모달도 모바일에 맞게 조정 (결과창은 #result-modal .modal-box에서 이미 제한됨) */
       .modal-box {
         padding: 20px;
-        width: 90%;
-        max-width: none;
+      }
+      #result-modal .modal-box {
+        width: min(92%, 720px);
+        max-height: 92%;
       }
       
       .target-btn {
@@ -589,13 +602,25 @@
       };
     })();
   </script>
-  <script src="./game-data.js"></script>
-  <script src="./locales.js"></script>
   <script>
-    if (!window.GAME_DATA) { window.showFatal("GAME_DATA missing: check game-data.js path or load order"); }
-    else if (!window.textData || typeof window.t !== 'function') { window.showFatal("locales.js missing: check locales.js path or load order (textData/t)"); }
-    else {
-    var GAME_DATA = window.GAME_DATA;
+    var VER = "v15";
+    console.log("[BOOT] inline start", location.href);
+    function addScript(src){
+      var s=document.createElement("script");
+      s.src = src + (src.indexOf("?")>=0 ? "&" : "?") + "ver=" + VER;
+      s.onload=function(){console.log("[BOOT] loaded", s.src);};
+      s.onerror=function(e){console.log("[BOOT] FAILED", s.src, e);};
+      document.head.appendChild(s);
+    }
+    addScript("./game-data.js");
+    addScript("./locales.js");
+  </script>
+  <script>
+    function start() {
+      console.log("[BOOT] before main", { hasGameData: !!window.GAME_DATA });
+      if (!window.GAME_DATA) { window.showFatal("GAME_DATA missing: check game-data.js path or load order (Network에서 game-data.js 200/404 확인)"); return; }
+      var GAME_DATA = window.GAME_DATA;
+      if (!window.textData || typeof window.t !== 'function') { window.showFatal("locales.js missing: check locales.js path or load order (textData/t)"); return; }
     var selectedImposter = null;
 
     function pickImposter() {
@@ -742,6 +767,27 @@
 
     function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+    function loadImageSafe(src, timeoutMs) {
+      if (timeoutMs == null) timeoutMs = 2000;
+      return new Promise(function(resolve) {
+        var img = new Image();
+        var done = false;
+        function finish(ok) {
+          if (done) return;
+          done = true;
+          resolve({ ok: ok, img: img, src: src });
+        }
+        var t = setTimeout(function() { finish(false); }, timeoutMs);
+        img.onload = function() { clearTimeout(t); finish(true); };
+        img.onerror = function() { clearTimeout(t); finish(false); };
+        img.src = src;
+      });
+    }
+    function drawImageSafe(ctx, result, x, y, w, h) {
+      if (result && result.ok && result.img) ctx.drawImage(result.img, x, y, w, h);
+      else { ctx.fillStyle = '#000'; ctx.fillRect(x, y, w || 1, h || 1); }
+    }
+
     async function runBootSequence() {
       const BOOT_LINES = getBootLines();
       let prev = '';
@@ -823,11 +869,16 @@
       }
     }, { capture: true });
 
-    // ★ 1. Opening Script (window.onload) ★
-    window.onload = () => {
+    // ★ 1. Opening Script (이미지 로딩 대기 + fallback) ★
+    function runInitialUI() {
+      if (window.__BOOT_DONE__) return;
+      window.__BOOT_DONE__ = true;
       applyLocale();
       runBootSequence();
-    };
+    }
+    var imgList = Array.prototype.slice.call(document.querySelectorAll('img[src]')).map(function(img) { return img.src; });
+    Promise.all(imgList.map(function(src) { return loadImageSafe(src); })).then(runInitialUI);
+    setTimeout(runInitialUI, 2500);
 
     // Game Timer and Auto-Kill System
     function startGameTimer() {
@@ -1194,7 +1245,37 @@
         imposterEl.style.display = "block";
       }
     }
+
+    // ===== expose UI handlers to window (no logic changes) =====
+    window.sendMessage = sendMessage;
+    window.openAccuseModal = openAccuseModal;
+    window.triggerAccuse = triggerAccuse;
+    window.closeAccuseModal = closeAccuseModal;
+    if (typeof closeModal === "function") window.closeModal = closeModal;
+    if (typeof submitAccusation === "function") window.submitAccusation = submitAccusation;
+    if (typeof confirmAccuse === "function") window.confirmAccuse = confirmAccuse;
+    if (typeof handleInput === "function") window.handleInput = handleInput;
+    if (typeof startGame === "function") window.startGame = startGame;
+    console.log("[BOOT] window bindings:", {
+      sendMessage: typeof window.sendMessage,
+      openAccuseModal: typeof window.openAccuseModal,
+    });
     }
+    (function runWhenReady() {
+      if (document.readyState === "loading") { document.addEventListener("DOMContentLoaded", runWhenReady); return; }
+      var n = 0;
+      function go() {
+        if ((window.GAME_DATA !== undefined && window.textData !== undefined) || n > 200) {
+          setTimeout(function() {
+            if (!window.__BOOT_DONE__) {
+              document.body.innerHTML += "<div style='position:fixed;top:0;left:0;color:red;background:black;z-index:9999;padding:20px;'><h3>🚫 BOOT STUCK</h3>이미지 로딩이나 초기화에서 멈췄습니다.<br>Network 탭에서 404를 확인하세요.</div>";
+            }
+          }, 4000);
+          start();
+        } else { n++; setTimeout(go, 50); }
+      }
+      go();
+    })();
   </script>
 </body>
 </html>
