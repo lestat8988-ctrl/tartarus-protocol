@@ -570,27 +570,33 @@
     </div>
   </div>
 
+  <script>
+    (function() {
+      function showFatal(msg) {
+        var el = document.createElement('div');
+        el.style.cssText = 'position:fixed;inset:0;background:#000;color:#ff0000;font-family:monospace;font-size:14px;padding:20px;overflow:auto;z-index:99999;white-space:pre-wrap;';
+        el.textContent = String(msg);
+        (document.body || document.documentElement).appendChild(el);
+        console.error("[FATAL]", msg);
+      }
+      window.showFatal = showFatal;
+      window.onerror = function(msg, src, line, col, err) {
+        showFatal("JS Error: " + msg + "\n" + (src || "") + ":" + line + ":" + (col || "") + "\n" + (err && err.stack ? err.stack : ""));
+        return true;
+      };
+      window.onunhandledrejection = function(e) {
+        showFatal("Unhandled Promise Rejection: " + (e.reason && (e.reason.message || String(e.reason))) + "\n" + (e.reason && e.reason.stack ? e.reason.stack : ""));
+      };
+    })();
+  </script>
   <script src="./game-data.js"></script>
   <script src="./locales.js"></script>
   <script>
-    function showFatal(msg) {
-      const div = document.createElement('div');
-      div.style.cssText = 'position:fixed;inset:0;background:#000;color:#ff0000;font-family:monospace;font-size:14px;padding:20px;overflow:auto;z-index:99999;white-space:pre-wrap;';
-      div.textContent = String(msg);
-      (document.body || document.documentElement).appendChild(div);
-      console.error("[FATAL]", msg);
-    }
-    window.onerror = function(msg, src, line, col, err) {
-      showFatal("JS Error: " + msg + "\n" + (src || "") + ":" + line + ":" + (col || "") + "\n" + (err && err.stack ? err.stack : ""));
-      return true;
-    };
-    window.onunhandledrejection = function(e) {
-      showFatal("Unhandled Promise Rejection: " + (e.reason && (e.reason.message || e.reason)) + "\n" + (e.reason && e.reason.stack ? e.reason.stack : ""));
-    };
-    if (!window.GAME_DATA) { showFatal("GAME_DATA missing: check game-data.js path or load order"); return; }
-    const GAME_DATA = window.GAME_DATA;
-    if (!window.textData || typeof window.t !== 'function') { showFatal("locales.js missing: check locales.js path or load order"); return; }
-    let selectedImposter = null;
+    if (!window.GAME_DATA) { window.showFatal("GAME_DATA missing: check game-data.js path or load order"); }
+    else if (!window.textData || typeof window.t !== 'function') { window.showFatal("locales.js missing: check locales.js path or load order (textData/t)"); }
+    else {
+    var GAME_DATA = window.GAME_DATA;
+    var selectedImposter = null;
 
     function pickImposter() {
       if (!selectedImposter) {
@@ -1187,6 +1193,7 @@
         imposterEl.innerHTML = t('result.defeat.imposterPrefix') + `<strong>${traitorName}</strong>`;
         imposterEl.style.display = "block";
       }
+    }
     }
   </script>
 </body>
