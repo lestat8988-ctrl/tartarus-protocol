@@ -16,7 +16,15 @@ const characters = [
   { name: 'Pilot', role: 'Pilot', desc: 'Flight and navigation. Impatient and direct. Wants quick escape. Trauma: Crash & high-speed collision dismemberment fear.' }
 ];
 
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
+
 module.exports = async (req, res) => {
+  Object.entries(CORS_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
+  if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method Not Allowed" });
 
   // ===== 비용 방지 및 도배 방지 체크 =====

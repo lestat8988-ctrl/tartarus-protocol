@@ -2,6 +2,11 @@
  * Localization Dictionary - Tartarus Protocol
  * Change LANG to 'ko' for Korean. Add ko strings when ready.
  */
+
+/**
+ * Localization - Tartarus Protocol
+ * Game uses static data (game-data.js). No API required for itch.io.
+ */
 const LANG = 'en';
 
 const textData = {
@@ -70,7 +75,8 @@ const textData = {
       interrogate: "Interrogate crew",
       cctv: "Check CCTV logs",
       engine: "Check engine room"
-    }
+    },
+    apiError: "Connection error. Please try again."
   },
   ko: {
     intro: {
@@ -137,7 +143,8 @@ const textData = {
       interrogate: "Interrogate crew",
       cctv: "Check CCTV logs",
       engine: "Check engine room"
-    }
+    },
+    apiError: "연결 오류. 다시 시도해 주세요."
   }
 };
 
