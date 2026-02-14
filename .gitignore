@@ -1,8 +1,19 @@
-/.env
-/node_modules
+﻿# dependencies
+node_modules/
 
-# Git에 올리지 않을 목록
+# vercel
+.vercel/
+
+# archives / builds
+_archive/
+dist/
+
+# secrets
+.env
+
+# junk
 *.zip
-Untitled_backup
+*.log
 .DS_Store
 Thumbs.db
+node_modules/
