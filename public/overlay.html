@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tartarus Arena Overlay</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <style>
+    html, body { background: transparent; margin: 0; overflow: hidden; font-family: 'VT323', monospace; }
+    .turn-container {
+      position: fixed;
+      left: 24px;
+      bottom: 24px;
+      width: 720px;
+      padding: 18px;
+      background: rgba(0,0,0,0.92);
+      border: 2px solid #00ff66;
+      box-shadow: 0 0 20px rgba(0,255,102,0.20);
+      border-radius: 0;
+    }
+    .turn-container::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.4) 2px, rgba(0,0,0,0.4) 4px);
+      opacity: 0.08;
+      pointer-events: none;
+    }
+    #overlay { position: relative; display: flex; flex-direction: column; }
+    #target-wrap { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    #target { font-family: 'VT323', monospace; font-size: 78px; color: #e6e6e6; letter-spacing: 1px; }
+    #target-badge, .badge-override { background: #ff2d2d; color: #000; border-radius: 0; font-family: 'VT323', monospace; font-size: 22px; padding: 2px 10px; margin-left: 14px; }
+    #reason { font-family: 'VT323', monospace; font-size: 30px; line-height: 1.35; color: rgba(230,230,230,0.72); max-width: 100%; margin-bottom: 8px; }
+    #confidence { font-family: 'VT323', monospace; font-size: 84px; color: #00ff66; text-shadow: 0 0 14px rgba(0,255,102,0.35); margin-bottom: 16px; }
+    #turn { font-family: 'VT323', monospace; font-size: 14px; color: rgba(0,255,102,0.55); position: absolute; top: 8px; right: 12px; }
+    #log { font-family: 'VT323', monospace; font-size: 18px; color: rgba(0,255,102,0.55); margin-top: auto; max-height: 120px; overflow: hidden; }
+    #log div { margin: 2px 0; }
+    #gameover { position: fixed; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,0.70); z-index: 100; padding: 24px; }
+    #gameover.active { display: flex; }
+    #gameover-inner { background: rgba(0,0,0,0.92); border: 3px solid #ff2d2d; border-radius: 0; padding: 32px; display: flex; flex-direction: column; align-items: center; }
+    #gameover-outcome { font-family: 'VT323', monospace; font-size: 120px; font-weight: bold; color: #ff2d2d; text-shadow: 0 0 20px rgba(255,45,45,0.4); margin-bottom: 24px; }
+    #gameover.victory #gameover-outcome { color: #00ff66; text-shadow: 0 0 20px rgba(0,255,102,0.4); }
+    #gameover.defeat #gameover-outcome { color: #ff2d2d; text-shadow: 0 0 20px rgba(255,45,45,0.4); }
+    #gameover.timeout #gameover-outcome { color: #fbbf24; text-shadow: 0 0 20px rgba(251,191,36,0.4); }
+    #gameover-details { font-family: 'VT323', monospace; font-size: 26px; text-align: left; max-width: 720px; }
+    .gameover-line { line-height: 1.6; margin-top: 14px; }
+    .gameover-line:first-child { margin-top: 0; }
+    .gameover-label { color: rgba(230,230,230,0.6); }
+    .gameover-value { color: rgba(230,230,230,0.95); }
+    .gameover-reason { max-width: 720px; white-space: normal; word-break: break-word; }
+    #status { font-family: 'VT323', monospace; font-size: 11px; color: rgba(0,255,102,0.5); position: fixed; bottom: 8px; left: 12px; }
+  </style>
+</head>
+<body>
+  <div id="overlay" class="turn-container">
+    <span id="turn">—</span>
+    <div id="target-wrap"><span id="target">—</span><span id="target-badge" class="badge-override" style="display:none">[SYSTEM OVERRIDE]</span></div>
+    <div id="reason">—</div>
+    <div id="confidence">—</div>
+    <div id="log"></div>
+  </div>
+  <div id="gameover">
+    <div id="gameover-inner">
+      <span id="gameover-outcome"></span>
+      <div id="gameover-details"></div>
+    </div>
+  </div>
+  <div id="status">—</div>
+
+  <script>
+    (function() {
+      const params = new URLSearchParams(window.location.search);
+      const matchIdFilter = params.get('match_id') || 'all';
+
+      const POPUP_MS = 5000;
+      const overlay = { target: document.getElementById('target'), targetBadge: document.getElementById('target-badge'), reason: document.getElementById('reason'), confidence: document.getElementById('confidence'), turn: document.getElementById('turn'), log: document.getElementById('log'), gameover: document.getElementById('gameover'), gameoverOutcome: document.getElementById('gameover-outcome'), gameoverDetails: document.getElementById('gameover-details'), status: document.getElementById('status') };
+
+      function escapeHtml(s) {
+        const div = document.createElement('div');
+        div.textContent = s;
+        return div.innerHTML;
+      }
+
+      function sanitizeReason(text) {
+        return (text || '')
+          .replace(/\[FORCED_ACCUSE\]/g, '')
+          .replace(/\[SYSTEM_OVERRIDE\]/g, '')
+          .replace(/\[SYSTEM OVERRIDE\]/g, '')
+          .replace(/\s{2,}/g, ' ')
+          .trim();
+      }
+
+      function isForcedAccuse(payload, rawReason) {
+        return payload.forcedAccuse === true ||
+          /\[FORCED_ACCUSE\]|\[SYSTEM_OVERRIDE\]|\[SYSTEM OVERRIDE\]/i.test(rawReason || '');
+      }
+
+      let lastTurnPayload = null;
+      const logLines = [];
+      const MAX_LOG = 6;
+
+      function addLogLine(line) {
+        logLines.push(line);
+        if (logLines.length > MAX_LOG) logLines.shift();
+        overlay.log.innerHTML = logLines.map(l => '<div>' + l + '</div>').join('');
+      }
+
+      function setStatus(s) {
+        overlay.status.textContent = s;
+      }
+
+      function cutReason(text) {
+        if (!text || typeof text !== 'string') return '—';
+        const s = sanitizeReason(text);
+        return s.length > 150 ? s.slice(0, 150) + '...' : s;
+      }
+
+      function renderTurn(payload) {
+        if (matchIdFilter !== 'all' && payload.match_id !== matchIdFilter) return;
+
+        lastTurnPayload = payload;
+        const forcedShow = isForcedAccuse(payload, payload.reason);
+
+        overlay.target.textContent = payload.decisionTarget || payload.actionType || '—';
+        overlay.targetBadge.style.display = forcedShow ? 'inline' : 'none';
+        overlay.targetBadge.textContent = '[SYSTEM OVERRIDE]';
+        overlay.reason.textContent = cutReason(payload.reason);
+        const conf = typeof payload.confidence === 'number' ? Math.round(payload.confidence * 100) : 0;
+        overlay.confidence.textContent = conf + '%';
+        overlay.turn.textContent = 'T' + (payload.turn || '—');
+
+        addLogLine('T' + (payload.turn || '') + ' ' + (payload.actionType || '') + ' ' + (payload.decisionTarget || '') + ' (' + conf + '%)');
+      }
+
+      function renderGameover(payload) {
+        if (matchIdFilter !== 'all' && payload.match_id !== matchIdFilter) return;
+
+        const outcome = (payload.outcome || 'unknown').toLowerCase();
+        overlay.gameover.className = 'active ' + outcome;
+        overlay.gameoverOutcome.textContent = outcome.toUpperCase();
+
+        const targetRaw = payload.finalTarget ?? lastTurnPayload?.decisionTarget ?? null;
+        const target = (targetRaw && targetRaw !== 'SCAN' && targetRaw !== 'ACCUSE') ? targetRaw : '—';
+        const conf = typeof payload.finalConfidence === 'number' ? Math.round(payload.finalConfidence * 100) : (typeof lastTurnPayload?.confidence === 'number' ? Math.round(lastTurnPayload.confidence * 100) : 0);
+        const reasonSource = payload.finalReason ?? lastTurnPayload?.reason ?? '';
+        const forcedShow = isForcedAccuse(payload, reasonSource);
+        const reasonDisplay = sanitizeReason(reasonSource) || '—';
+        const badgeHtml = forcedShow ? ' <span class="badge-override">[SYSTEM OVERRIDE]</span>' : '';
+        overlay.gameoverDetails.innerHTML =
+          '<div class="gameover-line"><span class="gameover-label">Target:</span> <span class="gameover-value">' + escapeHtml(target || '—') + '</span>' + badgeHtml + '</div>' +
+          '<div class="gameover-line"><span class="gameover-label">Confidence:</span> <span class="gameover-value">' + conf + '%</span></div>' +
+          '<div class="gameover-line gameover-reason"><span class="gameover-label">Reason:</span> <span class="gameover-value">' + escapeHtml(reasonDisplay) + '</span></div>';
+
+        setTimeout(function() {
+          overlay.gameover.classList.remove('active');
+        }, POPUP_MS);
+      }
+
+      async function init() {
+        setStatus('loading...');
+        const base = window.location.origin;
+        const res = await fetch(base + '/api/realtime_config');
+        if (!res.ok) {
+          setStatus('config error');
+          return;
+        }
+        const cfg = await res.json();
+        if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) {
+          setStatus('config error');
+          return;
+        }
+
+        const supabase = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
+        const channel = supabase.channel(cfg.channel || 'tartarus-arena');
+
+        channel.on('broadcast', { event: 'turn' }, function(p) {
+          renderTurn(p.payload || p);
+        });
+        channel.on('broadcast', { event: 'gameover' }, function(p) {
+          renderGameover(p.payload || p);
+        });
+
+        channel.subscribe(function(status) {
+          if (status === 'SUBSCRIBED') setStatus('connected');
+          else if (status === 'CHANNEL_ERROR') setStatus('reconnecting');
+        });
+      }
+
+      init();
+    })();
+  </script>
+</body>
+</html>

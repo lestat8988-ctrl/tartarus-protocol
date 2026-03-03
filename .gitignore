@@ -17,3 +17,9 @@ dist/
 .DS_Store
 Thumbs.db
 node_modules/
+.vercel
+# arena run logs / local artifacts
+logs/
+tartarus_logs.jsonl
+payload.json
+*.jsonl

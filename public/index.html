@@ -630,46 +630,139 @@
       return selectedImposter;
     }
 
-    function getLocalResponse(message, deadCrew) {
-      const imposter = pickImposter();
-      if (message.startsWith('[ACCUSE]')) {
-        const accused = message.replace('[ACCUSE]', '').trim();
-        const isCorrect = accused === imposter;
-        const templates = isCorrect ? GAME_DATA.accuseVictory : GAME_DATA.accuseDefeat;
-        const text = templates[Math.floor(Math.random() * templates.length)].replace(/\{0\}/g, imposter);
-        return { result: text, state: isCorrect ? 'victory' : 'defeat', actualImposter: imposter };
+    function parseMessageToAction(rawMessage) {
+      const s = String(rawMessage || '').trim();
+      if (/^\[ACCUSE\]/i.test(s)) {
+        return { type: 'accuse', target: s.replace(/^\[ACCUSE\]/i, '').trim() };
       }
-      if (message.startsWith('[AUTO-KILL]')) {
-        const victim = message.replace('[AUTO-KILL]', '').trim();
-        let text = GAME_DATA.killDescriptions[victim] || `System: [EMERGENCY ALERT] ${victim} terminated. [End of execution]`;
-        if (Math.random() < 0.6) {
-          const alive = GAME_DATA.crew.filter(c => !deadCrew.includes(c) && c !== victim);
-          if (alive.length > 0) {
-            const witness = alive[Math.floor(Math.random() * alive.length)];
-            const testimonies = GAME_DATA.witnessTestimonies[witness];
-            const testimony = testimonies[Math.floor(Math.random() * testimonies.length)];
-            text += '\n[WITNESS TESTIMONY]\n' + testimony;
-          }
+      if (/^\[AUTO-KILL\]/i.test(s)) {
+        return { type: 'auto-kill', target: s.replace(/^\[AUTO-KILL\]/i, '').trim() };
+      }
+      if (/^\[WITNESS\]/i.test(s)) {
+        const rest = s.replace(/^\[WITNESS\]/i, '').trim();
+        const witnessed = rest.match(/^(\w+)\s+witnessed\s+the\s+murder\s+of\s+(\w+)/i) || rest.match(/^(\w+)\s+.*\s+(\w+)$/);
+        if (witnessed) {
+          return { type: 'witness', witness: witnessed[1].trim(), victim: witnessed[2].trim() };
         }
-        return { result: text, state: 'playing', actualImposter: imposter };
+        return { type: 'witness', value: rest || s };
       }
-      if (message.startsWith('[WITNESS]')) {
-        const match = message.match(/\[WITNESS\]\s+(\w+)\s+witnessed/);
-        const witness = match ? match[1] : GAME_DATA.crew[Math.floor(Math.random() * GAME_DATA.crew.length)];
-        const testimonies = GAME_DATA.witnessTestimonies[witness] || GAME_DATA.witnessTestimonies.Navigator;
-        const text = testimonies[Math.floor(Math.random() * testimonies.length)];
-        return { result: text, state: 'playing', actualImposter: imposter };
-      }
-      const lower = message.toLowerCase();
-      let pool;
-      if (lower.includes('report') || lower.includes('status')) pool = GAME_DATA.statusResponses;
-      else if (lower.includes('interrogate') || lower.includes('crew')) pool = GAME_DATA.interrogateResponses;
-      else if (lower.includes('cctv') || lower.includes('log')) pool = GAME_DATA.cctvResponses;
-      else if (lower.includes('engine') || lower.includes('reactor')) pool = GAME_DATA.engineResponses;
-      else pool = GAME_DATA.genericResponses;
-      const text = pool[Math.floor(Math.random() * pool.length)];
-      return { result: text, state: 'playing', actualImposter: imposter };
+      const lower = s.toLowerCase();
+      if (/cctv|check\s+cctv/i.test(lower)) return { type: 'cctv' };
+      if (/interrogate|status|report/i.test(lower)) return { type: 'interrogate' };
+      return { type: 'message', value: s };
     }
+
+    function chatToActionHistory(chatHist) {
+      if (!Array.isArray(chatHist)) return [];
+      return chatHist
+        .filter(function (h) { return h && h.role === 'user' && h.content; })
+        .map(function (h) { return parseMessageToAction(h.content); });
+    }
+
+    async function  getLocalResponse(message, deadCrew) {
+  try {
+    const safeHistory = Array.isArray(history) ? history : [];
+    const safeDeadCrew = Array.isArray(deadCrew) ? deadCrew : [];
+    const seed = (window.gameState && window.gameState.seed) ? window.gameState.seed : 'default';
+    const rngState = (window.gameState && window.gameState.rngState) ? window.gameState.rngState : null;
+
+    const action = parseMessageToAction(message);
+
+    // 현재 턴 메시지는 action으로 보내므로, history에는 이전 턴만 포함
+    const userIdx = safeHistory.map(function (h, i) { return h && h.role === 'user' ? i : -1; }).filter(function (i) { return i >= 0; }).pop();
+    const prevChat = (userIdx >= 0 ? safeHistory.slice(0, userIdx) : safeHistory);
+    const actionHistory = chatToActionHistory(prevChat);
+
+    // console.log('match_id:', MATCH_ID); // 2판 진행 시 match_id 확인용
+    const response = await fetch('/api/play', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-tartarus-secret': 'my-secret-key' // 로컬 테스트용 (.env와 동일해야 함)
+      },
+      body: JSON.stringify({
+        match_id: MATCH_ID,
+        agent_id: 'WEB_UI',
+        history: actionHistory,
+        deadCrew: safeDeadCrew, // 서버가 안 써도 보내는 건 문제 없음
+        action,
+        rngState,
+        seed
+      })
+    });
+
+    let data = null;
+    try {
+      data = await response.json();
+    } catch (e) {
+      data = null;
+    }
+
+    if (!response.ok) {
+      const err = data && data.error;
+      const msg = (err && (typeof err === 'object' ? err.message : err)) || (data && data.message) || `API 호출 실패 (${response.status})`;
+      throw new Error(msg);
+    }
+
+    // ---- 서버 응답 -> 기존 프론트 반환 형태로 변환(호환 어댑터) ----
+    // resultText/result 둘 다 방어하여 표시 로직이 깨지지 않게
+    const resultText =
+      data?.resultText ??
+      data?.result ??
+      data?.text ??
+      '[ERROR] Empty response from server';
+
+    const state =
+      data?.state ??
+      (data?.isGameOver ? 'defeat' : 'playing');
+
+    const actualImposter =
+      data?.actualImposter ?? null;
+
+    const isGameOver = !!data?.isGameOver;
+    const outcome = data?.outcome ?? null;
+
+    // 가능하면 전역 상태도 업데이트 (있을 때만)
+    if (window.gameState && typeof window.gameState === 'object') {
+      if ('rngState' in data) window.gameState.rngState = data.rngState;
+      if ('history' in data && Array.isArray(data.history)) {
+        history = data.history;
+      } else {
+        // 서버가 history를 안 내려주면 로컬 chat history에 assistant 응답만 추가 (user는 이미 safeHistory에 있음)
+        history = [...safeHistory, { role: 'assistant', content: resultText }];
+      }
+    } else {
+      // gameState 없을 때 최소 반영
+      history = [...safeHistory, { role: 'assistant', content: resultText }];
+    }
+
+    // deadCrew 동기화: 서버 응답이 오면 전역 deadCrew를 최신으로 갱신
+    if ('deadCrew' in data && Array.isArray(data.deadCrew) && Array.isArray(deadCrew)) {
+      deadCrew.length = 0;
+      deadCrew.push.apply(deadCrew, data.deadCrew);
+    }
+
+    return {
+      result: resultText,
+      resultText,
+      state,
+      actualImposter,
+      isGameOver,
+      outcome,
+      deadCrew: data?.deadCrew
+    };
+  } catch (error) {
+    console.error('[Frontend] API Error:', error);
+    return {
+      result: `[ERROR] 시스템 통신 장애: ${error.message}`,
+      resultText: `[ERROR] 시스템 통신 장애: ${error.message}`,
+      state: 'playing',
+      actualImposter: null,
+      isGameOver: false,
+      outcome: null
+    };
+  }
+}
 
     function applyLocale() {
       document.querySelectorAll('[data-i18n]').forEach(el => {
@@ -692,6 +785,9 @@
     const accuseModal = document.getElementById('accuse-modal');
     const resultModal = document.getElementById('result-modal');
     const resultBox = document.getElementById('result-box');
+
+    function newMatchId() { return 'match_' + Date.now() + '_' + Math.random().toString(16).slice(2); }
+    let MATCH_ID = newMatchId();
     
     let history = [];
     let timeRemaining = 600; // 10 minutes in seconds
@@ -895,8 +991,8 @@
         const seconds = timeRemaining % 60;
         timerEl.textContent = t('game.timerPrefix') + `${minutes}:${String(seconds).padStart(2, '0')}`;
         
-        // 3-minute auto-kill triggers (at 180s, 360s, 540s elapsed)
-        if (elapsed === 180 || elapsed === 360 || elapsed === 540) {
+        // 4분(240000ms) 간격 AUTO-KILL: 240s, 480s, 720s
+        if (elapsed === 240 || elapsed === 480 || elapsed === 720) {
           triggerAutoKill();
         }
         
@@ -909,8 +1005,9 @@
     }
 
     async function triggerAutoKill() {
+      console.log('[AUTO-KILL] fired at', new Date().toLocaleTimeString());
       if (gameEnded) return;
-      
+
       // Get alive crew members
       const aliveCrew = ['Navigator', 'Engineer', 'Doctor', 'Pilot'].filter(crew => !deadCrew.includes(crew));
       
@@ -930,11 +1027,14 @@
       glitchEl.classList.add('active');
       
       try {
-        const data = getLocalResponse(`[AUTO-KILL] ${victim}`, deadCrew);
+        const data = await getLocalResponse(`[AUTO-KILL] ${victim}`, deadCrew);
+
+        // resultText/result 둘 다 방어
+        const content = data.resultText ?? data.result ?? '';
         
         // Display kill message
         printLine(`[EMERGENCY ALERT]`, "role-alert");
-        const lines = data.result.split('\n');
+        const lines = String(content).split('\n');
         let witnessTestimonyFound = false;
         
         for (const line of lines) {
@@ -951,7 +1051,7 @@
           }
         }
         
-        history.push({ role: "assistant", content: data.result });
+        history.push({ role: "assistant", content });
         
         // Request witness testimony if not already included
         if (!witnessTestimonyFound && aliveCrew.length > 1) {
@@ -977,17 +1077,24 @@
 
     async function requestWitnessTestimony(victim, aliveCrew) {
       if (gameEnded || aliveCrew.length === 0) return;
-      
-      // Randomly select one witness from alive crew
-      const witness = aliveCrew[Math.floor(Math.random() * aliveCrew.length)];
+
+      // deadCrew 제외한 살아있는 인물만 목격자 후보 (죽은 사람이 목격자로 나오지 않게)
+      const crewList = (window.GAME_DATA && window.GAME_DATA.crew) ? window.GAME_DATA.crew : ['Navigator', 'Engineer', 'Doctor', 'Pilot'];
+      const witnessCandidates = crewList.filter(function (c) { return !deadCrew.includes(c) && c !== victim; });
+      if (witnessCandidates.length === 0) return;
+
+      const witness = witnessCandidates[Math.floor(Math.random() * witnessCandidates.length)];
       
       printLine(`[WITNESS TESTIMONY INCOMING]`, "witness-alert");
       
       try {
-        const data = getLocalResponse(`[WITNESS] ${witness} witnessed the murder of ${victim}`, deadCrew);
+        const data = await getLocalResponse(`[WITNESS] ${witness} witnessed the murder of ${victim}`, deadCrew);
+
+        // resultText/result 둘 다 방어
+        const content = data.resultText ?? data.result ?? '';
         
         // Display witness testimony with highlight
-        const lines = data.result.split('\n');
+        const lines = String(content).split('\n');
         for (const line of lines) {
           if (line.trim()) {
             typingSkipped = false;
@@ -1000,7 +1107,7 @@
           }
         }
         
-        history.push({ role: "assistant", content: data.result });
+        history.push({ role: "assistant", content });
       } catch (err) {
         printLine(`[ERROR] ${err.message}`, "role-alert");
       }
@@ -1111,14 +1218,17 @@
       history.push({ role: "user", content: text });
 
       try {
-        const data = getLocalResponse(text, deadCrew);
+        const data = await getLocalResponse(text, deadCrew);
+
+        // resultText/result 둘 다 방어하여 표시 로직이 깨지지 않게
+        const displayText = data.resultText ?? data.result ?? '';
         
         // 줄바꿈이 있으면 나눠서 출력 (시스템 트리거 메시지 숨김)
-        const lines = data.result.split('\n');
+        const lines = String(displayText).split('\n');
         let executionEndDetected = false;
         
         // 사상자 처리: AI 응답에서 [EMERGENCY ALERT]로 언급된 죽은 인물 즉시 반영
-        const deathMatch = data.result.match(/\[EMERGENCY ALERT\].*?(Navigator|Engineer|Doctor|Pilot)/i);
+        const deathMatch = displayText.match(/\[EMERGENCY ALERT\].*?(Navigator|Engineer|Doctor|Pilot)/i);
         if (deathMatch && !deadCrew.includes(deathMatch[1])) deadCrew.push(deathMatch[1]);
         
         for (const line of lines) {
@@ -1128,7 +1238,7 @@
           }
           
           // 화면 출력용: 시스템 태그 제거
-          let displayText = line
+          const cleanLine = line
             .replace(/\[End of execution\]/gi, '')
             .replace(/End of execution/gi, '')
             .replace(/\[RESULT:\s*VICTORY\]/gi, '')
@@ -1137,31 +1247,34 @@
             .replace(/Real Imposter Identity Code:\s*\[[^\]]+\]/gi, '')
             .trim();
           
-          if (displayText) {
+          if (cleanLine) {
             typingSkipped = false;
-            await printLine(displayText, null, { typewriter: true });
+            await printLine(cleanLine, null, { typewriter: true });
           }
         }
         
-        history.push({ role: "assistant", content: data.result });
+        history.push({ role: "assistant", content: displayText });
 
-        // 승패 감지 및 결과창 표시
-        if (data.state === 'victory' || data.state === 'defeat') {
-          // 사상자 처리: 처형된 인물을 deadCrew에 추가
+        // isGameOver 시 승패 모달: 타이핑/라인 출력이 끝난 뒤 1500ms 후 표시
+        if (data.isGameOver === true) {
+          gameEnded = true;
+          const isVictory = data.state === 'victory' || data.outcome === 'victory';
+          const msgForModal = data.resultText ?? data.result ?? displayText;
+          setTimeout(() => showResult(isVictory ? 'victory' : 'defeat', msgForModal, data.actualImposter), 1500);
+        } else if (data.state === 'victory' || data.state === 'defeat') {
+          // 기존 호환: state만 있는 경우
           if (text.startsWith('[ACCUSE]')) {
             const accused = text.replace('[ACCUSE]', '').trim();
             if (accused && !deadCrew.includes(accused)) deadCrew.push(accused);
           }
-          
           const delay = executionEndDetected ? 1000 : 2000;
-          setTimeout(() => showResult(data.state, data.result, data.actualImposter), delay);
+          setTimeout(() => showResult(data.state, displayText || '', data.actualImposter), delay);
         } else if (executionEndDetected) {
-          // 상태가 명확하지 않지만 실행 종료가 감지된 경우, 응답 내용에서 재확인
-          const resultText = data.result.toLowerCase();
-          if (resultText.includes("victory") || resultText.includes("white fluid")) {
-            setTimeout(() => showResult('victory', data.result, data.actualImposter), 1000);
-          } else if (resultText.includes("defeat") || resultText.includes("innocent")) {
-            setTimeout(() => showResult('defeat', data.result, data.actualImposter), 1000);
+          const lower = String(displayText || '').toLowerCase();
+          if (lower.includes("victory") || lower.includes("white fluid")) {
+            setTimeout(() => showResult('victory', displayText || '', data.actualImposter), 1000);
+          } else if (lower.includes("defeat") || lower.includes("innocent")) {
+            setTimeout(() => showResult('defeat', displayText || '', data.actualImposter), 1000);
           }
         }
 
@@ -1172,26 +1285,27 @@
 
     inputEl.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage(); });
 
-    // 모달 제어 - 사상자 처리: 죽은 승무원 버튼 비활성화
+    // 모달 제어 - 사상자 처리: 살아있는 인물만 버튼에 표시
     function openAccuseModal() {
       if (gameEnded) return;
-      
+
+      console.log('[ACCUSE MODAL] deadCrew=', deadCrew);
+
+      const crewList = (window.GAME_DATA && window.GAME_DATA.crew) ? window.GAME_DATA.crew : ['Navigator', 'Engineer', 'Doctor', 'Pilot'];
       const buttons = accuseModal.querySelectorAll('.target-btn[data-role]');
-      buttons.forEach(btn => {
+      buttons.forEach(function (btn) {
         const role = btn.getAttribute('data-role');
         if (deadCrew.includes(role)) {
-          btn.disabled = true;
-          btn.style.opacity = '0.3';
-          btn.style.cursor = 'not-allowed';
-          btn.textContent = t('game.accuseModal.deceased') + role;
+          btn.style.display = 'none';
         } else {
+          btn.style.display = 'block';
           btn.disabled = false;
           btn.style.opacity = '1';
           btn.style.cursor = 'pointer';
           btn.textContent = role;
         }
       });
-      
+
       accuseModal.classList.add('active');
     }
     function closeAccuseModal() { accuseModal.classList.remove('active'); }
