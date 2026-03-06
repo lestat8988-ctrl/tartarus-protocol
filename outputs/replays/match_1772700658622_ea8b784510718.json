@@ -1,0 +1,56 @@
+{
+  "match_id": "match_1772700658622_ea8b784510718",
+  "items": [
+    {
+      "serverTimestamp": "2026-03-05T08:51:05.621Z",
+      "match_id": "match_1772700658622_ea8b784510718",
+      "seed": "default",
+      "action": {
+        "type": "interrogate"
+      },
+      "state": "playing",
+      "outcome": null,
+      "isGameOver": false,
+      "deadCrew": [],
+      "rngState": 912968235,
+      "actualImposterLog": "Pilot",
+      "resultTextLog": "Navigator: Captain, I've been monitoring the corridors. Someone has been tampering with the logs.\nEngineer: Don't look at me! The Doctor's been acting strange since the jump.\nDoctor: Stress affects us all. The Pilot has been muttering to himself.\nPilot: We're all losing it. The ship... it's watching."
+    },
+    {
+      "serverTimestamp": "2026-03-05T08:51:07.312Z",
+      "match_id": "match_1772700658622_ea8b784510718",
+      "seed": "default",
+      "action": {
+        "type": "message",
+        "value": "ENGINE"
+      },
+      "state": "playing",
+      "outcome": null,
+      "isGameOver": false,
+      "deadCrew": [],
+      "rngState": 2744534048,
+      "actualImposterLog": "Pilot",
+      "resultTextLog": "System: [SYSTEM] Reactor damage: CRITICAL. Repair impossible while entity presence detected.\nEngineer: The thing is feeding on the core. We have to purge the host first.\nNavigator: Execute the imposter. Seal the rift. Or we all burn."
+    },
+    {
+      "serverTimestamp": "2026-03-05T08:51:09.419Z",
+      "match_id": "match_1772700658622_ea8b784510718",
+      "seed": "default",
+      "action": {
+        "type": "accuse",
+        "target": "Pilot"
+      },
+      "state": "victory",
+      "outcome": "victory",
+      "isGameOver": true,
+      "deadCrew": [],
+      "rngState": 281132565,
+      "actualImposterLog": "Pilot",
+      "resultTextLog": "System: The host convulses. Something shrieks as it flees the body. Android lubricant. VICTORY. [RESULT: VICTORY]\n[REAL_IMPOSTER: Pilot]\n[End of execution]"
+    }
+  ],
+  "startTs": "2026-03-05T08:51:05.621Z",
+  "endTs": "2026-03-05T08:51:09.419Z",
+  "outcome": "victory",
+  "impostor": "Pilot"
+}

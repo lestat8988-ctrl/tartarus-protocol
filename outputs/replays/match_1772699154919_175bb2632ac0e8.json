@@ -1,0 +1,100 @@
+{
+  "match_id": "match_1772699154919_175bb2632ac0e8",
+  "items": [
+    {
+      "serverTimestamp": "2026-03-05T08:26:04.975Z",
+      "match_id": "match_1772699154919_175bb2632ac0e8",
+      "seed": "default",
+      "action": {
+        "type": "interrogate"
+      },
+      "state": "playing",
+      "outcome": null,
+      "isGameOver": false,
+      "deadCrew": [],
+      "rngState": 912968235,
+      "actualImposterLog": "Pilot",
+      "resultTextLog": "Navigator: Captain, I've been monitoring the corridors. Someone has been tampering with the logs.\nEngineer: Don't look at me! The Doctor's been acting strange since the jump.\nDoctor: Stress affects us all. The Pilot has been muttering to himself.\nPilot: We're all losing it. The ship... it's watching."
+    },
+    {
+      "serverTimestamp": "2026-03-05T08:30:02.848Z",
+      "match_id": "match_1772699154919_175bb2632ac0e8",
+      "seed": "default",
+      "action": {
+        "type": "auto-kill",
+        "target": "Engineer"
+      },
+      "state": "playing",
+      "outcome": null,
+      "isGameOver": false,
+      "deadCrew": [
+        "Engineer"
+      ],
+      "rngState": null,
+      "actualImposterLog": "DOCTOR",
+      "resultTextLog": "System: [EMERGENCY ALERT] Engineer terminated. Machinery accident in engine room. Conveyor incident. [End of execution]"
+    },
+    {
+      "serverTimestamp": "2026-03-05T08:30:07.152Z",
+      "match_id": "match_1772699154919_175bb2632ac0e8",
+      "seed": "default",
+      "action": {
+        "type": "witness",
+        "witness": "Navigator",
+        "victim": "Engineer"
+      },
+      "state": "playing",
+      "outcome": null,
+      "isGameOver": false,
+      "deadCrew": [
+        "Engineer"
+      ],
+      "rngState": null,
+      "actualImposterLog": "DOCTOR",
+      "resultTextLog": "Navigator: The Doctor was acting erratic. I don't trust them."
+    },
+    {
+      "serverTimestamp": "2026-03-05T08:34:02.832Z",
+      "match_id": "match_1772699154919_175bb2632ac0e8",
+      "seed": "default",
+      "action": {
+        "type": "auto-kill",
+        "target": "Doctor"
+      },
+      "state": "playing",
+      "outcome": null,
+      "isGameOver": false,
+      "deadCrew": [
+        "Engineer",
+        "Doctor"
+      ],
+      "rngState": null,
+      "actualImposterLog": "DOCTOR",
+      "resultTextLog": "System: [EMERGENCY ALERT] Doctor terminated. Autopsy bay malfunction. Robotic systems engaged. [End of execution]"
+    },
+    {
+      "serverTimestamp": "2026-03-05T08:34:07.071Z",
+      "match_id": "match_1772699154919_175bb2632ac0e8",
+      "seed": "default",
+      "action": {
+        "type": "witness",
+        "witness": "Navigator",
+        "victim": "Doctor"
+      },
+      "state": "playing",
+      "outcome": null,
+      "isGameOver": false,
+      "deadCrew": [
+        "Engineer",
+        "Doctor"
+      ],
+      "rngState": null,
+      "actualImposterLog": "DOCTOR",
+      "resultTextLog": "Navigator: I saw them near the airlock. Right before the alarm. They looked... wrong."
+    }
+  ],
+  "startTs": "2026-03-05T08:26:04.975Z",
+  "endTs": "2026-03-05T08:34:07.071Z",
+  "outcome": "playing",
+  "impostor": "DOCTOR"
+}

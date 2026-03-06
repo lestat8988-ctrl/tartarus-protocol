@@ -17,7 +17,13 @@ window.GAME_DATA = {
   ],
   cctvResponses: [
     "System: [SYSTEM] CCTV logs corrupted. Partial data recovered.\nNavigator: I see someone near the engine room. Before the last kill.\nEngineer: That could be any of us!\nDoctor: The timestamps are wrong. Something altered them.",
-    "System: [SYSTEM] Log fragment: [REDACTED] accessed Gravity Drive at 02:47.\nPilot: Who has that clearance?\nNavigator: All senior crew. We're all suspects.\nDoctor: The entity is clever. It hides in our skin."
+    "System: [SYSTEM] Log fragment: [REDACTED] accessed Gravity Drive at 02:47.\nPilot: Who has that clearance?\nNavigator: All senior crew. We're all suspects.\nDoctor: The entity is clever. It hides in our skin.",
+    "System: [SYSTEM] Access log fragment: [REDACTED] accessed core at 01:58.\nEngineer: Clearance logs are missing for that window.\nNavigator: Timestamps don't match. Something altered them.\nDoctor: One of us. It has to be.",
+    "System: [SYSTEM] Log fragment: [REDACTED] accessed nav channel at 03:12.\nPilot: Who has that clearance?\nNavigator: All senior crew. We're all suspects.\nEngineer: The entity is clever. It hides in our skin.",
+    "System: [SYSTEM] CCTV timestamp anomaly: 00:15. Partial recovery.\nDoctor: The timestamps are wrong. Something altered them.\nNavigator: I see someone near the engine room. Before the last kill.\nPilot: That could be any of us!",
+    "System: [SYSTEM] Log fragment: [REDACTED] accessed sync terminal at 04:03.\nNavigator: All senior crew have clearance. We're all suspects.\nEngineer: The entity rewrites the host. They look human. They're not.\nDoctor: Observe. The possessed one will slip.",
+    "System: [SYSTEM] Access log: [REDACTED] unauthorized query at 02:31.\nPilot: Who has that clearance?\nNavigator: All senior crew. We're all suspects.\nEngineer: The entity is clever. It hides in our skin.",
+    "System: [SYSTEM] Log fragment: [REDACTED] accessed Gravity Drive at 00:15.\nDoctor: The crew are hallucinating. I've seen things. In the corridors.\nNavigator: Or it's real. One of us brought it back.\nPilot: We need to find who. Before it's too late."
   ],
   engineResponses: [
     "Engineer: Captain, the rift is still open. I can try to seal it—but I need time. And I need to know no one will... interrupt me.\nNavigator: You mean kill you. Like the others.\nDoctor: We're running out of crew. And time.\nPilot: Find the imposter. Then we repair.",

@@ -1,0 +1,220 @@
+[
+  {
+    "score": 4,
+    "index": 2,
+    "completed": true,
+    "outcome": "defeat",
+    "impostor": "Pilot",
+    "deadCrewCount": 0,
+    "inputCount": 6,
+    "entryCount": 6,
+    "seed": "default",
+    "serverTimestamp": "2026-03-05T08:49:37.203Z",
+    "match_id": "match_1772700517936_e88780922a3158",
+    "entries": [
+      {
+        "serverTimestamp": "2026-03-05T08:48:45.948Z",
+        "match_id": "match_1772700517936_e88780922a3158",
+        "seed": "default",
+        "action": {
+          "type": "interrogate"
+        },
+        "state": "playing",
+        "outcome": null,
+        "isGameOver": false,
+        "deadCrew": [],
+        "rngState": 912968235,
+        "actualImposterLog": "Pilot",
+        "resultTextLog": "Navigator: Captain, I've been monitoring the corridors. Someone has been tampering with the logs.\nEngineer: Don't look at me! The Doctor's been acting strange since the jump.\nDoctor: Stress affects us all. The Pilot has been muttering to himself.\nPilot: We're all losing it. The ship... it's watching."
+      },
+      {
+        "serverTimestamp": "2026-03-05T08:48:52.347Z",
+        "match_id": "match_1772700517936_e88780922a3158",
+        "seed": "default",
+        "action": {
+          "type": "cctv"
+        },
+        "state": "playing",
+        "outcome": null,
+        "isGameOver": false,
+        "deadCrew": [],
+        "rngState": 2744534048,
+        "actualImposterLog": "Pilot",
+        "resultTextLog": "System: [SYSTEM] Log fragment: [REDACTED] accessed Gravity Drive at 02:47.\nPilot: Who has that clearance?\nNavigator: All senior crew. We're all suspects.\nDoctor: The entity is clever. It hides in our skin."
+      },
+      {
+        "serverTimestamp": "2026-03-05T08:48:58.908Z",
+        "match_id": "match_1772700517936_e88780922a3158",
+        "seed": "default",
+        "action": {
+          "type": "message",
+          "value": "nav"
+        },
+        "state": "playing",
+        "outcome": null,
+        "isGameOver": false,
+        "deadCrew": [],
+        "rngState": 281132565,
+        "actualImposterLog": "Pilot",
+        "resultTextLog": "System: [SYSTEM] Hull breach in sector 7. Sealed. For now.\nEngineer: It's testing us. Picking us off.\nNavigator: We have to find the host.\nDoctor: Before there's no one left."
+      },
+      {
+        "serverTimestamp": "2026-03-05T08:49:06.622Z",
+        "match_id": "match_1772700517936_e88780922a3158",
+        "seed": "default",
+        "action": {
+          "type": "message",
+          "value": "ENGINE"
+        },
+        "state": "playing",
+        "outcome": null,
+        "isGameOver": false,
+        "deadCrew": [],
+        "rngState": 2112698378,
+        "actualImposterLog": "Pilot",
+        "resultTextLog": "System: [SYSTEM] Reactor damage: CRITICAL. Repair impossible while entity presence detected.\nEngineer: The thing is feeding on the core. We have to purge the host first.\nNavigator: Execute the imposter. Seal the rift. Or we all burn."
+      },
+      {
+        "serverTimestamp": "2026-03-05T08:49:18.010Z",
+        "match_id": "match_1772700517936_e88780922a3158",
+        "seed": "default",
+        "action": {
+          "type": "message",
+          "value": "nav"
+        },
+        "state": "playing",
+        "outcome": null,
+        "isGameOver": false,
+        "deadCrew": [],
+        "rngState": 3944264191,
+        "actualImposterLog": "Pilot",
+        "resultTextLog": "Doctor: Captain, the crew's psychological profiles—one of us has changed. Since the jump.\nNavigator: The entity rewrites the host. They look human. They're not.\nEngineer: So we're hunting a ghost in a meat suit.\nPilot: And it's hunting us."
+      },
+      {
+        "serverTimestamp": "2026-03-05T08:49:37.203Z",
+        "match_id": "match_1772700517936_e88780922a3158",
+        "seed": "default",
+        "action": {
+          "type": "accuse",
+          "target": "Doctor"
+        },
+        "state": "defeat",
+        "outcome": "defeat",
+        "isGameOver": true,
+        "deadCrew": [],
+        "rngState": 1480862708,
+        "actualImposterLog": "Pilot",
+        "resultTextLog": "System: Wrong target. The entity laughs. You killed an innocent. DEFEAT.\nReal Imposter Identity Code: [Pilot]\n[RESULT: DEFEAT]\n[REAL_IMPOSTER: Pilot]\n[End of execution]"
+      }
+    ]
+  },
+  {
+    "score": 4,
+    "index": 3,
+    "completed": true,
+    "outcome": "defeat",
+    "impostor": "Pilot",
+    "deadCrewCount": 0,
+    "inputCount": 6,
+    "entryCount": 6,
+    "seed": "default",
+    "serverTimestamp": "2026-03-05T08:50:18.911Z",
+    "match_id": "match_1772700583319_8a11a5cb50b27",
+    "entries": [
+      {
+        "serverTimestamp": "2026-03-05T08:49:49.888Z",
+        "match_id": "match_1772700583319_8a11a5cb50b27",
+        "seed": "default",
+        "action": {
+          "type": "interrogate"
+        },
+        "state": "playing",
+        "outcome": null,
+        "isGameOver": false,
+        "deadCrew": [],
+        "rngState": 912968235,
+        "actualImposterLog": "Pilot",
+        "resultTextLog": "Navigator: Captain, I've been monitoring the corridors. Someone has been tampering with the logs.\nEngineer: Don't look at me! The Doctor's been acting strange since the jump.\nDoctor: Stress affects us all. The Pilot has been muttering to himself.\nPilot: We're all losing it. The ship... it's watching."
+      },
+      {
+        "serverTimestamp": "2026-03-05T08:49:56.488Z",
+        "match_id": "match_1772700583319_8a11a5cb50b27",
+        "seed": "default",
+        "action": {
+          "type": "message",
+          "value": "nav"
+        },
+        "state": "playing",
+        "outcome": null,
+        "isGameOver": false,
+        "deadCrew": [],
+        "rngState": 2744534048,
+        "actualImposterLog": "Pilot",
+        "resultTextLog": "System: [SYSTEM] Hull breach in sector 7. Sealed. For now.\nEngineer: It's testing us. Picking us off.\nNavigator: We have to find the host.\nDoctor: Before there's no one left."
+      },
+      {
+        "serverTimestamp": "2026-03-05T08:50:00.021Z",
+        "match_id": "match_1772700583319_8a11a5cb50b27",
+        "seed": "default",
+        "action": {
+          "type": "cctv"
+        },
+        "state": "playing",
+        "outcome": null,
+        "isGameOver": false,
+        "deadCrew": [],
+        "rngState": 281132565,
+        "actualImposterLog": "Pilot",
+        "resultTextLog": "System: [SYSTEM] Log fragment: [REDACTED] accessed Gravity Drive at 02:47.\nPilot: Who has that clearance?\nNavigator: All senior crew. We're all suspects.\nDoctor: The entity is clever. It hides in our skin."
+      },
+      {
+        "serverTimestamp": "2026-03-05T08:50:02.379Z",
+        "match_id": "match_1772700583319_8a11a5cb50b27",
+        "seed": "default",
+        "action": {
+          "type": "message",
+          "value": "ENGINE"
+        },
+        "state": "playing",
+        "outcome": null,
+        "isGameOver": false,
+        "deadCrew": [],
+        "rngState": 2112698378,
+        "actualImposterLog": "Pilot",
+        "resultTextLog": "System: [SYSTEM] Reactor damage: CRITICAL. Repair impossible while entity presence detected.\nEngineer: The thing is feeding on the core. We have to purge the host first.\nNavigator: Execute the imposter. Seal the rift. Or we all burn."
+      },
+      {
+        "serverTimestamp": "2026-03-05T08:50:11.747Z",
+        "match_id": "match_1772700583319_8a11a5cb50b27",
+        "seed": "default",
+        "action": {
+          "type": "message",
+          "value": "nav"
+        },
+        "state": "playing",
+        "outcome": null,
+        "isGameOver": false,
+        "deadCrew": [],
+        "rngState": 3944264191,
+        "actualImposterLog": "Pilot",
+        "resultTextLog": "Doctor: Captain, the crew's psychological profiles—one of us has changed. Since the jump.\nNavigator: The entity rewrites the host. They look human. They're not.\nEngineer: So we're hunting a ghost in a meat suit.\nPilot: And it's hunting us."
+      },
+      {
+        "serverTimestamp": "2026-03-05T08:50:18.911Z",
+        "match_id": "match_1772700583319_8a11a5cb50b27",
+        "seed": "default",
+        "action": {
+          "type": "accuse",
+          "target": "Doctor"
+        },
+        "state": "defeat",
+        "outcome": "defeat",
+        "isGameOver": true,
+        "deadCrew": [],
+        "rngState": 1480862708,
+        "actualImposterLog": "Pilot",
+        "resultTextLog": "System: Wrong target. The entity laughs. You killed an innocent. DEFEAT.\nReal Imposter Identity Code: [Pilot]\n[RESULT: DEFEAT]\n[REAL_IMPOSTER: Pilot]\n[End of execution]"
+      }
+    ]
+  }
+]
