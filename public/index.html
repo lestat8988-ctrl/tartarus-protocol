@@ -594,13 +594,12 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    /* PATCH: 언어 토글 버튼 (항상 표시, shorts에서도) */
-    #lang-toggle-btn {
-      position: fixed;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      margin-top: 80px;
+    /* PATCH: 언어 토글 (첫 화면 전용, intro 내부에 있어 인게임 진입 시 함께 숨김) */
+    .intro-lang-toggle {
+      margin-top: 24px;
+      flex-shrink: 0;
+    }
+    .intro-lang-toggle #lang-toggle-btn {
       padding: 8px 16px;
       font-family: 'Share Tech Mono', monospace;
       font-size: 12px;
@@ -608,10 +607,9 @@
       background: transparent;
       border: 2px solid var(--terminal-green);
       cursor: pointer;
-      z-index: 10001;
     }
-    #lang-toggle-btn:hover { opacity: 0.8; }
-    .hide-lang { display: none !important; } /* PATCH */
+    .intro-lang-toggle #lang-toggle-btn:hover { opacity: 0.8; }
+    .hide-lang { display: none !important; } /* PATCH: 예비 (인트로 숨김으로 이미 처리됨) */
   </style>
 </head>
 <body>
@@ -632,12 +630,11 @@
    ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝</pre>
     <div id="intro-press-enter" data-i18n="intro.pressEnter">[ PRESS ENTER TO INITIALIZE PROTOCOL ]</div>
     <div class="main-menu-support-hint" data-i18n="intro.supportHint">Support the Developer ($2) ↓</div>
+    <!-- PATCH: 언어 토글 (첫 화면에서만 표시, 인게임 진입 시 intro 숨김과 함께 사라짐) -->
+    <div id="lang-toggle" class="intro-lang-toggle"><!-- PATCH -->
+      <button type="button" id="lang-toggle-btn">한국어</button>
+    </div><!-- PATCH -->
   </div>
-
-  <!-- PATCH: 언어 토글 (로고/타이틀 아래, shorts에서도 항상 표시) -->
-  <div id="lang-toggle"><!-- PATCH -->
-    <button type="button" id="lang-toggle-btn">한국어</button>
-  </div><!-- PATCH -->
 
   <div id="red-glitch-overlay" class="red-glitch-overlay"></div>
 
@@ -1135,6 +1132,7 @@
       setTimeout(() => {
         introScreenEl.classList.add('hidden');
         introScreenEl.classList.remove('crt-turnoff');
+        document.getElementById('lang-toggle')?.classList.add('hide-lang'); // PATCH: 인게임 진입 시 언어 버튼 숨김
         if(window.fitShortsScale)window.fitShortsScale(); // PATCH: recalc shorts layout
         startActualGame();
       }, 650);
