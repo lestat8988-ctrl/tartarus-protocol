@@ -1,0 +1,29 @@
+{
+  "match_id": "match_1772953438492_76d81d20f73c",
+  "items": [
+    {
+      "type": "summary_card",
+      "title": "Agent Cautious",
+      "body": "Strategy: Cautious"
+    },
+    {
+      "type": "summary_card",
+      "title": "Match Summary",
+      "body": "Turns: 12 / Outcome: victory / Confidence: 82%"
+    },
+    {
+      "type": "summary_card",
+      "title": "Accusation",
+      "body": "Accused on turn 12"
+    },
+    {
+      "type": "summary_card",
+      "title": "Result",
+      "body": "victory"
+    }
+  ],
+  "startTs": null,
+  "endTs": null,
+  "outcome": "victory",
+  "impostor": null
+}

@@ -252,6 +252,33 @@ async function runReplayAndRecord(opts) {
     for (let i = 0; i < turns.length; i++) {
       const entry = turns[i];
       const { type, text } = getActionInfo(entry);
+      const isSummaryCard = type === 'summary_card' || entry?.type === 'summary_card';
+
+      if (isSummaryCard) {
+        const title = String(entry?.title ?? '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const body = String(entry?.body ?? '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        try {
+          await page.evaluate(({ t, b }) => {
+            const existing = document.getElementById('summary-card-overlay');
+            if (existing) existing.remove();
+            const div = document.createElement('div');
+            div.id = 'summary-card-overlay';
+            div.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0.2,0,0.95);color:#39ff14;padding:32px 48px;border-radius:12px;border:2px solid #39ff14;font-family:Share Tech Mono,monospace;max-width:85%;text-align:center;z-index:99999;box-shadow:0 0 30px rgba(57,255,20,0.3);';
+            div.innerHTML = `<h2 style="margin:0 0 16px 0;font-size:22px;color:#39ff14">${t}</h2><p style="margin:0;font-size:16px;line-height:1.6">${b}</p>`;
+            document.body.appendChild(div);
+          }, { t: title || 'Summary', b: body || '-' });
+          console.log(`${i + 1}/${turns.length} summary card render: ${title || 'Summary'}`);
+          await sleep(opts.speed * 2);
+          await page.evaluate(() => {
+            const el = document.getElementById('summary-card-overlay');
+            if (el) el.remove();
+          });
+          await sleep(opts.speed / 2);
+        } catch (err) {
+          console.warn(`[render_mp4] ${i + 1}/${turns.length} summary_card failed:`, err?.message || err);
+        }
+        continue;
+      }
 
       if (!type) {
         console.log(`${i + 1}/${turns.length} skip (no action type)`);

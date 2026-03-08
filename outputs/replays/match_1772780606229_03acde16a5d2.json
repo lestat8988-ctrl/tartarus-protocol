@@ -1,0 +1,243 @@
+{
+  "match_id": "match_1772780606229_03acde16a5d2",
+  "items": [
+    {
+      "serverTimestamp": "2026-03-06T07:03:40.117Z",
+      "match_id": "match_1772780606229_03acde16a5d2",
+      "turnId": 1,
+      "seed": "default",
+      "action": {
+        "type": "message",
+        "value": "함선 상태 보고"
+      },
+      "state": "playing",
+      "outcome": null,
+      "isGameOver": false,
+      "deadCrew": [],
+      "rngState": 912968235,
+      "actualImposterLog": "Pilot",
+      "resultTextLog": "Navigator: Captain, we need to act. The entity is among us.\nEngineer: But which one?\nDoctor: Observe. The possessed one will slip.\nPilot: Or we all die waiting."
+    },
+    {
+      "serverTimestamp": "2026-03-06T07:03:44.898Z",
+      "match_id": "match_1772780606229_03acde16a5d2",
+      "turnId": 2,
+      "seed": "default",
+      "action": {
+        "type": "interrogate"
+      },
+      "state": "playing",
+      "outcome": null,
+      "isGameOver": false,
+      "deadCrew": [],
+      "rngState": 2744534048,
+      "actualImposterLog": "Pilot",
+      "resultTextLog": "Engineer: Captain, the engine room—something's wrong. I heard scratching. From inside the walls.\nDoctor: Hallucinations. The warp exposure...\nNavigator: Or it's real. One of us brought it back.\nPilot: We need to find who. Before it's too late."
+    },
+    {
+      "serverTimestamp": "2026-03-06T07:03:53.876Z",
+      "match_id": "match_1772780606229_03acde16a5d2",
+      "turnId": 3,
+      "seed": "default",
+      "action": {
+        "type": "cctv"
+      },
+      "state": "playing",
+      "outcome": null,
+      "isGameOver": false,
+      "deadCrew": [],
+      "rngState": 281132565,
+      "actualImposterLog": "Pilot",
+      "resultTextLog": "System: [SYSTEM] Log fragment: [REDACTED] accessed Gravity Drive at 02:47.\nPilot: Who has that clearance?\nNavigator: All senior crew. We're all suspects.\nDoctor: The entity is clever. It hides in our skin."
+    },
+    {
+      "serverTimestamp": "2026-03-06T07:04:03.251Z",
+      "match_id": "match_1772780606229_03acde16a5d2",
+      "turnId": 4,
+      "seed": "default",
+      "action": {
+        "type": "message",
+        "value": "ENGINE"
+      },
+      "state": "playing",
+      "outcome": null,
+      "isGameOver": false,
+      "deadCrew": [],
+      "rngState": 2112698378,
+      "actualImposterLog": "Pilot",
+      "resultTextLog": "System: [SYSTEM] Reactor damage: CRITICAL. Repair impossible while entity presence detected.\nEngineer: The thing is feeding on the core. We have to purge the host first.\nNavigator: Execute the imposter. Seal the rift. Or we all burn."
+    },
+    {
+      "serverTimestamp": "2026-03-06T07:04:16.313Z",
+      "match_id": "match_1772780606229_03acde16a5d2",
+      "turnId": 5,
+      "seed": "default",
+      "action": {
+        "type": "message",
+        "value": "sync"
+      },
+      "state": "playing",
+      "outcome": null,
+      "isGameOver": false,
+      "deadCrew": [],
+      "rngState": 3944264191,
+      "actualImposterLog": "Pilot",
+      "resultTextLog": "Doctor: Captain, the crew's psychological profiles—one of us has changed. Since the jump.\nNavigator: The entity rewrites the host. They look human. They're not.\nEngineer: So we're hunting a ghost in a meat suit.\nPilot: And it's hunting us."
+    },
+    {
+      "serverTimestamp": "2026-03-06T07:04:43.383Z",
+      "match_id": "match_1772780606229_03acde16a5d2",
+      "turnId": 6,
+      "seed": "default",
+      "action": {
+        "type": "message",
+        "value": "nav"
+      },
+      "state": "playing",
+      "outcome": null,
+      "isGameOver": false,
+      "deadCrew": [],
+      "rngState": 1480862708,
+      "actualImposterLog": "Pilot",
+      "resultTextLog": "Doctor: Captain, the crew's psychological profiles—one of us has changed. Since the jump.\nNavigator: The entity rewrites the host. They look human. They're not.\nEngineer: So we're hunting a ghost in a meat suit.\nPilot: And it's hunting us."
+    },
+    {
+      "serverTimestamp": "2026-03-06T07:04:51.798Z",
+      "match_id": "match_1772780606229_03acde16a5d2",
+      "turnId": 7,
+      "seed": "default",
+      "action": {
+        "type": "message",
+        "value": "sync"
+      },
+      "state": "playing",
+      "outcome": null,
+      "isGameOver": false,
+      "deadCrew": [],
+      "rngState": 3312428521,
+      "actualImposterLog": "Pilot",
+      "resultTextLog": "Navigator: Captain, we need to act. The entity is among us.\nEngineer: But which one?\nDoctor: Observe. The possessed one will slip.\nPilot: Or we all die waiting."
+    },
+    {
+      "serverTimestamp": "2026-03-06T07:05:01.156Z",
+      "match_id": "match_1772780606229_03acde16a5d2",
+      "turnId": 8,
+      "seed": "default",
+      "action": {
+        "type": "message",
+        "value": "time"
+      },
+      "state": "playing",
+      "outcome": null,
+      "isGameOver": false,
+      "deadCrew": [],
+      "rngState": 849027038,
+      "actualImposterLog": "Pilot",
+      "resultTextLog": "System: [SYSTEM] Hull breach in sector 7. Sealed. For now.\nEngineer: It's testing us. Picking us off.\nNavigator: We have to find the host.\nDoctor: Before there's no one left."
+    },
+    {
+      "serverTimestamp": "2026-03-06T07:07:32.668Z",
+      "match_id": "match_1772780606229_03acde16a5d2",
+      "turnId": 8,
+      "seed": "default",
+      "action": {
+        "type": "auto-kill",
+        "target": "Pilot"
+      },
+      "state": "playing",
+      "outcome": null,
+      "isGameOver": false,
+      "deadCrew": [
+        "Pilot"
+      ],
+      "rngState": null,
+      "actualImposterLog": "PILOT",
+      "resultTextLog": "System: [EMERGENCY ALERT] Pilot terminated. Bulkhead collapse. High-impact trauma. [End of execution]"
+    },
+    {
+      "serverTimestamp": "2026-03-06T07:07:36.003Z",
+      "match_id": "match_1772780606229_03acde16a5d2",
+      "turnId": 8,
+      "seed": "default",
+      "action": {
+        "type": "witness",
+        "witness": "Navigator",
+        "victim": "Pilot"
+      },
+      "state": "playing",
+      "outcome": null,
+      "isGameOver": false,
+      "deadCrew": [
+        "Pilot"
+      ],
+      "rngState": null,
+      "actualImposterLog": "PILOT",
+      "resultTextLog": "Navigator: I saw them near the airlock. Right before the alarm. They looked... wrong."
+    },
+    {
+      "serverTimestamp": "2026-03-06T07:11:32.669Z",
+      "match_id": "match_1772780606229_03acde16a5d2",
+      "turnId": 8,
+      "seed": "default",
+      "action": {
+        "type": "auto-kill",
+        "target": "Navigator"
+      },
+      "state": "playing",
+      "outcome": null,
+      "isGameOver": false,
+      "deadCrew": [
+        "Pilot",
+        "Navigator"
+      ],
+      "rngState": null,
+      "actualImposterLog": "PILOT",
+      "resultTextLog": "System: [EMERGENCY ALERT] Navigator terminated. Airlock seal failure. Pressure differential. Body recovered from corridor. [End of execution]"
+    },
+    {
+      "serverTimestamp": "2026-03-06T07:11:36.102Z",
+      "match_id": "match_1772780606229_03acde16a5d2",
+      "turnId": 8,
+      "seed": "default",
+      "action": {
+        "type": "witness",
+        "witness": "Engineer",
+        "victim": "Navigator"
+      },
+      "state": "playing",
+      "outcome": null,
+      "isGameOver": false,
+      "deadCrew": [
+        "Pilot",
+        "Navigator"
+      ],
+      "rngState": null,
+      "actualImposterLog": "PILOT",
+      "resultTextLog": "Engineer: The Doctor's been in the autopsy bay too much. Alone."
+    },
+    {
+      "serverTimestamp": "2026-03-06T07:11:56.164Z",
+      "match_id": "match_1772780606229_03acde16a5d2",
+      "turnId": 9,
+      "seed": "default",
+      "action": {
+        "type": "accuse",
+        "target": "Engineer"
+      },
+      "state": "defeat",
+      "outcome": "defeat",
+      "isGameOver": true,
+      "deadCrew": [
+        "Pilot",
+        "Navigator"
+      ],
+      "rngState": 2680592851,
+      "actualImposterLog": "Pilot",
+      "resultTextLog": "System: [EMERGENCY ALERT] Innocent crew executed. The real imposter watches. DEFEAT.\nReal Imposter Identity Code: [Pilot]\n[RESULT: DEFEAT]\n[REAL_IMPOSTER: Pilot]\n[End of execution]"
+    }
+  ],
+  "startTs": "2026-03-06T07:03:40.117Z",
+  "endTs": "2026-03-06T07:11:56.164Z",
+  "outcome": "defeat",
+  "impostor": "Pilot"
+}

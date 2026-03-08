@@ -1,0 +1,29 @@
+{
+  "match_id": "match_1772953515090_e2bd7637cb3b7",
+  "items": [
+    {
+      "type": "summary_card",
+      "title": "Agent Rush",
+      "body": "Strategy: Rush"
+    },
+    {
+      "type": "summary_card",
+      "title": "Match Summary",
+      "body": "Turns: 6 / Outcome: victory / Confidence: 85%"
+    },
+    {
+      "type": "summary_card",
+      "title": "Accusation",
+      "body": "Accused on turn 6"
+    },
+    {
+      "type": "summary_card",
+      "title": "Result",
+      "body": "victory"
+    }
+  ],
+  "startTs": null,
+  "endTs": null,
+  "outcome": "victory",
+  "impostor": null
+}

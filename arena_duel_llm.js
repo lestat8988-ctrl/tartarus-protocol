@@ -5,6 +5,11 @@
  *   npx vercel dev 켜고
  *   MATCHES=3 node arena_duel_llm.js
  *
+ * 후처리 옵션 (opt-in):
+ *   --post-pipeline   대전 종료 후 run_pipeline.js 자동 실행
+ *   --post-compare    --post-pipeline 시 --compare 추가
+ *   --post-top <N>    파이프라인 --top 값 (기본 10)
+ *
  * action 포맷: arena_duel.js / api/play.js actionToEngineFormat()와 동일
  * - SCAN -> { type: 'interrogate' }
  * - ACCUSE -> { type: 'accuse', target: 'Navigator'|'Engineer'|'Doctor'|'Pilot' }
@@ -13,6 +18,7 @@ require('dotenv').config();
 
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const { createClient } = require('@supabase/supabase-js');
 
 const CREW = ['Navigator', 'Engineer', 'Doctor', 'Pilot'];
@@ -20,9 +26,18 @@ const TARGET_WHITELIST = ['Doctor', 'Engineer', 'Navigator'];
 const FORCE_TURN = 20;
 const MIN_TURN_FOR_CONF_FORCE = 10;
 const CONF_FORCE = 0.85;
+// Rush: 4턴 전후 무지성 accuse 방지 (최소 턴/confidence 기준)
+const RUSH_MIN_ACCUSE_TURN = 6;
+const RUSH_MIN_ACCUSE_CONF = 0.72;
+// Cautious: SCAN 무한 반복 방지, forced accuse 직전까지 가는 비율 감소
+const CAUTIOUS_FORCE_TURN = 17;
+const CAUTIOUS_MIN_TURN_FOR_CONF = 12;
+const CAUTIOUS_CONF_FORCE = 0.70;
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3000';
 const MATCHES = parseInt(process.env.MATCHES || '3', 10);
 const SECRET = process.env.TARTARUS_SECRET;
+
+const ERROR_REASON_PATTERN = /^(parse_failed|openai_error|openrouter_error|openai_http|openrouter_http|.*timeout|agent_decide_failed|decide_failed)/i;
 
 function newMatchId() {
   return 'match_' + Date.now() + '_' + Math.random().toString(16).slice(2);
@@ -65,14 +80,36 @@ function decisionToPlayAction(decision) {
   return { type: 'interrogate' };
 }
 
-function buildObservation(prevResult, turn) {
+function buildObservation(prevResult, turn, agentType, recentTurns, lastReason) {
+  let base;
   if (!prevResult) {
-    return `Turn ${turn}. Game start. Crew: ${CREW.join(', ')}. No dead crew. No previous results.`;
+    base = `Turn ${turn}. Game start. Crew: ${CREW.join(', ')}. No dead crew. No previous results.`;
+  } else {
+    const text = (prevResult.resultText || prevResult.result || '').slice(0, 800);
+    const dead = Array.isArray(prevResult.deadCrew) ? prevResult.deadCrew : [];
+    const state = prevResult.state || 'playing';
+    base = `Turn ${turn}. Previous result (${state}):\n${text}\n\nDead crew: ${dead.join(', ') || 'none'}`;
   }
-  const text = (prevResult.resultText || prevResult.result || '').slice(0, 800);
-  const dead = Array.isArray(prevResult.deadCrew) ? prevResult.deadCrew : [];
-  const state = prevResult.state || 'playing';
-  return `Turn ${turn}. Previous result (${state}):\n${text}\n\nDead crew: ${dead.join(', ') || 'none'}`;
+  const hints = [];
+  if (agentType === 'Rush') {
+    hints.push(`[Rush] Do not accuse before turn ${RUSH_MIN_ACCUSE_TURN} unless confidence>=${RUSH_MIN_ACCUSE_CONF}. Gather info first.`);
+  } else if (agentType === 'Cautious') {
+    hints.push(`[Cautious] After turn ${CAUTIOUS_MIN_TURN_FOR_CONF}, narrow to top suspect. Consider ACCUSE before turn ${CAUTIOUS_FORCE_TURN}.`);
+    if (turn >= 14) hints.push('Late game: pick your top suspect and ACCUSE if you have any lead.');
+  }
+  const last3 = (recentTurns || []).slice(-3);
+  const scanCount = last3.filter((t) => String(t?.actionType || '').toUpperCase() === 'SCAN').length;
+  if (scanCount >= 3) {
+    hints.push('[Diversity] You have SCANned 3+ turns in a row. Consider narrowing suspects or ACCUSE if you have a lead.');
+  }
+  if (lastReason && String(lastReason).trim().length > 0 && turn > 2) {
+    const prev = String(lastReason).slice(0, 80);
+    hints.push(`[Vary] Last reason: "${prev}${prev.length >= 80 ? '...' : ''}". Use a different reason if possible.`);
+  }
+  if (hints.length > 0) {
+    base += '\n\n' + hints.join(' ');
+  }
+  return base;
 }
 
 async function fetchWithRetry(url, options, maxRetries = 1) {
@@ -145,7 +182,23 @@ async function callPlay(baseUrl, body) {
   );
 }
 
-async function runMatch(agentType, matchIndex, rt) {
+function extractReasonAndError(decision) {
+  const raw = String(decision?.reason ?? '').trim();
+  const isError = ERROR_REASON_PATTERN.test(raw);
+  return {
+    reason: isError ? null : (raw || 'missing_reason'),
+    llm_error: isError ? raw : null,
+    parse_error: isError && /parse_failed/i.test(raw)
+  };
+}
+
+function getAccuseThreshold(agentType) {
+  if (agentType === 'Rush') return { minTurn: RUSH_MIN_ACCUSE_TURN, minConf: RUSH_MIN_ACCUSE_CONF };
+  if (agentType === 'Cautious') return { forceTurn: CAUTIOUS_FORCE_TURN, minTurn: CAUTIOUS_MIN_TURN_FOR_CONF, minConf: CAUTIOUS_CONF_FORCE };
+  return { forceTurn: FORCE_TURN, minTurn: MIN_TURN_FOR_CONF_FORCE, minConf: CONF_FORCE };
+}
+
+async function runMatch(agentType, matchIndex, rt, detailedEvents) {
   const matchId = newMatchId();
   const agentId = agentType === 'Rush' ? 'Agent_Rush' : 'Agent_Cautious';
   const policy = agentType === 'Rush' ? 'RUSH' : 'CAUTIOUS';
@@ -160,6 +213,8 @@ async function runMatch(agentType, matchIndex, rt) {
   let finalConfidence = 0.5;
   let prevResult = null;
   const maxTurns = 25;
+  let scanCountSoFar = 0;
+  let repeatedScanCount = 0;
 
   const arenaMeta = {
     turns: 0, accuseTurn: null, finalConfidence: null, finalReason: null,
@@ -179,10 +234,11 @@ async function runMatch(agentType, matchIndex, rt) {
     turns++;
     arenaMeta.turns = turns;
 
-    const obsText = buildObservation(prevResult, turns);
+    const obsText = buildObservation(prevResult, turns, agentType, recentTurns, lastReason);
     const observation = { text: obsText, recentTurns: recentTurns.slice(-3) };
 
     let decision;
+    let fallbackUsed = false;
     try {
       decision = await callAgentDecide(BASE_URL, {
         match_id: matchId,
@@ -192,19 +248,39 @@ async function runMatch(agentType, matchIndex, rt) {
         policy
       });
     } catch (e) {
+      fallbackUsed = true;
       decision = { action: { type: 'SCAN', target: null }, confidence: 0.5, reason: 'decide_failed', suspectRanking: [] };
     }
 
-    const modelAction = String(decision.action?.type || 'SCAN').toUpperCase();
-    const modelTarget = decision.action?.target != null ? decision.action.target : null;
-    const conf = typeof decision.confidence === 'number' && !Number.isNaN(decision.confidence)
+    let modelAction = String(decision.action?.type || 'SCAN').toUpperCase();
+    let modelTarget = decision.action?.target != null ? decision.action.target : null;
+    let conf = typeof decision.confidence === 'number' && !Number.isNaN(decision.confidence)
       ? Math.max(0, Math.min(1, decision.confidence))
       : 0.5;
     arenaMeta.finalConfidence = conf;
     finalConfidence = conf;
 
-    // 강제고발: Rush/Cautious 공통, 매 턴 실행. Agent_Rush도 turn 20/25에서 forcedAccuse:true
-    const shouldForce = (turns >= FORCE_TURN) || (turns >= MIN_TURN_FOR_CONF_FORCE && conf >= CONF_FORCE) || (turns >= maxTurns);
+    // Rush: 조기 accuse 차단 (turn<=5, conf 부족 시 SCAN으로 전환)
+    if (agentType === 'Rush' && modelAction === 'ACCUSE' && accuseTurn == null && turns < RUSH_MIN_ACCUSE_TURN) {
+      if (conf < RUSH_MIN_ACCUSE_CONF) {
+        modelAction = 'SCAN';
+        modelTarget = null;
+        conf = Math.min(conf, 0.84);
+        decision.action = { type: 'SCAN', target: null };
+        decision.confidence = conf;
+        arenaMeta.finalConfidence = conf;
+        finalConfidence = conf;
+        decision.reason = (decision.reason || '').replace(/\s*\[RUSH_EARLY_BLOCK\]\s*$/, '').trim() + ' [RUSH_EARLY_BLOCK]';
+      }
+    }
+
+    // Cautious: 후반부(12턴+)에서 SCAN만 반복 시 confidence 보정 (의사결정에 영향 없음, forced accuse만 앞당김)
+    const cautiousForceTurn = agentType === 'Cautious' ? CAUTIOUS_FORCE_TURN : FORCE_TURN;
+    const cautiousMinTurn = agentType === 'Cautious' ? CAUTIOUS_MIN_TURN_FOR_CONF : MIN_TURN_FOR_CONF_FORCE;
+    const cautiousConf = agentType === 'Cautious' ? CAUTIOUS_CONF_FORCE : CONF_FORCE;
+
+    // 강제고발: agentType별 파라미터 적용
+    const shouldForce = (turns >= cautiousForceTurn) || (turns >= cautiousMinTurn && conf >= cautiousConf) || (turns >= maxTurns);
     let forcedAccuse = !!(decision.forcedAccuse || decision.forced_accuse || (shouldForce && modelAction !== 'ACCUSE' && accuseTurn == null));
     if (shouldForce && modelAction !== 'ACCUSE' && accuseTurn == null) {
       matchForcedAccuse = true;
@@ -243,6 +319,35 @@ async function runMatch(agentType, matchIndex, rt) {
     }
 
     arenaMeta.finalReason = accuseReason || lastReason || 'missing_reason';
+
+    if (actionType === 'SCAN') {
+      scanCountSoFar++;
+      repeatedScanCount++;
+    } else {
+      repeatedScanCount = 0;
+    }
+    const { reason: logReason, llm_error: logError, parse_error: parseError } = extractReasonAndError(decision);
+    const accuseThreshold = getAccuseThreshold(agentType);
+    if (Array.isArray(detailedEvents)) {
+      detailedEvents.push({
+        match_id: matchId,
+        turn: turns,
+        agent_id: agentId,
+        agentType,
+        actionType,
+        decisionTarget: decisionTarget || null,
+        confidence: Math.round(conf * 100) / 100,
+        forcedAccuse,
+        reason: logReason,
+        scanCountSoFar,
+        repeatedScanCount,
+        accuseThreshold,
+        llm_error: logError || null,
+        parse_error: parseError || null,
+        fallback_used: fallbackUsed || !!logError,
+        timestamp: new Date().toISOString()
+      });
+    }
 
     const ranking = Array.isArray(decision.suspectRanking) ? decision.suspectRanking : [];
     const topSuspect = canonicalTarget(ranking[0]) || canonicalTarget(decisionTarget);
@@ -356,6 +461,18 @@ async function runMatch(agentType, matchIndex, rt) {
 
     if (result.isGameOver) {
       const outcome = result.outcome || result.state || 'unknown';
+      if (Array.isArray(detailedEvents)) {
+        detailedEvents.push({
+          match_id: matchId,
+          event: 'match_end',
+          outcome,
+          accuseTurn: accuseTurn ?? turns,
+          turns,
+          agent_id: agentId,
+          agentType,
+          timestamp: new Date().toISOString()
+        });
+      }
       broadcastGameover(rt, {
         ts: new Date().toISOString(),
         match_id: matchId,
@@ -379,6 +496,18 @@ async function runMatch(agentType, matchIndex, rt) {
     }
   }
 
+  if (Array.isArray(detailedEvents)) {
+    detailedEvents.push({
+      match_id: matchId,
+      event: 'match_end',
+      outcome: 'timeout',
+      accuseTurn: accuseTurn ?? maxTurns,
+      turns: maxTurns,
+      agent_id: agentId,
+      agentType,
+      timestamp: new Date().toISOString()
+    });
+  }
   broadcastGameover(rt, {
     ts: new Date().toISOString(),
     match_id: matchId,
@@ -399,6 +528,17 @@ async function runMatch(agentType, matchIndex, rt) {
     finalConfidence,
     accuseTurn: accuseTurn ?? maxTurns
   };
+}
+
+function parsePostOpts() {
+  const args = process.argv.slice(2);
+  const opts = { pipeline: false, compare: false, top: 10 };
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--post-pipeline') opts.pipeline = true;
+    else if (args[i] === '--post-compare') opts.compare = true;
+    else if (args[i] === '--post-top' && args[i + 1]) opts.top = Math.max(1, parseInt(args[++i], 10) || 10);
+  }
+  return opts;
 }
 
 async function main() {
@@ -431,10 +571,11 @@ async function main() {
     }
   }
 
+  const detailedEvents = [];
   for (let i = 0; i < MATCHES; i++) {
     const agentType = i % 2 === 0 ? 'Rush' : 'Cautious';
     try {
-      const r = await runMatch(agentType, i, rt);
+      const r = await runMatch(agentType, i, rt, detailedEvents);
       results.push({ ...r, createdAt: new Date().toISOString() });
       console.log('[arena_llm]', i + 1, '/', MATCHES, agentType, 'outcome:', r.outcome, 'turns:', r.turns);
     } catch (e) {
@@ -495,7 +636,41 @@ async function main() {
   fs.mkdirSync(logsDir, { recursive: true });
   const outPath = path.join(logsDir, 'arena_duel_llm_' + runId + '.json');
   fs.writeFileSync(outPath, JSON.stringify(output, null, 2), 'utf8');
-  console.log('[arena_llm] saved: logs/arena_duel_llm_' + runId + '.json');
+  console.log('[arena_llm] saved summary: logs/arena_duel_llm_' + runId + '.json');
+
+  const detailedPath = path.join(logsDir, 'arena_duel_llm_' + runId + '_detailed.jsonl');
+  try {
+    const jsonlContent = detailedEvents.map((e) => JSON.stringify(e)).join('\n');
+    fs.writeFileSync(detailedPath, jsonlContent || '', 'utf8');
+    console.log('[arena_llm] saved detailed: logs/arena_duel_llm_' + runId + '_detailed.jsonl');
+  } catch (e) {
+    console.warn('[arena_llm] detailed log save failed (summary preserved):', e?.message || e);
+  }
+
+  const finalArenaLogPath = path.resolve(outPath);
+  const postOpts = parsePostOpts();
+
+  if (postOpts.pipeline) {
+    const pipelineScript = path.join(process.cwd(), 'scripts', 'run_pipeline.js');
+    const pipelineArgs = ['--input', finalArenaLogPath, '--tag', 'ai', '--top', String(postOpts.top)];
+    if (postOpts.compare) pipelineArgs.push('--compare');
+
+    console.log('[autopipeline] latest arena log:', finalArenaLogPath);
+    console.log('[autopipeline] running run_pipeline.js ...');
+    console.log('[autopipeline] command: node scripts/run_pipeline.js', pipelineArgs.join(' '));
+
+    const r = spawnSync('node', [pipelineScript, ...pipelineArgs], {
+      cwd: process.cwd(),
+      stdio: 'inherit',
+      env: { ...process.env, BASE_URL }
+    });
+
+    if (r.status === 0) {
+      console.log('[autopipeline] done');
+    } else {
+      console.warn('[autopipeline] failed but arena log preserved');
+    }
+  }
 }
 
 main().catch((e) => {

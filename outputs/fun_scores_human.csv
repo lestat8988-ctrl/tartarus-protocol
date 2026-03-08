@@ -1,0 +1,4 @@
+rank,score,play_type,log_format,immersion_score,reasons,match_id,turns,channels_count,accused,winner,completed,impostor
+1,8,human,detailed,2,"defeat_bonus;turn_mild_penalty;channel_diversity;late_accuse;suspect_reversal;event_density_ok;human_question_tension","match_1772873330142_b7d3e047ee057",9,6,"Engineer","defeat",true,"Pilot"
+2,8,human,detailed,2,"defeat_bonus;turn_mild_penalty;channel_diversity;late_accuse;suspect_reversal;event_density_ok;human_question_tension","match_1772875148831_862d0b2f5a58e8",9,6,"Engineer","defeat",true,"Pilot"
+3,8,human,detailed,2,"defeat_bonus;turn_mild_penalty;channel_diversity;late_accuse;suspect_reversal;event_density_ok;human_question_tension","match_1772875224506_d9266f9665fce8",9,6,"Engineer","defeat",true,"Pilot"

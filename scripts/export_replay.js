@@ -63,6 +63,31 @@ function getMatchId(entry) {
   return id != null && String(id).trim() !== '' ? String(id).trim() : null;
 }
 
+function isArenaSummary(items) {
+  if (!items || items.length === 0) return false;
+  const first = items[0];
+  return first.agentType != null && first.outcome != null && first.action == null;
+}
+
+function buildSummaryCardEvents(items) {
+  const raw = items[0];
+  const events = [];
+  const agentType = String(raw.agentType ?? raw.agent_id ?? 'Agent').replace(/^Agent_?/i, '') || 'Agent';
+  const turns = raw.turns ?? 0;
+  const outcome = String(raw.outcome ?? '?');
+  const conf = raw.finalConfidence != null ? `${Math.round(raw.finalConfidence * 100)}%` : '?';
+  const accuseTurn = raw.accuseTurn ?? null;
+
+  events.push({ type: 'summary_card', title: `Agent ${agentType}`, body: `Strategy: ${agentType}` });
+  events.push({ type: 'summary_card', title: 'Match Summary', body: `Turns: ${turns} / Outcome: ${outcome} / Confidence: ${conf}` });
+  if (accuseTurn != null) {
+    events.push({ type: 'summary_card', title: 'Accusation', body: `Accused on turn ${accuseTurn}` });
+  }
+  events.push({ type: 'summary_card', title: 'Result', body: outcome });
+
+  return events;
+}
+
 function extractItemsFromLog(logPath, targetMatchId) {
   const items = [];
   let parseFailCount = 0;
@@ -125,27 +150,38 @@ function main() {
 
   for (const mid of matchIds) {
     const item = arr.find((h) => (h?.match_id ?? h?.matchId) === mid);
-    const logPath = resolveLogFile(item || {});
+    let items = [];
 
-    if (!logPath || !fs.existsSync(logPath)) {
-      console.error('[export_replay] No log file for match_id:', mid);
-      continue;
+    if (item?.entries && Array.isArray(item.entries) && item.entries.length > 0) {
+      items = item.entries;
+    } else {
+      const logPath = resolveLogFile(item || {});
+      if (!logPath || !fs.existsSync(logPath)) {
+        console.error('[export_replay] No log file for match_id:', mid);
+        continue;
+      }
+      const extracted = extractItemsFromLog(logPath, mid);
+      items = extracted.items;
+      totalParseFails += extracted.parseFailCount;
     }
-
-    const { items, parseFailCount } = extractItemsFromLog(logPath, mid);
-    totalParseFails += parseFailCount;
 
     if (items.length === 0) {
       console.error('[export_replay] No matching entries for match_id:', mid);
       continue;
     }
 
+    let rawFirst = items[0];
+    let rawLast = items[items.length - 1];
+    if (isArenaSummary(items)) {
+      items = buildSummaryCardEvents(items);
+    }
+
     const first = items[0];
     const last = items[items.length - 1];
-    const startTs = first?.serverTimestamp ?? null;
-    const endTs = last?.serverTimestamp ?? null;
-    const outcome = last?.outcome ?? last?.state ?? null;
-    const impostor = last?.actualImposterLog ?? last?.actualImposter ?? null;
+    const startTs = rawFirst?.serverTimestamp ?? first?.serverTimestamp ?? null;
+    const endTs = rawLast?.serverTimestamp ?? last?.serverTimestamp ?? null;
+    const outcome = rawLast?.outcome ?? rawLast?.state ?? last?.outcome ?? last?.state ?? null;
+    const impostor = rawLast?.actualImposterLog ?? rawLast?.actualImposter ?? last?.actualImposterLog ?? last?.actualImposter ?? null;
 
     const payload = {
       match_id: mid,

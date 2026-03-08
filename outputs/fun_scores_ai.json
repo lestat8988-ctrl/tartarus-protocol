@@ -1,0 +1,480 @@
+[
+  {
+    "match_id": "match_1772955686536_05c247c471af1",
+    "score": 4,
+    "play_type": "agent",
+    "log_format": "arena_summary",
+    "immersion_score": 0,
+    "reasons": [
+      "agent_summary_log",
+      "victory_bonus",
+      "confidence_bonus"
+    ],
+    "turns": 8,
+    "channels_used": [],
+    "accused": null,
+    "winner": "victory",
+    "event_count": {
+      "death": 0,
+      "witness": 0,
+      "system": 0,
+      "total": 0
+    },
+    "completed": true,
+    "impostor": null
+  },
+  {
+    "match_id": "match_1772955700055_3d67a9ffadd17",
+    "score": 4,
+    "play_type": "agent",
+    "log_format": "arena_summary",
+    "immersion_score": 0,
+    "reasons": [
+      "agent_summary_log",
+      "victory_bonus",
+      "confidence_bonus"
+    ],
+    "turns": 12,
+    "channels_used": [],
+    "accused": null,
+    "winner": "victory",
+    "event_count": {
+      "death": 0,
+      "witness": 0,
+      "system": 0,
+      "total": 0
+    },
+    "completed": true,
+    "impostor": null
+  },
+  {
+    "match_id": "match_1772955719429_c2b1e1f428272",
+    "score": 0,
+    "play_type": "agent",
+    "log_format": "arena_summary",
+    "immersion_score": 0,
+    "reasons": [
+      "agent_summary_log",
+      "defeat_penalty",
+      "confidence_bonus"
+    ],
+    "turns": 7,
+    "channels_used": [],
+    "accused": null,
+    "winner": "defeat",
+    "event_count": {
+      "death": 0,
+      "witness": 0,
+      "system": 0,
+      "total": 0
+    },
+    "completed": true,
+    "impostor": null
+  },
+  {
+    "match_id": "match_1772955730666_99b484ccc5663",
+    "score": 0,
+    "play_type": "agent",
+    "log_format": "arena_summary",
+    "immersion_score": 0,
+    "reasons": [
+      "agent_summary_log",
+      "defeat_penalty",
+      "confidence_bonus"
+    ],
+    "turns": 12,
+    "channels_used": [],
+    "accused": null,
+    "winner": "defeat",
+    "event_count": {
+      "death": 0,
+      "witness": 0,
+      "system": 0,
+      "total": 0
+    },
+    "completed": true,
+    "impostor": null
+  },
+  {
+    "match_id": "match_1772955749493_9a0f1f8214ae3",
+    "score": 0,
+    "play_type": "agent",
+    "log_format": "arena_summary",
+    "immersion_score": 0,
+    "reasons": [
+      "agent_summary_log",
+      "defeat_penalty",
+      "confidence_bonus"
+    ],
+    "turns": 6,
+    "channels_used": [],
+    "accused": null,
+    "winner": "defeat",
+    "event_count": {
+      "death": 0,
+      "witness": 0,
+      "system": 0,
+      "total": 0
+    },
+    "completed": true,
+    "impostor": null
+  },
+  {
+    "match_id": "match_1772955759039_13dc3020cf552",
+    "score": 0,
+    "play_type": "agent",
+    "log_format": "arena_summary",
+    "immersion_score": 0,
+    "reasons": [
+      "agent_summary_log",
+      "defeat_penalty",
+      "confidence_bonus"
+    ],
+    "turns": 12,
+    "channels_used": [],
+    "accused": null,
+    "winner": "defeat",
+    "event_count": {
+      "death": 0,
+      "witness": 0,
+      "system": 0,
+      "total": 0
+    },
+    "completed": true,
+    "impostor": null
+  },
+  {
+    "match_id": "match_1772955778581_1a894326b450d",
+    "score": 0,
+    "play_type": "agent",
+    "log_format": "arena_summary",
+    "immersion_score": 0,
+    "reasons": [
+      "agent_summary_log",
+      "defeat_penalty",
+      "confidence_bonus"
+    ],
+    "turns": 6,
+    "channels_used": [],
+    "accused": null,
+    "winner": "defeat",
+    "event_count": {
+      "death": 0,
+      "witness": 0,
+      "system": 0,
+      "total": 0
+    },
+    "completed": true,
+    "impostor": null
+  },
+  {
+    "match_id": "match_1772955787624_dc61f7aa69",
+    "score": 0,
+    "play_type": "agent",
+    "log_format": "arena_summary",
+    "immersion_score": 0,
+    "reasons": [
+      "agent_summary_log",
+      "defeat_penalty",
+      "confidence_bonus"
+    ],
+    "turns": 12,
+    "channels_used": [],
+    "accused": null,
+    "winner": "defeat",
+    "event_count": {
+      "death": 0,
+      "witness": 0,
+      "system": 0,
+      "total": 0
+    },
+    "completed": true,
+    "impostor": null
+  },
+  {
+    "match_id": "match_1772955812237_9ad332b877cae",
+    "score": 4,
+    "play_type": "agent",
+    "log_format": "arena_summary",
+    "immersion_score": 0,
+    "reasons": [
+      "agent_summary_log",
+      "victory_bonus",
+      "confidence_bonus"
+    ],
+    "turns": 7,
+    "channels_used": [],
+    "accused": null,
+    "winner": "victory",
+    "event_count": {
+      "death": 0,
+      "witness": 0,
+      "system": 0,
+      "total": 0
+    },
+    "completed": true,
+    "impostor": null
+  },
+  {
+    "match_id": "match_1772955823676_5b167e3b4930a",
+    "score": 4,
+    "play_type": "agent",
+    "log_format": "arena_summary",
+    "immersion_score": 0,
+    "reasons": [
+      "agent_summary_log",
+      "victory_bonus",
+      "confidence_bonus"
+    ],
+    "turns": 12,
+    "channels_used": [],
+    "accused": null,
+    "winner": "victory",
+    "event_count": {
+      "death": 0,
+      "witness": 0,
+      "system": 0,
+      "total": 0
+    },
+    "completed": true,
+    "impostor": null
+  },
+  {
+    "match_id": "match_1772955843370_64c8434a1ade7",
+    "score": 0,
+    "play_type": "agent",
+    "log_format": "arena_summary",
+    "immersion_score": 0,
+    "reasons": [
+      "agent_summary_log",
+      "defeat_penalty",
+      "confidence_bonus"
+    ],
+    "turns": 6,
+    "channels_used": [],
+    "accused": null,
+    "winner": "defeat",
+    "event_count": {
+      "death": 0,
+      "witness": 0,
+      "system": 0,
+      "total": 0
+    },
+    "completed": true,
+    "impostor": null
+  },
+  {
+    "match_id": "match_1772955853258_1323bc59fb3db",
+    "score": 4,
+    "play_type": "agent",
+    "log_format": "arena_summary",
+    "immersion_score": 0,
+    "reasons": [
+      "agent_summary_log",
+      "victory_bonus",
+      "confidence_bonus"
+    ],
+    "turns": 12,
+    "channels_used": [],
+    "accused": null,
+    "winner": "victory",
+    "event_count": {
+      "death": 0,
+      "witness": 0,
+      "system": 0,
+      "total": 0
+    },
+    "completed": true,
+    "impostor": null
+  },
+  {
+    "match_id": "match_1772955871859_6b807a38d77db",
+    "score": 0,
+    "play_type": "agent",
+    "log_format": "arena_summary",
+    "immersion_score": 0,
+    "reasons": [
+      "agent_summary_log",
+      "defeat_penalty",
+      "confidence_bonus"
+    ],
+    "turns": 6,
+    "channels_used": [],
+    "accused": null,
+    "winner": "defeat",
+    "event_count": {
+      "death": 0,
+      "witness": 0,
+      "system": 0,
+      "total": 0
+    },
+    "completed": true,
+    "impostor": null
+  },
+  {
+    "match_id": "match_1772955881013_8a549fe5eecb9",
+    "score": 0,
+    "play_type": "agent",
+    "log_format": "arena_summary",
+    "immersion_score": 0,
+    "reasons": [
+      "agent_summary_log",
+      "defeat_penalty",
+      "confidence_bonus"
+    ],
+    "turns": 12,
+    "channels_used": [],
+    "accused": null,
+    "winner": "defeat",
+    "event_count": {
+      "death": 0,
+      "witness": 0,
+      "system": 0,
+      "total": 0
+    },
+    "completed": true,
+    "impostor": null
+  },
+  {
+    "match_id": "match_1772955898558_a35bd8851e9b2",
+    "score": 4,
+    "play_type": "agent",
+    "log_format": "arena_summary",
+    "immersion_score": 0,
+    "reasons": [
+      "agent_summary_log",
+      "victory_bonus",
+      "confidence_bonus"
+    ],
+    "turns": 6,
+    "channels_used": [],
+    "accused": null,
+    "winner": "victory",
+    "event_count": {
+      "death": 0,
+      "witness": 0,
+      "system": 0,
+      "total": 0
+    },
+    "completed": true,
+    "impostor": null
+  },
+  {
+    "match_id": "match_1772955907909_98e2b363dbc15",
+    "score": -1,
+    "play_type": "agent",
+    "log_format": "arena_summary",
+    "immersion_score": 0,
+    "reasons": [
+      "agent_summary_log",
+      "defeat_penalty"
+    ],
+    "turns": 12,
+    "channels_used": [],
+    "accused": null,
+    "winner": "defeat",
+    "event_count": {
+      "death": 0,
+      "witness": 0,
+      "system": 0,
+      "total": 0
+    },
+    "completed": true,
+    "impostor": null
+  },
+  {
+    "match_id": "match_1772955927065_152e8a5d2ff88",
+    "score": 4,
+    "play_type": "agent",
+    "log_format": "arena_summary",
+    "immersion_score": 0,
+    "reasons": [
+      "agent_summary_log",
+      "victory_bonus",
+      "confidence_bonus"
+    ],
+    "turns": 6,
+    "channels_used": [],
+    "accused": null,
+    "winner": "victory",
+    "event_count": {
+      "death": 0,
+      "witness": 0,
+      "system": 0,
+      "total": 0
+    },
+    "completed": true,
+    "impostor": null
+  },
+  {
+    "match_id": "match_1772955936624_004ec51b05758",
+    "score": 3,
+    "play_type": "agent",
+    "log_format": "arena_summary",
+    "immersion_score": 0,
+    "reasons": [
+      "agent_summary_log",
+      "victory_bonus"
+    ],
+    "turns": 12,
+    "channels_used": [],
+    "accused": null,
+    "winner": "victory",
+    "event_count": {
+      "death": 0,
+      "witness": 0,
+      "system": 0,
+      "total": 0
+    },
+    "completed": true,
+    "impostor": null
+  },
+  {
+    "match_id": "match_1772955954581_3f53265466c74",
+    "score": 0,
+    "play_type": "agent",
+    "log_format": "arena_summary",
+    "immersion_score": 0,
+    "reasons": [
+      "agent_summary_log",
+      "defeat_penalty",
+      "confidence_bonus"
+    ],
+    "turns": 6,
+    "channels_used": [],
+    "accused": null,
+    "winner": "defeat",
+    "event_count": {
+      "death": 0,
+      "witness": 0,
+      "system": 0,
+      "total": 0
+    },
+    "completed": true,
+    "impostor": null
+  },
+  {
+    "match_id": "match_1772955963981_4620b2f27a9c7",
+    "score": 4,
+    "play_type": "agent",
+    "log_format": "arena_summary",
+    "immersion_score": 0,
+    "reasons": [
+      "agent_summary_log",
+      "victory_bonus",
+      "confidence_bonus"
+    ],
+    "turns": 12,
+    "channels_used": [],
+    "accused": null,
+    "winner": "victory",
+    "event_count": {
+      "death": 0,
+      "witness": 0,
+      "system": 0,
+      "total": 0
+    },
+    "completed": true,
+    "impostor": null
+  }
+]

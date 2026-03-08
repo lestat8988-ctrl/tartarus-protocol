@@ -1,0 +1,271 @@
+[
+  {
+    "match_id": "match_1772873330142_b7d3e047ee057",
+    "score": 8,
+    "play_type": "human",
+    "log_format": "detailed",
+    "immersion_score": 2,
+    "reasons": [
+      "defeat_bonus",
+      "turn_mild_penalty",
+      "channel_diversity",
+      "late_accuse",
+      "suspect_reversal",
+      "event_density_ok",
+      "human_question_tension"
+    ],
+    "turns": 9,
+    "channels_used": [
+      "interrogate",
+      "cctv",
+      "engine",
+      "sync",
+      "nav",
+      "time"
+    ],
+    "accused": "Engineer",
+    "winner": "defeat",
+    "event_count": {
+      "death": 1,
+      "witness": 0,
+      "system": 3,
+      "total": 4
+    },
+    "completed": true,
+    "impostor": "Pilot"
+  },
+  {
+    "match_id": "match_1772873366479_9f8408a1367f28",
+    "score": -9,
+    "play_type": "human",
+    "log_format": "detailed",
+    "immersion_score": 1,
+    "reasons": [
+      "incomplete_penalty",
+      "no_accused_penalty",
+      "turn_strong_penalty",
+      "channel_diversity",
+      "event_density_ok"
+    ],
+    "turns": 11,
+    "channels_used": [
+      "interrogate",
+      "cctv",
+      "engine",
+      "nav",
+      "sync",
+      "time"
+    ],
+    "accused": null,
+    "winner": "playing",
+    "event_count": {
+      "death": 0,
+      "witness": 0,
+      "system": 5,
+      "total": 5
+    },
+    "completed": false,
+    "impostor": "Pilot"
+  },
+  {
+    "match_id": "match_1772873409297_62523bc3214788",
+    "score": 5,
+    "play_type": "human",
+    "log_format": "detailed",
+    "immersion_score": 2,
+    "reasons": [
+      "victory_bonus",
+      "turn_strong_penalty",
+      "channel_diversity_mild",
+      "late_accuse",
+      "suspect_reversal",
+      "event_density_ok",
+      "human_engagement"
+    ],
+    "turns": 11,
+    "channels_used": [
+      "interrogate",
+      "cctv",
+      "engine"
+    ],
+    "accused": "Pilot",
+    "winner": "victory",
+    "event_count": {
+      "death": 0,
+      "witness": 0,
+      "system": 3,
+      "total": 3
+    },
+    "completed": true,
+    "impostor": "Pilot"
+  },
+  {
+    "match_id": "match_1772875148831_862d0b2f5a58e8",
+    "score": 8,
+    "play_type": "human",
+    "log_format": "detailed",
+    "immersion_score": 2,
+    "reasons": [
+      "defeat_bonus",
+      "turn_mild_penalty",
+      "channel_diversity",
+      "late_accuse",
+      "suspect_reversal",
+      "event_density_ok",
+      "human_question_tension"
+    ],
+    "turns": 9,
+    "channels_used": [
+      "interrogate",
+      "cctv",
+      "engine",
+      "sync",
+      "nav",
+      "time"
+    ],
+    "accused": "Engineer",
+    "winner": "defeat",
+    "event_count": {
+      "death": 0,
+      "witness": 0,
+      "system": 2,
+      "total": 2
+    },
+    "completed": true,
+    "impostor": "Pilot"
+  },
+  {
+    "match_id": "match_1772875171347_8e04de743c4f88",
+    "score": 5,
+    "play_type": "human",
+    "log_format": "detailed",
+    "immersion_score": 2,
+    "reasons": [
+      "victory_bonus",
+      "turn_strong_penalty",
+      "channel_diversity_mild",
+      "late_accuse",
+      "suspect_reversal",
+      "event_density_ok",
+      "human_engagement"
+    ],
+    "turns": 11,
+    "channels_used": [
+      "interrogate",
+      "cctv",
+      "engine"
+    ],
+    "accused": "Pilot",
+    "winner": "victory",
+    "event_count": {
+      "death": 0,
+      "witness": 0,
+      "system": 3,
+      "total": 3
+    },
+    "completed": true,
+    "impostor": "Pilot"
+  },
+  {
+    "match_id": "match_1772875224506_d9266f9665fce8",
+    "score": 8,
+    "play_type": "human",
+    "log_format": "detailed",
+    "immersion_score": 2,
+    "reasons": [
+      "defeat_bonus",
+      "turn_mild_penalty",
+      "channel_diversity",
+      "late_accuse",
+      "suspect_reversal",
+      "event_density_ok",
+      "human_question_tension"
+    ],
+    "turns": 9,
+    "channels_used": [
+      "interrogate",
+      "cctv",
+      "engine",
+      "sync",
+      "nav",
+      "time"
+    ],
+    "accused": "Engineer",
+    "winner": "defeat",
+    "event_count": {
+      "death": 0,
+      "witness": 0,
+      "system": 2,
+      "total": 2
+    },
+    "completed": true,
+    "impostor": "Pilot"
+  },
+  {
+    "match_id": "match_1772875246221_3546e2a5f364a",
+    "score": 8,
+    "play_type": "human",
+    "log_format": "detailed",
+    "immersion_score": 2,
+    "reasons": [
+      "defeat_bonus",
+      "turn_mild_penalty",
+      "channel_diversity",
+      "late_accuse",
+      "suspect_reversal",
+      "event_density_ok",
+      "human_question_tension"
+    ],
+    "turns": 9,
+    "channels_used": [
+      "interrogate",
+      "cctv",
+      "engine",
+      "sync",
+      "nav",
+      "time"
+    ],
+    "accused": "Engineer",
+    "winner": "defeat",
+    "event_count": {
+      "death": 0,
+      "witness": 0,
+      "system": 2,
+      "total": 2
+    },
+    "completed": true,
+    "impostor": "Pilot"
+  },
+  {
+    "match_id": "match_1772875267288_9fae5fd797e75",
+    "score": 5,
+    "play_type": "human",
+    "log_format": "detailed",
+    "immersion_score": 2,
+    "reasons": [
+      "victory_bonus",
+      "turn_strong_penalty",
+      "channel_diversity_mild",
+      "late_accuse",
+      "suspect_reversal",
+      "event_density_ok",
+      "human_engagement"
+    ],
+    "turns": 11,
+    "channels_used": [
+      "interrogate",
+      "cctv",
+      "engine"
+    ],
+    "accused": "Pilot",
+    "winner": "victory",
+    "event_count": {
+      "death": 0,
+      "witness": 0,
+      "system": 3,
+      "total": 3
+    },
+    "completed": true,
+    "impostor": "Pilot"
+  }
+]

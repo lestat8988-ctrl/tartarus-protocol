@@ -1,0 +1,222 @@
+[
+  {
+    "match_id": "match_1772955686536_05c247c471af1",
+    "score": 4,
+    "turns": 8,
+    "channels_used": [],
+    "accused": null,
+    "winner": "victory",
+    "sourceFile": "logs\\arena_duel_llm_2026-03-08_164126.json",
+    "entries": [
+      {
+        "i": 1,
+        "match_id": "match_1772955686536_05c247c471af1",
+        "agent_id": "Agent_Rush",
+        "agentType": "Rush",
+        "outcome": "victory",
+        "turns": 8,
+        "finalConfidence": 0.85,
+        "accuseTurn": 8,
+        "createdAt": "2026-03-08T07:41:40.055Z"
+      }
+    ]
+  },
+  {
+    "match_id": "match_1772955700055_3d67a9ffadd17",
+    "score": 4,
+    "turns": 12,
+    "channels_used": [],
+    "accused": null,
+    "winner": "victory",
+    "sourceFile": "logs\\arena_duel_llm_2026-03-08_164126.json",
+    "entries": [
+      {
+        "i": 2,
+        "match_id": "match_1772955700055_3d67a9ffadd17",
+        "agent_id": "Agent_Cautious",
+        "agentType": "Cautious",
+        "outcome": "victory",
+        "turns": 12,
+        "finalConfidence": 0.83,
+        "accuseTurn": 12,
+        "createdAt": "2026-03-08T07:41:59.429Z"
+      }
+    ]
+  },
+  {
+    "match_id": "match_1772955812237_9ad332b877cae",
+    "score": 4,
+    "turns": 7,
+    "channels_used": [],
+    "accused": null,
+    "winner": "victory",
+    "sourceFile": "logs\\arena_duel_llm_2026-03-08_164126.json",
+    "entries": [
+      {
+        "i": 9,
+        "match_id": "match_1772955812237_9ad332b877cae",
+        "agent_id": "Agent_Rush",
+        "agentType": "Rush",
+        "outcome": "victory",
+        "turns": 7,
+        "finalConfidence": 0.85,
+        "accuseTurn": 7,
+        "createdAt": "2026-03-08T07:43:43.676Z"
+      }
+    ]
+  },
+  {
+    "match_id": "match_1772955823676_5b167e3b4930a",
+    "score": 4,
+    "turns": 12,
+    "channels_used": [],
+    "accused": null,
+    "winner": "victory",
+    "sourceFile": "logs\\arena_duel_llm_2026-03-08_164126.json",
+    "entries": [
+      {
+        "i": 10,
+        "match_id": "match_1772955823676_5b167e3b4930a",
+        "agent_id": "Agent_Cautious",
+        "agentType": "Cautious",
+        "outcome": "victory",
+        "turns": 12,
+        "finalConfidence": 0.8,
+        "accuseTurn": 12,
+        "createdAt": "2026-03-08T07:44:03.369Z"
+      }
+    ]
+  },
+  {
+    "match_id": "match_1772955853258_1323bc59fb3db",
+    "score": 4,
+    "turns": 12,
+    "channels_used": [],
+    "accused": null,
+    "winner": "victory",
+    "sourceFile": "logs\\arena_duel_llm_2026-03-08_164126.json",
+    "entries": [
+      {
+        "i": 12,
+        "match_id": "match_1772955853258_1323bc59fb3db",
+        "agent_id": "Agent_Cautious",
+        "agentType": "Cautious",
+        "outcome": "victory",
+        "turns": 12,
+        "finalConfidence": 0.8,
+        "accuseTurn": 12,
+        "createdAt": "2026-03-08T07:44:31.859Z"
+      }
+    ]
+  },
+  {
+    "match_id": "match_1772955898558_a35bd8851e9b2",
+    "score": 4,
+    "turns": 6,
+    "channels_used": [],
+    "accused": null,
+    "winner": "victory",
+    "sourceFile": "logs\\arena_duel_llm_2026-03-08_164126.json",
+    "entries": [
+      {
+        "i": 15,
+        "match_id": "match_1772955898558_a35bd8851e9b2",
+        "agent_id": "Agent_Rush",
+        "agentType": "Rush",
+        "outcome": "victory",
+        "turns": 6,
+        "finalConfidence": 0.85,
+        "accuseTurn": 6,
+        "createdAt": "2026-03-08T07:45:07.909Z"
+      }
+    ]
+  },
+  {
+    "match_id": "match_1772955927065_152e8a5d2ff88",
+    "score": 4,
+    "turns": 6,
+    "channels_used": [],
+    "accused": null,
+    "winner": "victory",
+    "sourceFile": "logs\\arena_duel_llm_2026-03-08_164126.json",
+    "entries": [
+      {
+        "i": 17,
+        "match_id": "match_1772955927065_152e8a5d2ff88",
+        "agent_id": "Agent_Rush",
+        "agentType": "Rush",
+        "outcome": "victory",
+        "turns": 6,
+        "finalConfidence": 0.85,
+        "accuseTurn": 6,
+        "createdAt": "2026-03-08T07:45:36.624Z"
+      }
+    ]
+  },
+  {
+    "match_id": "match_1772955963981_4620b2f27a9c7",
+    "score": 4,
+    "turns": 12,
+    "channels_used": [],
+    "accused": null,
+    "winner": "victory",
+    "sourceFile": "logs\\arena_duel_llm_2026-03-08_164126.json",
+    "entries": [
+      {
+        "i": 20,
+        "match_id": "match_1772955963981_4620b2f27a9c7",
+        "agent_id": "Agent_Cautious",
+        "agentType": "Cautious",
+        "outcome": "victory",
+        "turns": 12,
+        "finalConfidence": 0.8,
+        "accuseTurn": 12,
+        "createdAt": "2026-03-08T07:46:22.700Z"
+      }
+    ]
+  },
+  {
+    "match_id": "match_1772955936624_004ec51b05758",
+    "score": 3,
+    "turns": 12,
+    "channels_used": [],
+    "accused": null,
+    "winner": "victory",
+    "sourceFile": "logs\\arena_duel_llm_2026-03-08_164126.json",
+    "entries": [
+      {
+        "i": 18,
+        "match_id": "match_1772955936624_004ec51b05758",
+        "agent_id": "Agent_Cautious",
+        "agentType": "Cautious",
+        "outcome": "victory",
+        "turns": 12,
+        "finalConfidence": 0.75,
+        "accuseTurn": 12,
+        "createdAt": "2026-03-08T07:45:54.581Z"
+      }
+    ]
+  },
+  {
+    "match_id": "match_1772955719429_c2b1e1f428272",
+    "score": 0,
+    "turns": 7,
+    "channels_used": [],
+    "accused": null,
+    "winner": "defeat",
+    "sourceFile": "logs\\arena_duel_llm_2026-03-08_164126.json",
+    "entries": [
+      {
+        "i": 3,
+        "match_id": "match_1772955719429_c2b1e1f428272",
+        "agent_id": "Agent_Rush",
+        "agentType": "Rush",
+        "outcome": "defeat",
+        "turns": 7,
+        "finalConfidence": 0.85,
+        "accuseTurn": 7,
+        "createdAt": "2026-03-08T07:42:10.666Z"
+      }
+    ]
+  }
+]
