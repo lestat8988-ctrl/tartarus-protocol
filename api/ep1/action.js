@@ -12,6 +12,11 @@
 const SECRET = process.env.TARTARUS_SECRET;
 const { getOrCreateMatch, appendEvent, normalizeRole, normalizeAction } = require('./store');
 
+const RECENT_EVENTS_LIMIT = 5;
+
+const ROLE_LABELS = { captain: 'Captain', doctor: 'Doctor', engineer: 'Engineer', navigator: 'Navigator', pilot: 'Pilot' };
+const TARGET_LABELS = { player: 'the captain', captain: 'the captain', doctor: 'the doctor', engineer: 'the engineer', navigator: 'the navigator', pilot: 'the pilot' };
+
 function parseBody(req) {
   const raw = req.body;
   if (raw == null) return {};
@@ -24,6 +29,43 @@ function checkAuth(req) {
   if (!SECRET) return true;
   const h = req.headers['x-tartarus-secret'];
   return h && h === SECRET;
+}
+
+function makeReadableSummary(role, action, target, dialogue) {
+  const r = ROLE_LABELS[role] || role || 'Unknown';
+  const a = String(action || 'WAIT').toUpperCase();
+  const t = target ? (TARGET_LABELS[target.toLowerCase()] || target) : null;
+
+  switch (a) {
+    case 'QUESTION':
+      return t ? `${r} questioned ${t}.` : `${r} asked for clarification.`;
+    case 'OBSERVE':
+      return role === 'captain' ? `${r} observed the bridge.` : `${r} observed the situation.`;
+    case 'CHECK_LOG':
+      return `${r} checked ship logs.`;
+    case 'REPAIR':
+      return `${r} performed repairs.`;
+    case 'ACCUSE':
+      return t ? `${r} accused ${t}.` : `${r} made an accusation.`;
+    case 'WAIT':
+      return `${r} held position.`;
+    default:
+      break;
+  }
+  if (t) return `${r} ${a.toLowerCase()} (target: ${t}).`;
+  const d = (dialogue || '').slice(0, 50);
+  return d ? `${r}: ${d}${d.length >= 50 ? '...' : ''}` : `${r} acted.`;
+}
+
+function getEventType(action) {
+  const a = String(action || 'WAIT').toUpperCase();
+  const types = { QUESTION: 'question', OBSERVE: 'observe', CHECK_LOG: 'check_log', REPAIR: 'repair', ACCUSE: 'accuse', WAIT: 'wait' };
+  return types[a] || 'act';
+}
+
+function recentEvents(events, n = RECENT_EVENTS_LIMIT) {
+  const arr = Array.isArray(events) ? events : [];
+  return arr.slice(-n);
 }
 
 module.exports = async (req, res) => {
@@ -71,22 +113,33 @@ module.exports = async (req, res) => {
   const match = getOrCreateMatch(matchId);
   appendEvent(match, payload);
 
-  const summary = match.public_events.length
-    ? match.public_events[match.public_events.length - 1].summary
-    : `${role} ${action.toLowerCase()}`;
+  if (body.turn != null && role === 'captain') {
+    match.turn = Math.max(match.turn, parseInt(body.turn, 10) || match.turn);
+  }
+
+  const readableSummary = makeReadableSummary(role, action, payload.target, payload.dialogue);
+  if (match.public_events.length > 0) {
+    match.public_events[match.public_events.length - 1].summary = readableSummary;
+  }
+
+  const pub = match.public_events || [];
+  const evts = match.events || [];
 
   return res.status(200).json({
     ok: true,
     server_result: {
       accepted: true,
-      summary,
+      summary: readableSummary,
+      event_type: getEventType(action),
       placeholder: true
     },
     next_state: {
       match_id: match.match_id,
       turn: match.turn,
       phase: match.phase,
-      public_events: match.public_events || []
+      public_events: pub,
+      recent_events: recentEvents(pub, RECENT_EVENTS_LIMIT),
+      events_count: evts.length
     },
     game_over: match.game_over || false,
     outcome: match.outcome ?? null

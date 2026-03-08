@@ -1,7 +1,7 @@
 /**
  * api/ep1/result.js - 1편 전용 결과 조회 API
  * POST body: { match_id }
- * returns: { outcome, game_over, match_id, ... }
+ * returns: { match_id, game_over, outcome, turn, phase, public_events, recent_events, events_count }
  *
  * tartarus_ep1_loop.js getResult()가 호출.
  *
@@ -10,6 +10,8 @@
  */
 const SECRET = process.env.TARTARUS_SECRET;
 const { getOrCreateMatch } = require('./store');
+
+const RECENT_EVENTS_LIMIT = 5;
 
 function parseBody(req) {
   const raw = req.body;
@@ -23,6 +25,11 @@ function checkAuth(req) {
   if (!SECRET) return true;
   const h = req.headers['x-tartarus-secret'];
   return h && h === SECRET;
+}
+
+function recentEvents(events, n = RECENT_EVENTS_LIMIT) {
+  const arr = Array.isArray(events) ? events : [];
+  return arr.slice(-n);
 }
 
 module.exports = async (req, res) => {
@@ -53,11 +60,17 @@ module.exports = async (req, res) => {
   const matchId = body.match_id ?? null;
   const match = getOrCreateMatch(matchId || `ep1_${Date.now()}_anon`);
 
+  const pub = match.public_events || [];
+  const evts = match.events || [];
+
   return res.status(200).json({
-    outcome: match.outcome ?? null,
-    game_over: match.game_over || false,
     match_id: match.match_id,
+    game_over: match.game_over || false,
+    outcome: match.outcome ?? null,
     turn: match.turn,
-    phase: match.phase
+    phase: match.phase,
+    public_events: pub,
+    recent_events: recentEvents(pub, RECENT_EVENTS_LIMIT),
+    events_count: evts.length
   });
 };

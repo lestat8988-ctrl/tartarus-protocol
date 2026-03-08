@@ -1,13 +1,15 @@
 /**
  * api/ep1/state.js - 1편 전용 상태 조회 API
  * POST body: { match_id, turn? }
- * returns: { match_id, turn, phase, location, public_events, crew_status, game_over, outcome }
+ * returns: { match_id, turn, phase, location, public_events, recent_events, events_count, crew_status, game_over, outcome }
  *
  * tartarus_ep1_loop.js getState()가 호출.
  * TODO: 실운영용 durable store 필요
  */
 const SECRET = process.env.TARTARUS_SECRET;
 const { getOrCreateMatch } = require('./store');
+
+const RECENT_EVENTS_LIMIT = 5;
 
 function parseBody(req) {
   const raw = req.body;
@@ -21,6 +23,11 @@ function checkAuth(req) {
   if (!SECRET) return true;
   const h = req.headers['x-tartarus-secret'];
   return h && h === SECRET;
+}
+
+function recentEvents(events, n = RECENT_EVENTS_LIMIT) {
+  const arr = Array.isArray(events) ? events : [];
+  return arr.slice(-n);
 }
 
 module.exports = async (req, res) => {
@@ -49,8 +56,14 @@ module.exports = async (req, res) => {
   }
 
   const matchId = body.match_id ?? null;
-
   const match = getOrCreateMatch(matchId || `ep1_${Date.now()}_anon`);
+
+  if (match.events.length === 0 && match.public_events.length === 0) {
+    match.public_events.push({ turn: 1, summary: 'AXIS emergency briefing initiated.' });
+  }
+
+  const pub = match.public_events || [];
+  const evts = match.events || [];
 
   return res.status(200).json({
     state: match.phase,
@@ -58,7 +71,9 @@ module.exports = async (req, res) => {
     turn: match.turn,
     phase: match.phase,
     location: match.location,
-    public_events: match.public_events || [],
+    public_events: pub,
+    recent_events: recentEvents(pub, RECENT_EVENTS_LIMIT),
+    events_count: evts.length,
     crew_status: match.crew_status || {},
     game_over: match.game_over || false,
     outcome: match.outcome ?? null
