@@ -6,6 +6,10 @@
  * tartarus_ep1_loop.js submitAction()가 호출.
  * game_over / outcome 반환 시 루프 즉시 중단.
  *
+ * dialogue vs summary 분리:
+ * - summary: action/role 기반 helper로 public_events용 생성. dialogue를 덮어쓰지 않음.
+ * - dialogue: req.body 또는 fallback. 빈 문자열 저장 금지.
+ *
  * TODO: clue resolution, accuse resolution, pistol/fire resolution, death/win-loss resolution, hidden truth
  */
 const SECRET = process.env.TARTARUS_SECRET;
@@ -15,6 +19,7 @@ const {
   getRecentEventsForCurrentTurn,
   getEventsCount,
   getPublicEvents,
+  formatEventForResponse,
   normalizeRole,
   normalizeAction
 } = require('./store');
@@ -22,6 +27,69 @@ const {
 const ROLE_KO = { captain: '함장', doctor: '의사', engineer: '엔지니어', navigator: '네비게이터', pilot: '파일럿' };
 const TARGET_KO = { player: '함장', captain: '함장', doctor: '의사', engineer: '엔지니어', navigator: '네비게이터', pilot: '파일럿' };
 const ROLE_SUBJECT_KO = { captain: '함장이', doctor: '의사가', engineer: '엔지니어가', navigator: '네비게이터가', pilot: '파일럿이' };
+
+const CREW_DIALOGUE_FALLBACK_KO = {
+  doctor: '승무원들의 반응을 먼저 살펴보겠습니다.',
+  engineer: '시스템 상태와 로그를 다시 확인해 보겠습니다.',
+  navigator: '각자의 위치와 동선을 다시 짚어보겠습니다.',
+  pilot: '브리지의 분위기와 변화를 다시 느껴보겠습니다.'
+};
+
+const CAPTAIN_DIALOGUE_FALLBACK_KO = '브리지 상황을 확인한다.';
+
+const CREW_ROLES = new Set(['doctor', 'engineer', 'navigator', 'pilot']);
+
+function isEmptyDialogue(s) {
+  if (s == null) return true;
+  if (typeof s !== 'string') return true;
+  return s.trim() === '';
+}
+
+function looksLikeEnglishTestString(s) {
+  if (!s || typeof s !== 'string') return false;
+  const t = s.trim();
+  if (t.length < 10) return false;
+  const lower = t.toLowerCase();
+  if (/witnessed the murder of|identity code|\[witness\]|\[auto-kill\]/i.test(lower)) return true;
+  if (/engineer.*navigator|navigator.*engineer|doctor.*pilot/i.test(lower)) return true;
+  const alphaRatio = (t.match(/[a-zA-Z]/g) || []).length / Math.max(1, t.length);
+  const hasKo = /[가-힣]/.test(t);
+  return alphaRatio > 0.7 && !hasKo;
+}
+
+function getCaptainDialogueFromBody(body) {
+  const candidates = [
+    body.dialogue,
+    body.command,
+    body.input,
+    body.text,
+    body.message
+  ].filter((x) => x != null && typeof x === 'string' && x.trim() !== '');
+  const raw = candidates[0] ? String(candidates[0]).trim() : '';
+  if (isEmptyDialogue(raw)) return null;
+  if (looksLikeEnglishTestString(raw)) return null;
+  return raw;
+}
+
+function resolveDialogueForPayload(body, role) {
+  const raw = body.dialogue ?? body.command ?? body.input ?? body.text ?? body.message ?? '';
+  const s = (raw != null && typeof raw === 'string') ? String(raw).trim() : '';
+
+  if (role === 'captain') {
+    const captainDialogue = getCaptainDialogueFromBody(body);
+    if (captainDialogue) return captainDialogue;
+    if (looksLikeEnglishTestString(s)) return CAPTAIN_DIALOGUE_FALLBACK_KO;
+    return isEmptyDialogue(s) ? CAPTAIN_DIALOGUE_FALLBACK_KO : s;
+  }
+
+  if (CREW_ROLES.has(role)) {
+    if (!isEmptyDialogue(s) && !looksLikeEnglishTestString(s)) return s;
+    return CREW_DIALOGUE_FALLBACK_KO[role] || '상황을 확인하겠습니다.';
+  }
+
+  if (!isEmptyDialogue(s) && !looksLikeEnglishTestString(s)) return s;
+  return '상황을 확인하겠습니다.';
+}
 
 function subjectKo(role) {
   return ROLE_SUBJECT_KO[role] || (ROLE_KO[role] || role || '승무원') + '가';
@@ -141,13 +209,14 @@ module.exports = async (req, res) => {
   const role = normalizeRole(body.role) ?? body.role ?? 'captain';
   const action = normalizeAction(body.action);
 
+  const dialogue = resolveDialogueForPayload(body, role);
   const payload = {
     actor: body.actor ?? null,
     role,
     action,
     target: body.target ?? null,
     reason: body.reason ?? null,
-    dialogue: body.dialogue ?? null
+    dialogue: dialogue || '상황을 확인하겠습니다.'
   };
 
   const match = await getOrCreateMatch(matchId);
@@ -166,13 +235,11 @@ module.exports = async (req, res) => {
   const updatedMatch = await getOrCreateMatch(matchId);
   const pub = await getPublicEvents(matchId);
   const recentRaw = await getRecentEventsForCurrentTurn(matchId);
-  const recent_events = recentRaw.map((e) => ({
-    turn: e.turn,
-    actor: e.actor,
-    role: e.role,
-    action: e.action,
-    summary: e.server_result?.summary || summaryFallbackKo(e.role, e.action)
-  }));
+  const recent_events = recentRaw.map((e) => {
+    const base = formatEventForResponse(e);
+    if (base && !base.summary) base.summary = summaryFallbackKo(e.role, e.action);
+    return base;
+  }).filter(Boolean);
   const events_count = await getEventsCount(matchId);
 
   return res.status(200).json({
