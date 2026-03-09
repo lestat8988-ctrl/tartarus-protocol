@@ -881,21 +881,23 @@
       }
     }
 
-    async function ep1CallAction(payload) {
+    async function ep1CallAction(payload, opts) {
       if (!MATCH_ID) { MATCH_ID = newMatchId(); }
+      const isCrew = opts && opts.role && opts.role !== 'captain';
+      const body = {
+        match_id: MATCH_ID,
+        turn: currentTurn,
+        actor: isCrew ? `agent_${opts.role}` : 'captain',
+        role: isCrew ? opts.role : 'captain',
+        action: payload.action,
+        target: payload.target ?? null,
+        reason: payload.reason || (isCrew ? 'crew_fallback' : 'player_input'),
+        dialogue: payload.dialogue ?? null
+      };
       const res = await fetch('/api/ep1/action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          match_id: MATCH_ID,
-          turn: currentTurn,
-          actor: 'captain',
-          role: 'captain',
-          action: payload.action,
-          target: payload.target,
-          reason: payload.reason || 'player_input',
-          dialogue: payload.dialogue || null
-        })
+        body: JSON.stringify(body)
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -904,11 +906,13 @@
       }
       return data;
     }
-    async function ep1CallState() {
+    async function ep1CallState(viewerRole) {
+      const body = { match_id: MATCH_ID, turn: currentTurn };
+      if (viewerRole) body.viewer_role = viewerRole;
       const res = await fetch('/api/ep1/state', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ match_id: MATCH_ID })
+        body: JSON.stringify(body)
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -948,37 +952,57 @@
       }
     }
 
+    // crew role별 fallback 결정 (LLM 없이 웹에서 사용)
+    const CREW_FALLBACKS = {
+      doctor: { action: 'QUESTION', target: 'player', reason: 'fallback', dialogue: '방금 반응이 늦었다. 이유가 뭐지?' },
+      engineer: { action: 'CHECK_LOG', target: null, reason: 'fallback', dialogue: '로그 확인 중입니다.' },
+      navigator: { action: 'QUESTION', target: 'player', reason: 'fallback', dialogue: '그때 어디 계셨나요?' },
+      pilot: { action: 'OBSERVE', target: null, reason: 'fallback', dialogue: '분위기가 이상하다.' }
+    };
+    function decideCrewAction(role, captainPayload, stateData) {
+      const fb = CREW_FALLBACKS[role] || CREW_FALLBACKS.doctor;
+      const cap = captainPayload || {};
+      if (cap.action === 'QUESTION' && cap.target) {
+        if (role === 'navigator') return { action: 'QUESTION', target: cap.target, reason: 'fallback', dialogue: '동선을 설명해 주십시오.' };
+        if (role === 'pilot') return { action: 'QUESTION', target: cap.target, reason: 'fallback', dialogue: '공기 변화를 느끼셨나요?' };
+      }
+      return { ...fb };
+    }
+
     async function runEp1Flow(message, deadCrew, opts) {
       try {
         if (!MATCH_ID) { MATCH_ID = newMatchId(); }
-        const payload = rawToEp1Payload(message);
-        const data = await ep1CallAction(payload);
+        const captainPayload = rawToEp1Payload(message);
 
-        if (data.next_state && data.next_state.turn != null) currentTurn = data.next_state.turn;
+        // 1) captain action 1회만 제출
+        const captainData = await ep1CallAction(captainPayload);
+        if (captainData.next_state && captainData.next_state.turn != null) currentTurn = captainData.next_state.turn;
 
-        let isGameOver = !!data.game_over;
-        let outcome = data.outcome ?? data.next_state?.outcome ?? null;
+        let isGameOver = !!captainData.game_over;
+        let outcome = captainData.outcome ?? captainData.next_state?.outcome ?? null;
+
+        // 2) crew 4명 순차 제출 (doctor -> engineer -> navigator -> pilot)
+        const CREW_ROLES = ['doctor', 'engineer', 'navigator', 'pilot'];
+        for (const role of CREW_ROLES) {
+          if (isGameOver) break;
+          const stateData = await ep1CallState(role);
+          const decision = decideCrewAction(role, captainPayload, stateData);
+          const crewPayload = { action: decision.action, target: decision.target, reason: decision.reason, dialogue: decision.dialogue };
+          const crewData = await ep1CallAction(crewPayload, { role });
+          if (crewData.next_state && crewData.next_state.turn != null) currentTurn = crewData.next_state.turn;
+          if (crewData.game_over) { isGameOver = true; outcome = crewData.outcome ?? outcome; }
+          await new Promise(r => setTimeout(r, 200)); // 역할 간 짧은 간격
+        }
+
+        // 3) crew 완료 후 result 호출
+        const resData = await ep1CallResult();
+        if (resData.game_over) { isGameOver = true; outcome = resData.outcome ?? outcome; }
 
         const resultLines = [];
-        // 1) recent_events 우선 (captain + crew 모두 포함), 없으면 public_events
-        const recent = data.next_state?.recent_events || [];
-        const pub = data.next_state?.public_events || [];
-        const events1 = recent.length > 0 ? recent : pub;
-        appendNewEventsFromList(events1, resultLines);
-
-        // 2) crew 반응 폴링 (서버가 비동기로 crew 추가할 수 있음)
-        const POLL_INTERVAL_MS = 1200;
-        const MAX_POLLS = 6;
-        for (let p = 0; p < MAX_POLLS; p++) {
-          await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
-          const resData = await ep1CallResult();
-          if (resData.game_over) { isGameOver = true; outcome = resData.outcome ?? outcome; }
-          const resRecent = resData.recent_events || [];
-          const resPub = resData.public_events || [];
-          const events2 = resRecent.length > 0 ? resRecent : resPub;
-          appendNewEventsFromList(events2, resultLines);
-          if (isGameOver) break;
-        }
+        const resRecent = resData.recent_events || [];
+        const resPub = resData.public_events || [];
+        const events = resRecent.length > 0 ? resRecent : resPub;
+        appendNewEventsFromList(events, resultLines);
 
         const state = outcome === 'victory' || outcome === 'defeat' ? outcome : 'playing';
         const resultText = resultLines.join('\n');
@@ -1051,6 +1075,7 @@
     let gameEnded = false;
     let typingSkipped = false;
     let currentTypingResolver = null;
+    let isSubmittingCaptainAction = false; // captain 중복 제출 방지
 
     // phase: captain_input | crew_resolving | server_update | game_over (반드시 setPhase 호출 전에 선언)
     let gamePhase = 'crew_resolving'; // 초기엔 비활성, startActualGame에서 captain_input으로 전환
@@ -1545,14 +1570,16 @@
       });
     }
 
-    // ★ 3. 메시지 전송 (Vercel API 통신) ★
+    // ★ 3. 메시지 전송 (EP1 API) ★
     async function sendMessage(text) {
       document.getElementById('lang-toggle')?.classList.add('hide-lang'); // PATCH
       if (gameEnded) return;
       if (gamePhase !== 'captain_input') return; // 함장 턴이 아닐 때 전송 차단
+      if (isSubmittingCaptainAction) return; // captain 중복 제출 방지
       if (!text) text = inputEl.value;
       if (!text.trim()) return;
 
+      isSubmittingCaptainAction = true;
       setPhase('crew_resolving'); // crew resolving
       inputEl.value = '';
       printLine(`> ${text}`, "role-user");
@@ -1629,10 +1656,17 @@
       } catch (err) {
         printLine(`[ERROR] ${err.message}`, "role-alert");
         setPhase('captain_input'); // 에러 시에도 입력 복귀
+      } finally {
+        isSubmittingCaptainAction = false;
       }
     }
 
-    inputEl.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage(); });
+    inputEl.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
 
     // 모달 제어 - 사상자 처리: 살아있는 인물만 버튼에 표시
     function openAccuseModal() {
