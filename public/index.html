@@ -856,17 +856,26 @@
       return { action: parsed.action, target: parsed.target, dialogue: parsed.dialogue, reason: 'player_input' };
     }
 
+    function eventDedupeKey(e) {
+      const s = e.summary || (e.role && e.action ? `${e.role} ${e.action}` : '') || '';
+      return `${e.turn || ''}:${e.actor || ''}:${e.role || ''}:${e.action || ''}:${s}`;
+    }
+
     async function ep1EnsureMatch() {
       if (MATCH_ID) return; // 이미 match 있으면 스킵
       MATCH_ID = newMatchId();
       try {
         const data = await ep1CallState();
-        const events = data.public_events || [];
+        const events = data.recent_events || data.public_events || [];
         for (const e of events) {
-          const line = e.summary || (typeof e === 'string' ? e : '');
-          if (line) await printLine(line, 'role-system', { typewriter: true });
+          const key = eventDedupeKey(e);
+          if (renderedEventKeys.has(key)) continue;
+          const line = e.summary || (typeof e === 'string' ? e : '') || (e.role && e.action ? `${e.role} ${e.action}` : '');
+          if (line) {
+            await printLine(line, 'role-system', { typewriter: true });
+            renderedEventKeys.add(key);
+          }
         }
-        lastRenderedEventCount = events.length;
       } catch (err) {
         printLine(`[ERROR] EP1 state failed: ${err.message}`, 'role-alert');
       }
@@ -926,6 +935,19 @@
       return e.summary || (e.role && e.action ? `${e.role} ${e.action}` : '') || '';
     }
 
+    function appendNewEventsFromList(events, resultLines) {
+      const list = Array.isArray(events) ? events : [];
+      for (const e of list) {
+        const key = eventDedupeKey(e);
+        if (renderedEventKeys.has(key)) continue;
+        const line = eventToSummary(e);
+        if (line) {
+          resultLines.push(line);
+          renderedEventKeys.add(key);
+        }
+      }
+    }
+
     async function runEp1Flow(message, deadCrew, opts) {
       try {
         if (!MATCH_ID) { MATCH_ID = newMatchId(); }
@@ -937,14 +959,12 @@
         let isGameOver = !!data.game_over;
         let outcome = data.outcome ?? data.next_state?.outcome ?? null;
 
-        // 1) action 응답의 public_events에서 새 이벤트만 수집
-        const pub = data.next_state?.public_events || [];
         const resultLines = [];
-        for (let i = lastRenderedEventCount; i < pub.length; i++) {
-          const line = eventToSummary(pub[i]);
-          if (line) resultLines.push(line);
-        }
-        lastRenderedEventCount = pub.length;
+        // 1) recent_events 우선 (captain + crew 모두 포함), 없으면 public_events
+        const recent = data.next_state?.recent_events || [];
+        const pub = data.next_state?.public_events || [];
+        const events1 = recent.length > 0 ? recent : pub;
+        appendNewEventsFromList(events1, resultLines);
 
         // 2) crew 반응 폴링 (서버가 비동기로 crew 추가할 수 있음)
         const POLL_INTERVAL_MS = 1200;
@@ -953,13 +973,10 @@
           await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
           const resData = await ep1CallResult();
           if (resData.game_over) { isGameOver = true; outcome = resData.outcome ?? outcome; }
+          const resRecent = resData.recent_events || [];
           const resPub = resData.public_events || [];
-          if (resPub.length <= lastRenderedEventCount) continue;
-          for (let i = lastRenderedEventCount; i < resPub.length; i++) {
-            const line = eventToSummary(resPub[i]);
-            if (line) resultLines.push(line);
-          }
-          lastRenderedEventCount = resPub.length;
+          const events2 = resRecent.length > 0 ? resRecent : resPub;
+          appendNewEventsFromList(events2, resultLines);
           if (isGameOver) break;
         }
 
@@ -1024,7 +1041,7 @@
     function newMatchId() { return 'ep1_' + Date.now() + '_' + Math.random().toString(16).slice(2); }
     let MATCH_ID = null; // 첫 진입 시 ep1EnsureMatch에서만 생성, 이후 유지
     let currentTurn = 1;
-    let lastRenderedEventCount = 0; // 중복 렌더 방지
+    const renderedEventKeys = new Set(); // turn:actor:role:action:summary 기준 중복 방지
     
     let history = [];
     let timeRemaining = 600; // 10 minutes in seconds
