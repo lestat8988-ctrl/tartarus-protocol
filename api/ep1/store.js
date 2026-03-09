@@ -169,6 +169,7 @@ async function createMatchIfMissing(matchId) {
   const { data, error } = await sb.from('ep1_matches').upsert(row, { onConflict: 'match_id' }).select().single();
   if (error) return null;
 
+  const introSummaryKo = 'AXIS 긴급 브리핑이 시작되었다.';
   await sb.from('ep1_events').insert({
     match_id: matchId,
     turn: 1,
@@ -178,12 +179,12 @@ async function createMatchIfMissing(matchId) {
     target: null,
     reason: null,
     dialogue: null,
-    server_result: { summary: 'AXIS emergency briefing initiated.' }
+    server_result: { summary: introSummaryKo }
   });
 
   const updated = await getMatch(matchId);
   if (updated && Array.isArray(updated.public_events)) {
-    updated.public_events.push({ turn: 1, summary: 'AXIS emergency briefing initiated.' });
+    updated.public_events.push({ turn: 1, summary: introSummaryKo });
     await updateMatch(matchId, { public_events: updated.public_events });
   }
   return await getMatch(matchId);
