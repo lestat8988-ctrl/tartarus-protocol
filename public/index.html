@@ -999,7 +999,6 @@
     const logEl = document.getElementById('log');
     const inputEl = document.getElementById('input');
     const accuseModal = document.getElementById('accuse-modal');
-    setPhase('crew_resolving'); // 초기: 인트로 전까지 입력 비활성
     const resultModal = document.getElementById('result-modal');
     const resultBox = document.getElementById('result-box');
 
@@ -1015,7 +1014,7 @@
     let typingSkipped = false;
     let currentTypingResolver = null;
 
-    // phase: captain_input | crew_resolving | server_update | game_over
+    // phase: captain_input | crew_resolving | server_update | game_over (반드시 setPhase 호출 전에 선언)
     let gamePhase = 'crew_resolving'; // 초기엔 비활성, startActualGame에서 captain_input으로 전환
     const PHASE_HINTS = {
       captain_input: '함장 명령을 입력하세요',
@@ -1028,17 +1027,18 @@
       const isCaptainTurn = phase === 'captain_input';
       const inputRow = document.getElementById('input-row');
       const sendBtn = document.getElementById('input-send-btn');
+      const hintEl = document.getElementById('input-hint');
       if (inputEl) {
         inputEl.disabled = !isCaptainTurn;
         inputEl.placeholder = PHASE_HINTS[phase] || PHASE_HINTS.captain_input;
       }
-      if (document.getElementById('input-hint')) {
-        document.getElementById('input-hint').textContent = PHASE_HINTS[phase] || PHASE_HINTS.captain_input;
-      }
+      if (hintEl) hintEl.textContent = PHASE_HINTS[phase] || PHASE_HINTS.captain_input;
       if (inputRow) inputRow.classList.toggle('disabled', !isCaptainTurn);
       if (sendBtn) sendBtn.disabled = !isCaptainTurn;
       document.querySelectorAll('.action-btn, .accuse-btn-main').forEach(btn => { btn.disabled = !isCaptainTurn; });
     }
+
+    setPhase('crew_resolving'); // 초기: 인트로 전까지 입력 비활성
 
     // Web Audio API 기반 타이핑/경고 사운드 (mp3 파일 없음)
     let audioCtx = null;
