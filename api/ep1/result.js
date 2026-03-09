@@ -5,7 +5,9 @@
  *
  * tartarus_ep1_loop.js getResult()가 호출.
  *
+ * 비밀 유지: hidden_host_role, role_private_notes는 기본 응답에 넣지 않음.
  * TODO: clue resolution, accuse resolution, pistol/fire resolution, death/win-loss resolution, hidden truth
+ * TODO(debug): 필요 시 ?debug=1 등으로 hidden_host_role 확인용 엔드포인트 별도 구현
  */
 const SECRET = process.env.TARTARUS_SECRET;
 const { getOrCreateMatch, getRecentEvents, getEventsCount, getPublicEvents } = require('./store');

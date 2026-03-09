@@ -1,12 +1,15 @@
 /**
  * api/ep1/state.js - 1편 전용 상태 조회 API (Supabase)
- * POST body: { match_id, turn? }
- * returns: { match_id, turn, phase, location, public_events, recent_events, events_count, crew_status, game_over, outcome }
+ * POST body: { match_id, turn?, viewer_role? }
+ * - viewer_role: doctor|engineer|navigator|pilot 일 때만 private_context 추가 (captain/player용 요청에는 주지 않음)
+ * returns: { match_id, turn, phase, ... } + (viewer_role 있을 때) private_context
  *
  * tartarus_ep1_loop.js getState()가 호출.
  */
 const SECRET = process.env.TARTARUS_SECRET;
-const { getOrCreateMatch, getRecentEvents, getEventsCount, getPublicEvents } = require('./store');
+const { getOrCreateMatch, getRecentEvents, getEventsCount, getPublicEvents, getPrivateContextForRole } = require('./store');
+
+const CREW_VIEWER_ROLES = ['doctor', 'engineer', 'navigator', 'pilot'];
 
 const RECENT_EVENTS_LIMIT = 5;
 
@@ -58,6 +61,9 @@ module.exports = async (req, res) => {
     return errRes(res, 400, 'match_id required');
   }
 
+  const viewerRole = (body.viewer_role ?? '').trim().toLowerCase();
+  const hasViewerRole = CREW_VIEWER_ROLES.includes(viewerRole);
+
   const match = await getOrCreateMatch(matchId);
   if (!match) {
     return errRes(res, 500, 'Failed to get or create match');
@@ -74,7 +80,7 @@ module.exports = async (req, res) => {
   }));
   const events_count = await getEventsCount(matchId);
 
-  return res.status(200).json({
+  const payload = {
     state: match.phase,
     match_id: match.match_id,
     turn: match.turn ?? 1,
@@ -86,5 +92,14 @@ module.exports = async (req, res) => {
     crew_status: match.crew_status || {},
     game_over: match.game_over || false,
     outcome: match.outcome ?? null
-  });
+  };
+
+  if (hasViewerRole) {
+    const privateContext = getPrivateContextForRole(match, viewerRole);
+    if (privateContext) {
+      payload.private_context = privateContext;
+    }
+  }
+
+  return res.status(200).json(payload);
 };
