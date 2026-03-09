@@ -917,7 +917,8 @@
           var main = e.dialogue || e.summary || (e.role && e.action ? e.role + ' ' + e.action : '') || '';
           if (main && (e.role && ROLE_LABEL_KO[e.role] || e.role === 'system')) {
             var role = e.role || 'system';
-            printDialogueLine(role, e.dialogue || null, e.summary || null);
+            var mainT = getMainTextFromEvent(e);
+            printDialogueLine(role, mainT, e.summary || null, key);
             renderedEventKeys.add(key);
           } else if (main) {
             await printLine(main, 'role-system', { typewriter: true });
@@ -991,28 +992,50 @@
       const list = Array.isArray(events) ? events : [];
       for (const e of list) {
         const key = eventDedupeKey(e);
-        if (renderedEventKeys.has(key)) continue;
+        const mainText = getMainTextFromEvent(e);
+        const role = e.role || 'system';
+        const summary = e.summary || null;
+        var existingRow = false;
+        if (logEl) {
+          var rows = logEl.querySelectorAll('.dialogue-line[data-event-key]');
+          for (var j = 0; j < rows.length; j++) {
+            if (rows[j].getAttribute('data-event-key') === key) {
+              updateDialogueLineByKey(key, role, mainText, summary);
+              existingRow = true;
+              break;
+            }
+          }
+        }
+        if (!existingRow && mainText && (ROLE_LABEL_KO[role] || role === 'system')) {
+          printDialogueLine(role, mainText, summary, key);
+        }
         renderedEventKeys.add(key);
         const line = eventToSummary(e);
         if (line) resultLines.push(line);
       }
     }
 
-    // crew role별 fallback 결정 (LLM 없이 웹에서 사용)
-    const CREW_FALLBACKS = {
-      doctor: { action: 'QUESTION', target: 'player', reason: 'fallback', dialogue: '방금 반응이 늦었다. 이유가 뭐지?' },
-      engineer: { action: 'CHECK_LOG', target: null, reason: 'fallback', dialogue: '로그 확인 중입니다.' },
-      navigator: { action: 'QUESTION', target: 'player', reason: 'fallback', dialogue: '그때 어디 계셨나요?' },
-      pilot: { action: 'OBSERVE', target: null, reason: 'fallback', dialogue: '분위기가 이상하다.' }
-    };
-    function decideCrewAction(role, captainPayload, stateData) {
-      const fb = CREW_FALLBACKS[role] || CREW_FALLBACKS.doctor;
-      const cap = captainPayload || {};
-      if (cap.action === 'QUESTION' && cap.target) {
-        if (role === 'navigator') return { action: 'QUESTION', target: cap.target, reason: 'fallback', dialogue: '동선을 설명해 주십시오.' };
-        if (role === 'pilot') return { action: 'QUESTION', target: cap.target, reason: 'fallback', dialogue: '공기 변화를 느끼셨나요?' };
+    function getMainTextFromEvent(e) {
+      return (e && (e.dialogue || e.summary || e.action)) || '';
+    }
+    function findCrewEventInRecent(recentEvents, role) {
+      if (!Array.isArray(recentEvents)) return null;
+      var actor = 'agent_' + role;
+      for (var i = recentEvents.length - 1; i >= 0; i--) {
+        var ev = recentEvents[i];
+        if (ev && (ev.role === role || ev.actor === actor)) return ev;
       }
-      return { ...fb };
+      return null;
+    }
+    function decideCrewAction(role, captainPayload, stateData) {
+      var action = 'OBSERVE';
+      var target = null;
+      var cap = captainPayload || {};
+      if (cap.action === 'QUESTION' && cap.target) {
+        action = 'QUESTION';
+        target = cap.target;
+      }
+      return { action, target, reason: 'crew', dialogue: '' };
     }
 
     async function runEp1Flow(message, deadCrew, opts) {
@@ -1033,12 +1056,17 @@
           setPhase('crew_resolving', role);
           var stateData = await ep1CallState(role);
           var decision = decideCrewAction(role, captainPayload, stateData);
-          var crewPayload = { action: decision.action, target: decision.target, reason: decision.reason, dialogue: decision.dialogue };
+          var crewPayload = { action: decision.action, target: decision.target, reason: decision.reason, dialogue: decision.dialogue || '' };
           var crewData = await ep1CallAction(crewPayload, { role: role });
           if (crewData.next_state && crewData.next_state.turn != null) currentTurn = crewData.next_state.turn;
           if (crewData.game_over) { isGameOver = true; outcome = crewData.outcome || outcome; }
-          var summ = crewData.server_result && crewData.server_result.summary ? crewData.server_result.summary : null;
-          printDialogueLine(role, crewPayload.dialogue, summ);
+          var ev = findCrewEventInRecent(crewData.next_state && crewData.next_state.recent_events, role);
+          var mainText = getMainTextFromEvent(ev);
+          var summ = (ev && ev.summary) || (crewData.server_result && crewData.server_result.summary) || null;
+          if (mainText) {
+            printDialogueLine(role, mainText, summ, ev ? eventDedupeKey(ev) : null);
+            if (ev) renderedEventKeys.add(eventDedupeKey(ev));
+          }
           await new Promise(function(r) { setTimeout(r, 150); });
         }
 
@@ -1310,7 +1338,6 @@
       printLine(t('opening.objective1'), "role-system");
       printLine(t('opening.objective2'), "role-system");
       printLine(" ", "line");
-      printLine(t('opening.command'), "role-system");
       await ep1EnsureMatch(); // 첫 진입 시 match 생성, AXIS intro 1회만 출력
     }
 
@@ -1511,13 +1538,14 @@
       if (r === 'system') return 'role-system';
       return 'role-system';
     }
-    function printDialogueLine(role, dialogue, summary) {
+    function printDialogueLine(role, dialogue, summary, eventKey) {
       var main = dialogue || summary || '';
       if (!main) return Promise.resolve();
       var label = ROLE_LABEL_KO[role] || role || '?';
       var roleClass = getRoleClass(role);
       var div = document.createElement('div');
       div.className = 'dialogue-line line';
+      if (eventKey) div.setAttribute('data-event-key', eventKey);
       var speaker = document.createElement('div');
       speaker.className = 'dialogue-speaker ' + roleClass;
       speaker.textContent = '[' + label + ']';
@@ -1536,6 +1564,28 @@
       logEl.scrollTop = logEl.scrollHeight;
       if (window.fitShortsScale) window.fitShortsScale();
       return Promise.resolve();
+    }
+    function updateDialogueLineByKey(eventKey, role, mainText, summary) {
+      if (!eventKey || !logEl) return;
+      var rows = logEl.querySelectorAll('.dialogue-line[data-event-key]');
+      var row = null;
+      for (var j = 0; j < rows.length; j++) {
+        if (rows[j].getAttribute('data-event-key') === eventKey) { row = rows[j]; break; }
+      }
+      if (!row) return;
+      var textEl = row.querySelector('.dialogue-text');
+      var subEl = row.querySelector('.dialogue-summary');
+      if (textEl) textEl.textContent = mainText || '';
+      if (subEl) {
+        if (summary && mainText) { subEl.textContent = summary; subEl.style.display = ''; }
+        else subEl.style.display = 'none';
+      } else if (summary && mainText) {
+        var sub = document.createElement('div');
+        sub.className = 'dialogue-summary';
+        sub.textContent = summary;
+        row.appendChild(sub);
+      }
+      logEl.scrollTop = logEl.scrollHeight;
     }
 
     // 경고/사망 시 화면 글리치 & 쉐이크
