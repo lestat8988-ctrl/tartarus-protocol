@@ -6,6 +6,8 @@
  * tartarus_ep1_loop.js submitAction()가 호출.
  * game_over / outcome 반환 시 루프 즉시 중단.
  *
+ * Captain dialogue 우선순위: dialogue > text > command > input > fallback. 실제 입력 있으면 fallback 사용 안 함.
+ *
  * Crew dialogue 우선순위:
  * 1. req.body에 실제 LLM 생성 결과(dialogue/reason/target) 있으면 우선 사용
  * 2. 비어 있으면 여기서 LLM 생성 시도 (재시도 1회)
@@ -86,12 +88,13 @@ function looksLikeEnglishTestString(s) {
   return alphaRatio > 0.7 && !hasKo;
 }
 
+// captain dialogue 우선순위: dialogue > text > command > input > message. 하나라도 non-empty면 fallback 사용 안 함.
 function getCaptainDialogueFromBody(body) {
   const candidates = [
     body.dialogue,
+    body.text,
     body.command,
     body.input,
-    body.text,
     body.message
   ].filter((x) => x != null && typeof x === 'string' && x.trim() !== '');
   const raw = candidates[0] ? String(candidates[0]).trim() : '';
@@ -379,8 +382,13 @@ module.exports = async (req, res) => {
   }
 
   if (role === 'captain') {
+    // captain dialogue 우선순위: dialogue > text > command > input > fallback. 실제 입력 있으면 fallback 사용 안 함.
     dialogue = resolveDialogueForPayload(body, role);
     dialogue = dialogue || CAPTAIN_DIALOGUE_FALLBACK_KO;
+    const rawInput = [body.dialogue, body.text, body.command, body.input].find((x) => x != null && typeof x === 'string' && String(x).trim() !== '');
+    const isLegacyReason = reason === 'auto_kill' || reason === 'witness';
+    const isRealUserInput = rawInput && !/^\[AUTO-KILL\]|^\[WITNESS\]/i.test(String(rawInput).trim());
+    if (isLegacyReason && isRealUserInput) reason = 'player_input';
   } else if (CREW_ROLES.has(role)) {
     const crewResolved = await resolvePayloadForCrew(matchId, body, role);
     action = crewResolved.action;

@@ -696,6 +696,7 @@
       <div id="log"></div>
 
       <div class="action-bar">
+        <!-- preset 버튼 경로: data-ep1 값을 그대로 captain dialogue로 전송 -->
         <button class="action-btn" data-msg="interrogate" data-ep1="QUESTION doctor 의사, 그때 어디 있었지?" onclick="sendMessage(this.getAttribute('data-ep1'))">승무원 심문</button>
         <button class="action-btn" data-msg="cctv" data-ep1="CHECK_LOG CCTV 로그를 확인한다." onclick="sendMessage(this.getAttribute('data-ep1'))">CCTV 로그 확인</button>
         <button class="action-btn" data-msg="engine" data-ep1="CHECK_LOG 엔진실 로그를 확인한다." onclick="sendMessage(this.getAttribute('data-ep1'))">엔진실 확인</button>
@@ -706,6 +707,7 @@
       <div class="input-row" id="input-row">
         <span>&gt;</span>
         <input id="input" type="text" autocomplete="off" placeholder="" data-i18n-placeholder="game.placeholder" />
+        <!-- 일반 SEND 입력 경로: 사용자가 친 텍스트를 dialogue로 그대로 전송 -->
         <button type="button" class="input-send-btn" id="input-send-btn" onclick="sendMessage()">SEND</button>
       </div>
       
@@ -871,6 +873,7 @@
       return { action, target: action === 'QUESTION' ? target : null, dialogue: dialogue || (defaults[action] || '') };
     }
 
+    // preset 버튼 경로: [ACCUSE], 키워드 매칭, parseEp1Input. [AUTO-KILL]/[WITNESS]는 시스템 전용.
     function rawToEp1Payload(raw) {
       const s = String(raw || '').trim();
       if (/^\[ACCUSE\]/i.test(s)) {
@@ -892,6 +895,34 @@
       if (/engine|check\s+engine/i.test(lower)) return { action: 'CHECK_LOG', target: null, dialogue: '엔진실 로그를 확인한다.', reason: 'player_input' };
       const parsed = parseEp1Input(s);
       return { action: parsed.action, target: parsed.target, dialogue: parsed.dialogue, reason: 'player_input' };
+    }
+
+    // 일반 SEND 입력 경로: 사용자 입력 그대로 dialogue로 사용. auto_kill/witness/preset 키워드 사용 안 함.
+    function buildPayloadFromUserInput(raw) {
+      const s = String(raw || '').trim();
+      if (!s) return null;
+      const parsed = parseEp1InputForUserInput(s);
+      return { action: parsed.action, target: parsed.target, dialogue: parsed.dialogue, reason: 'player_input' };
+    }
+    function parseEp1InputForUserInput(raw) {
+      const s = String(raw || '').trim();
+      if (!s) return { action: 'OBSERVE', target: null, dialogue: '' };
+      const parts = s.split(/\s+/).filter(Boolean);
+      let action = String(parts[0] || '').toUpperCase();
+      if (!EP1_VALID_ACTIONS.has(action)) action = 'OBSERVE';
+      let target = null;
+      let dialogue = '';
+      if (parts.length >= 2) {
+        const second = parts[1].toLowerCase();
+        if (EP1_VALID_TARGETS.has(second)) {
+          target = second;
+          dialogue = parts.slice(2).join(' ').trim();
+        } else {
+          dialogue = parts.slice(1).join(' ').trim();
+        }
+      }
+      dialogue = dialogue || s;
+      return { action, target: action === 'QUESTION' ? target : null, dialogue };
     }
 
     function eventDedupeKey(e) {
@@ -1041,7 +1072,7 @@
     async function runEp1Flow(message, deadCrew, opts) {
       try {
         if (!MATCH_ID) { MATCH_ID = newMatchId(); }
-        var captainPayload = rawToEp1Payload(message);
+        var captainPayload = (opts && opts.captainPayload) ? opts.captainPayload : rawToEp1Payload(message);
 
         setPhase('crew_resolving');
         var captainData = await ep1CallAction(captainPayload);
@@ -1699,19 +1730,27 @@
       if (gameEnded) return;
       if (gamePhase !== 'captain_input') return;
       if (isSubmittingCaptainAction) return;
-      if (!text) text = inputEl.value;
-      if (!text.trim()) return;
+      var isFromInput = (typeof text !== 'string' || text === '');
+      var raw = isFromInput ? (inputEl.value || '').trim() : String(text).trim();
+      if (!raw) return;
 
       isSubmittingCaptainAction = true;
-      var captainPayload = rawToEp1Payload(text);
-      var captainDialogue = captainPayload.dialogue || text;
+      var captainPayload;
+      if (isFromInput) {
+        captainPayload = buildPayloadFromUserInput(raw);
+      } else {
+        captainPayload = rawToEp1Payload(raw);
+      }
+      if (!captainPayload) { isSubmittingCaptainAction = false; return; }
+      var captainDialogue = captainPayload.dialogue || raw;
       setPhase('crew_resolving');
       printDialogueLine('captain', captainDialogue, null);
       inputEl.value = '';
-      history.push({ role: "user", content: text });
+      history.push({ role: "user", content: raw });
 
       try {
-        var data = await runEp1Flow(text, deadCrew);
+        var opts = isFromInput ? { captainPayload: captainPayload } : {};
+        var data = await runEp1Flow(raw, deadCrew, opts);
         var displayText = data.resultText || data.result || '';
 
         var deathMatch = displayText.match(/\[EMERGENCY ALERT\].*?(Navigator|Engineer|Doctor|Pilot)/i);
