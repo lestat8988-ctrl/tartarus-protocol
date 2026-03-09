@@ -289,7 +289,12 @@
     #log::-webkit-scrollbar { width: 8px; }
     #log::-webkit-scrollbar-thumb { background: var(--terminal-green); }
 
-    .line { margin-bottom: 5px; } /* 글자 춤추는 효과 제거됨 */
+    .line { margin-bottom: 5px; }
+    .dialogue-line { margin-bottom: 14px; }
+    .dialogue-speaker { font-size: 13px; font-weight: bold; margin-bottom: 4px; letter-spacing: 1.5px; opacity: 1; }
+    .dialogue-text { font-size: 17px; line-height: 1.6; }
+    .dialogue-summary { font-size: 11px; opacity: 0.6; margin-top: 4px; color: rgba(57, 255, 20, 0.75); }
+    #phase-status { font-size: 13px; color: var(--terminal-green); opacity: 0.95; margin-bottom: 6px; min-height: 1.8em; font-weight: bold; }
 
     /* 캐릭터별 색상 (형광 효과) - 고정된 역할만 존재 */
     .role-alert { color: #ff0000; font-weight: bold; text-shadow: 0 0 3px #ff0000; }
@@ -696,7 +701,8 @@
         <button class="action-btn" data-msg="engine" data-ep1="CHECK_LOG 엔진실 로그를 확인한다." onclick="sendMessage(this.getAttribute('data-ep1'))">엔진실 확인</button>
       </div>
 
-      <div class="input-hint" id="input-hint"></div><!-- PATCH -->
+      <div id="phase-status" style="border-bottom:1px solid rgba(57,255,20,0.3);padding-bottom:6px;"></div>
+      <div class="input-hint" id="input-hint"></div>
       <div class="input-row" id="input-row">
         <span>&gt;</span>
         <input id="input" type="text" autocomplete="off" placeholder="" data-i18n-placeholder="game.placeholder" />
@@ -889,27 +895,37 @@
     }
 
     function eventDedupeKey(e) {
+      const t = e.turn ?? '';
+      const a = e.actor ?? '';
+      const c = e.created_at ?? '';
+      if (t && a && c) return `${t}:${a}:${c}`;
       const s = e.summary || (e.role && e.action ? `${e.role} ${e.action}` : '') || '';
-      return `${e.turn || ''}:${e.actor || ''}:${e.role || ''}:${e.action || ''}:${s}`;
+      return `${t}:${a}:${e.role || ''}:${e.action || ''}:${s}`;
     }
 
     async function ep1EnsureMatch() {
-      if (MATCH_ID) return; // 이미 match 있으면 스킵
+      if (MATCH_ID) return;
       MATCH_ID = newMatchId();
       try {
-        const data = await ep1CallState();
-        const events = data.recent_events || data.public_events || [];
-        for (const e of events) {
-          const key = eventDedupeKey(e);
+        await ep1CallState();
+        var resData = await ep1CallResult();
+        var events = resData.recent_events || [];
+        for (var i = 0; i < events.length; i++) {
+          var e = events[i];
+          var key = eventDedupeKey(e);
           if (renderedEventKeys.has(key)) continue;
-          const line = e.summary || (typeof e === 'string' ? e : '') || (e.role && e.action ? `${e.role} ${e.action}` : '');
-          if (line) {
-            await printLine(line, 'role-system', { typewriter: true });
+          var main = e.dialogue || e.summary || (e.role && e.action ? e.role + ' ' + e.action : '') || '';
+          if (main && (e.role && ROLE_LABEL_KO[e.role] || e.role === 'system')) {
+            var role = e.role || 'system';
+            printDialogueLine(role, e.dialogue || null, e.summary || null);
+            renderedEventKeys.add(key);
+          } else if (main) {
+            await printLine(main, 'role-system', { typewriter: true });
             renderedEventKeys.add(key);
           }
         }
       } catch (err) {
-        printLine(`[ERROR] EP1 state failed: ${err.message}`, 'role-alert');
+        printLine('[ERROR] EP1 state failed: ' + err.message, 'role-alert');
       }
     }
 
@@ -976,11 +992,9 @@
       for (const e of list) {
         const key = eventDedupeKey(e);
         if (renderedEventKeys.has(key)) continue;
+        renderedEventKeys.add(key);
         const line = eventToSummary(e);
-        if (line) {
-          resultLines.push(line);
-          renderedEventKeys.add(key);
-        }
+        if (line) resultLines.push(line);
       }
     }
 
@@ -1004,53 +1018,53 @@
     async function runEp1Flow(message, deadCrew, opts) {
       try {
         if (!MATCH_ID) { MATCH_ID = newMatchId(); }
-        const captainPayload = rawToEp1Payload(message);
+        var captainPayload = rawToEp1Payload(message);
 
-        // 1) captain action 1회만 제출
-        const captainData = await ep1CallAction(captainPayload);
+        setPhase('crew_resolving');
+        var captainData = await ep1CallAction(captainPayload);
         if (captainData.next_state && captainData.next_state.turn != null) currentTurn = captainData.next_state.turn;
+        var isGameOver = !!captainData.game_over;
+        var outcome = captainData.outcome || captainData.next_state?.outcome || null;
 
-        let isGameOver = !!captainData.game_over;
-        let outcome = captainData.outcome ?? captainData.next_state?.outcome ?? null;
-
-        // 2) crew 4명 순차 제출 (doctor -> engineer -> navigator -> pilot)
-        const CREW_ROLES = ['doctor', 'engineer', 'navigator', 'pilot'];
-        for (const role of CREW_ROLES) {
+        var CREW_ROLES = ['doctor', 'engineer', 'navigator', 'pilot'];
+        for (var i = 0; i < CREW_ROLES.length; i++) {
+          var role = CREW_ROLES[i];
           if (isGameOver) break;
-          const stateData = await ep1CallState(role);
-          const decision = decideCrewAction(role, captainPayload, stateData);
-          const crewPayload = { action: decision.action, target: decision.target, reason: decision.reason, dialogue: decision.dialogue };
-          const crewData = await ep1CallAction(crewPayload, { role });
+          setPhase('crew_resolving', role);
+          var stateData = await ep1CallState(role);
+          var decision = decideCrewAction(role, captainPayload, stateData);
+          var crewPayload = { action: decision.action, target: decision.target, reason: decision.reason, dialogue: decision.dialogue };
+          var crewData = await ep1CallAction(crewPayload, { role: role });
           if (crewData.next_state && crewData.next_state.turn != null) currentTurn = crewData.next_state.turn;
-          if (crewData.game_over) { isGameOver = true; outcome = crewData.outcome ?? outcome; }
-          await new Promise(r => setTimeout(r, 200)); // 역할 간 짧은 간격
+          if (crewData.game_over) { isGameOver = true; outcome = crewData.outcome || outcome; }
+          var summ = crewData.server_result && crewData.server_result.summary ? crewData.server_result.summary : null;
+          printDialogueLine(role, crewPayload.dialogue, summ);
+          await new Promise(function(r) { setTimeout(r, 150); });
         }
 
-        // 3) crew 완료 후 result 호출
-        const resData = await ep1CallResult();
-        if (resData.game_over) { isGameOver = true; outcome = resData.outcome ?? outcome; }
+        setPhase('server_update');
+        var resData = await ep1CallResult();
+        if (resData.game_over) { isGameOver = true; outcome = resData.outcome || outcome; }
 
-        const resultLines = [];
-        const resRecent = resData.recent_events || [];
-        const resPub = resData.public_events || [];
-        const events = resRecent.length > 0 ? resRecent : resPub;
+        var resultLines = [];
+        var resRecent = resData.recent_events || [];
+        var resPub = resData.public_events || [];
+        var events = resRecent.length > 0 ? resRecent : resPub;
         appendNewEventsFromList(events, resultLines);
-
-        const state = outcome === 'victory' || outcome === 'defeat' ? outcome : 'playing';
-        const resultText = resultLines.join('\n');
+        var resultText = resultLines.join('\n');
         history.push({ role: 'assistant', content: resultText });
 
         return {
           result: resultText,
-          resultText,
-          state,
+          resultText: resultText,
+          state: (outcome === 'victory' || outcome === 'defeat') ? outcome : 'playing',
           actualImposter: null,
-          isGameOver,
-          outcome,
+          isGameOver: isGameOver,
+          outcome: outcome,
           deadCrew: deadCrew
         };
       } catch (err) {
-        const prefix = err.message && err.message.includes('EP1') ? '' : '[ERROR] EP1 action failed: ';
+        var prefix = err.message && err.message.indexOf('EP1') >= 0 ? '' : '[ERROR] EP1 action failed: ';
         throw new Error(prefix + err.message);
       }
     }
@@ -1109,28 +1123,39 @@
     let currentTypingResolver = null;
     let isSubmittingCaptainAction = false; // captain 중복 제출 방지
 
-    // phase: captain_input | crew_resolving | server_update | game_over (반드시 setPhase 호출 전에 선언)
-    let gamePhase = 'crew_resolving'; // 초기엔 비활성, startActualGame에서 captain_input으로 전환
+    let gamePhase = 'crew_resolving';
+    let currentPhaseActor = null;
     const PHASE_HINTS = {
-      captain_input: '함장 명령을 입력하세요',
+      captain_input: '함장 입력 대기',
       crew_resolving: '크루 반응 진행 중...',
+      crew_doctor: '의사 반응 중...',
+      crew_engineer: '엔지니어 로그 확인 중...',
+      crew_navigator: '네비게이터 추궁 중...',
+      crew_pilot: '파일럿 반응 중...',
       server_update: '상태 갱신 중...',
       game_over: '게임 종료'
     };
-    function setPhase(phase) {
+    const ROLE_LABEL_KO = { captain: '함장', doctor: '의사', engineer: '엔지니어', navigator: '네비게이터', pilot: '파일럿', system: '시스템' };
+    function setPhase(phase, actor) {
       gamePhase = phase;
-      const isCaptainTurn = phase === 'captain_input';
-      const inputRow = document.getElementById('input-row');
-      const sendBtn = document.getElementById('input-send-btn');
-      const hintEl = document.getElementById('input-hint');
+      currentPhaseActor = actor || null;
+      var phaseKey = phase;
+      if (actor && phase === 'crew_resolving') phaseKey = 'crew_' + actor;
+      var statusText = PHASE_HINTS[phaseKey] || PHASE_HINTS[phase] || PHASE_HINTS.captain_input;
+      var statusEl = document.getElementById('phase-status');
+      if (statusEl) statusEl.textContent = statusText;
+      var isCaptainTurn = phase === 'captain_input';
+      var inputRow = document.getElementById('input-row');
+      var sendBtn = document.getElementById('input-send-btn');
+      var hintEl = document.getElementById('input-hint');
       if (inputEl) {
         inputEl.disabled = !isCaptainTurn;
-        inputEl.placeholder = PHASE_HINTS[phase] || PHASE_HINTS.captain_input;
+        inputEl.placeholder = PHASE_HINTS.captain_input;
       }
-      if (hintEl) hintEl.textContent = PHASE_HINTS[phase] || PHASE_HINTS.captain_input;
+      if (hintEl) hintEl.textContent = statusText;
       if (inputRow) inputRow.classList.toggle('disabled', !isCaptainTurn);
       if (sendBtn) sendBtn.disabled = !isCaptainTurn;
-      document.querySelectorAll('.action-btn, .accuse-btn-main').forEach(btn => { btn.disabled = !isCaptainTurn; });
+      document.querySelectorAll('.action-btn, .accuse-btn-main').forEach(function(btn) { btn.disabled = !isCaptainTurn; });
     }
 
     setPhase('crew_resolving'); // 초기: 인트로 전까지 입력 비활성
@@ -1378,52 +1403,38 @@
       glitchEl.classList.add('active');
       
       try {
-        const data = await runEp1Flow(`[AUTO-KILL] ${victim}`, deadCrew, { lastWitnessLine: window.__lastWitnessLine || '' });
-
-        // resultText/result 둘 다 방어
-        const content = data.resultText ?? data.result ?? '';
-        
-        // Display kill message
-        printLine(`[EMERGENCY ALERT]`, "role-alert");
-        const lines = String(content).split('\n');
-        let witnessTestimonyFound = false;
-        
-        for (const line of lines) {
+        printLine('[EMERGENCY ALERT]', "role-alert");
+        var data = await runEp1Flow('[AUTO-KILL] ' + victim, deadCrew, { lastWitnessLine: window.__lastWitnessLine || '' });
+        var content = data.resultText || data.result || '';
+        var lines = String(content).split('\n');
+        var witnessTestimonyFound = false;
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i];
           if (line.trim()) {
-            typingSkipped = false;
-            if (line.includes("[WITNESS TESTIMONY]") || line.includes("WITNESS TESTIMONY")) {
+            if (line.indexOf('[WITNESS TESTIMONY]') >= 0 || line.indexOf('WITNESS TESTIMONY') >= 0) {
               witnessTestimonyFound = true;
-              await printLine(`[WITNESS TESTIMONY INCOMING]`, "witness-alert", { typewriter: true });
-            } else if (witnessTestimonyFound && line.includes(":")) {
+              typingSkipped = false;
+              await printLine('[WITNESS TESTIMONY INCOMING]', "witness-alert", { typewriter: true });
+            } else if (witnessTestimonyFound && line.indexOf(':') >= 0) {
+              typingSkipped = false;
               await printLine(line, "witness-testimony", { typewriter: true });
-            } else {
-              await printLine(line, null, { typewriter: true });
             }
           }
         }
-        
-        history.push({ role: "assistant", content });
+        history.push({ role: "assistant", content: content });
         
         // Request witness testimony if not already included
         if (!witnessTestimonyFound && aliveCrew.length > 1) {
-          setTimeout(() => {
-            requestWitnessTestimony(victim, aliveCrew.filter(c => c !== victim));
-          }, 2000);
+          setTimeout(function() { requestWitnessTestimony(victim, aliveCrew.filter(function(c) { return c !== victim; })); }, 2000);
         }
-        
-        // Remove glitch after 3 seconds
-        setTimeout(() => {
-          glitchEl.classList.remove('active');
-        }, 3000);
-        
-        // Check if all crew are dead
+        setTimeout(function() { glitchEl.classList.remove('active'); }, 3000);
         if (deadCrew.length >= 4) {
-          setTimeout(() => triggerTotalFailure(), 2000);
+          setTimeout(triggerTotalFailure, 2000);
         } else if (witnessTestimonyFound || aliveCrew.length <= 1) {
           setPhase('captain_input');
         }
       } catch (err) {
-        printLine(`[ERROR] ${err.message}`, "role-alert");
+        printLine('[ERROR] ' + err.message, "role-alert");
         glitchEl.classList.remove('active');
         setPhase('captain_input');
       }
@@ -1442,29 +1453,20 @@
       printLine(`[WITNESS TESTIMONY INCOMING]`, "witness-alert");
       
       try {
-        const data = await runEp1Flow(`[WITNESS] ${witness} witnessed the murder of ${victim}`, deadCrew, { lastWitnessLine: window.__lastWitnessLine || '' });
-
-        // resultText/result 둘 다 방어
-        const content = data.resultText ?? data.result ?? '';
-        
-        // Display witness testimony with highlight
-        const lines = String(content).split('\n');
-        for (const line of lines) {
-          if (line.trim()) {
+        var data = await runEp1Flow('[WITNESS] ' + witness + ' witnessed the murder of ' + victim, deadCrew, { lastWitnessLine: window.__lastWitnessLine || '' });
+        var content = data.resultText || data.result || '';
+        var lines = String(content).split('\n');
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i];
+          if (line.trim() && line.indexOf(':') >= 0 && (line.indexOf('Navigator:') === 0 || line.indexOf('Engineer:') === 0 || line.indexOf('Doctor:') === 0 || line.indexOf('Pilot:') === 0)) {
             typingSkipped = false;
-            if (line.includes(":") && (line.startsWith("Navigator:") || line.startsWith("Engineer:") || 
-                line.startsWith("Doctor:") || line.startsWith("Pilot:"))) {
-              await printLine(line, "witness-testimony", { typewriter: true });
-            } else {
-              await printLine(line, null, { typewriter: true });
-            }
+            await printLine(line, "witness-testimony", { typewriter: true });
           }
         }
-        
-        history.push({ role: "assistant", content });
+        history.push({ role: "assistant", content: content });
         setPhase('captain_input');
       } catch (err) {
-        printLine(`[ERROR] ${err.message}`, "role-alert");
+        printLine('[ERROR] ' + err.message, "role-alert");
         setPhase('captain_input');
       }
     }
@@ -1497,6 +1499,43 @@
       else if (className) base = className;
       if (className === "witness-testimony" && base !== "witness-testimony") base += " witness-testimony";
       return base;
+    }
+
+    function getRoleClass(role) {
+      var r = (role || '').toLowerCase();
+      if (r === 'captain') return 'role-user';
+      if (r === 'doctor') return 'role-doctor';
+      if (r === 'engineer') return 'role-engineer';
+      if (r === 'navigator') return 'role-navigator';
+      if (r === 'pilot') return 'role-pilot';
+      if (r === 'system') return 'role-system';
+      return 'role-system';
+    }
+    function printDialogueLine(role, dialogue, summary) {
+      var main = dialogue || summary || '';
+      if (!main) return Promise.resolve();
+      var label = ROLE_LABEL_KO[role] || role || '?';
+      var roleClass = getRoleClass(role);
+      var div = document.createElement('div');
+      div.className = 'dialogue-line line';
+      var speaker = document.createElement('div');
+      speaker.className = 'dialogue-speaker ' + roleClass;
+      speaker.textContent = '[' + label + ']';
+      var text = document.createElement('div');
+      text.className = 'dialogue-text ' + roleClass;
+      text.textContent = main;
+      div.appendChild(speaker);
+      div.appendChild(text);
+      if (summary && main === dialogue) {
+        var sub = document.createElement('div');
+        sub.className = 'dialogue-summary';
+        sub.textContent = summary;
+        div.appendChild(sub);
+      }
+      logEl.appendChild(div);
+      logEl.scrollTop = logEl.scrollHeight;
+      if (window.fitShortsScale) window.fitShortsScale();
+      return Promise.resolve();
     }
 
     // 경고/사망 시 화면 글리치 & 쉐이크
@@ -1606,91 +1645,46 @@
       });
     }
 
-    // ★ 3. 메시지 전송 (EP1 API) ★
     async function sendMessage(text) {
       if (gameEnded) return;
-      if (gamePhase !== 'captain_input') return; // 함장 턴이 아닐 때 전송 차단
-      if (isSubmittingCaptainAction) return; // captain 중복 제출 방지
+      if (gamePhase !== 'captain_input') return;
+      if (isSubmittingCaptainAction) return;
       if (!text) text = inputEl.value;
       if (!text.trim()) return;
 
       isSubmittingCaptainAction = true;
-      setPhase('crew_resolving'); // crew resolving
+      var captainPayload = rawToEp1Payload(text);
+      var captainDialogue = captainPayload.dialogue || text;
+      setPhase('crew_resolving');
+      printDialogueLine('captain', captainDialogue, null);
       inputEl.value = '';
-      printLine(`> ${text}`, "role-user");
       history.push({ role: "user", content: text });
 
       try {
-        const data = await runEp1Flow(text, deadCrew);
-        setPhase('server_update'); // server update (crew 반영 완료 후)
+        var data = await runEp1Flow(text, deadCrew);
+        var displayText = data.resultText || data.result || '';
 
-        // resultText = captain + crew 요약들 (줄바꿈 구분)
-        const displayText = data.resultText ?? data.result ?? '';
-        
-        // 줄바꿈이 있으면 나눠서 출력 (시스템 트리거 메시지 숨김)
-        const lines = String(displayText).split('\n');
-        let executionEndDetected = false;
-        
-        // 사상자 처리: AI 응답에서 [EMERGENCY ALERT]로 언급된 죽은 인물 즉시 반영
-        const deathMatch = displayText.match(/\[EMERGENCY ALERT\].*?(Navigator|Engineer|Doctor|Pilot)/i);
-        if (deathMatch && !deadCrew.includes(deathMatch[1])) deadCrew.push(deathMatch[1]);
-        
-        for (const line of lines) {
-          // 시스템 트리거 감지 (showResult용)
-          if (line.includes("[End of execution]") || line.includes("End of execution") || line.includes("[RESULT:")) {
-            executionEndDetected = true;
-          }
-          // 내부 힌트 태그 >> [interrogate|cctv|engine|sync|nav|time] 화면에서 제거
-          if (/^>>\s*\[(?:interrogate|cctv|engine|sync|nav|time)\]$/i.test(line.trim())) continue;
-          
-          // 화면 출력용: 시스템 태그 제거
-          const cleanLine = line.trim().startsWith('>>') ? line.trim() : line
-            .replace(/\[End of execution\]/gi, '')
-            .replace(/End of execution/gi, '')
-            .replace(/\[RESULT:\s*VICTORY\]/gi, '')
-            .replace(/\[RESULT:\s*DEFEAT\]/gi, '')
-            .replace(/\[REAL_IMPOSTER:\s*[^\]]+\]/gi, '')
-            .replace(/Real Imposter Identity Code:\s*\[[^\]]+\]/gi, '')
-            .trim();
-          
-          if (cleanLine) {
-            typingSkipped = false;
-            await printLine(cleanLine, null, { typewriter: true });
-          }
-        }
-        
+        var deathMatch = displayText.match(/\[EMERGENCY ALERT\].*?(Navigator|Engineer|Doctor|Pilot)/i);
+        if (deathMatch && deadCrew.indexOf(deathMatch[1]) < 0) deadCrew.push(deathMatch[1]);
+
         history.push({ role: "assistant", content: displayText });
 
-        // isGameOver 시 승패 모달: 타이핑/라인 출력이 끝난 뒤 1500ms 후 표시
         if (data.isGameOver === true) {
           gameEnded = true;
-          const isVictory = data.state === 'victory' || data.outcome === 'victory';
-          const msgForModal = data.resultText ?? data.result ?? displayText;
-          setTimeout(() => showResult(isVictory ? 'victory' : 'defeat', msgForModal, data.actualImposter), 1500);
+          var isVictory = data.state === 'victory' || data.outcome === 'victory';
+          setTimeout(function() { showResult(isVictory ? 'victory' : 'defeat', displayText, data.actualImposter); }, 800);
         } else if (data.state === 'victory' || data.state === 'defeat') {
-          // 기존 호환: state만 있는 경우
-          if (text.startsWith('[ACCUSE]')) {
-            const accused = text.replace('[ACCUSE]', '').trim();
-            if (accused && !deadCrew.includes(accused)) deadCrew.push(accused);
+          if (text.indexOf('[ACCUSE]') === 0) {
+            var accused = text.replace('[ACCUSE]', '').trim();
+            if (accused && deadCrew.indexOf(accused) < 0) deadCrew.push(accused);
           }
-          const delay = executionEndDetected ? 1000 : 2000;
-          setTimeout(() => showResult(data.state, displayText || '', data.actualImposter), delay);
-        } else if (executionEndDetected) {
-          const lower = String(displayText || '').toLowerCase();
-          if (lower.includes("victory") || lower.includes("white fluid")) {
-            setTimeout(() => showResult('victory', displayText || '', data.actualImposter), 1000);
-          } else if (lower.includes("defeat") || lower.includes("innocent")) {
-            setTimeout(() => showResult('defeat', displayText || '', data.actualImposter), 1000);
-          } else {
-            setPhase('captain_input'); // crew_resolving -> captain_input 복귀
-          }
+          setTimeout(function() { showResult(data.state, displayText || '', data.actualImposter); }, 1000);
         } else {
-          setPhase('captain_input'); // 정상 턴 종료, 다음 함장 턴
+          setPhase('captain_input');
         }
-
       } catch (err) {
-        printLine(`[ERROR] ${err.message}`, "role-alert");
-        setPhase('captain_input'); // 에러 시에도 입력 복귀
+        printLine('[ERROR] ' + err.message, "role-alert");
+        setPhase('captain_input');
       } finally {
         isSubmittingCaptainAction = false;
       }
