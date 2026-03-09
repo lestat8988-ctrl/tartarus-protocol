@@ -5,6 +5,15 @@
  * ep1_matches 서버 전용 필드: hidden_host_role (text), private_state (jsonb)
  *   - migration 필요 시: ALTER TABLE ep1_matches ADD COLUMN IF NOT EXISTS hidden_host_role text;
  *   - ALTER TABLE ep1_matches ADD COLUMN IF NOT EXISTS private_state jsonb;
+ *
+ * ep1_events full event 컬럼 (recent_events dialogue 렌더링용):
+ *   - target (text nullable), reason (text nullable), dialogue (text nullable), server_result (jsonb nullable)
+ *   - migration 필요 시:
+ *     ALTER TABLE ep1_events ADD COLUMN IF NOT EXISTS target text;
+ *     ALTER TABLE ep1_events ADD COLUMN IF NOT EXISTS reason text;
+ *     ALTER TABLE ep1_events ADD COLUMN IF NOT EXISTS dialogue text;
+ *     ALTER TABLE ep1_events ADD COLUMN IF NOT EXISTS server_result jsonb;
+ *
  * TODO: clue resolution, accuse resolution, pistol/fire resolution, death/win-loss resolution, hidden truth
  */
 const { createClient } = require('@supabase/supabase-js');
@@ -264,6 +273,13 @@ async function getRecentEvents(matchId, limit = 5) {
   return (data || []).reverse();
 }
 
+/**
+ * recent_events용 full event 조회.
+ * target, reason, dialogue, server_result 절대 누락 금지.
+ * summary는 server_result.summary 기반 계산값.
+ */
+const RECENT_EVENTS_SELECT = 'turn, actor, role, action, target, reason, dialogue, server_result, created_at';
+
 async function getRecentEventsForCurrentTurn(matchId) {
   const sb = getSupabaseClient();
   if (!sb) return [];
@@ -277,7 +293,7 @@ async function getRecentEventsForCurrentTurn(matchId) {
   const turn = latest?.turn ?? 1;
   const { data, error } = await sb
     .from('ep1_events')
-    .select('*')
+    .select(RECENT_EVENTS_SELECT)
     .eq('match_id', matchId)
     .eq('turn', turn)
     .order('created_at', { ascending: true });
@@ -299,6 +315,29 @@ async function getPublicEvents(matchId) {
   return Array.isArray(match.public_events) ? match.public_events : [];
 }
 
+/**
+ * full event 반환. target, reason, dialogue, server_result 절대 누락 금지.
+ * summary는 server_result.summary 기반 계산 (DB 컬럼 아님).
+ * 과거 이벤트 null-safe.
+ */
+function formatEventForResponse(e) {
+  if (!e) return null;
+  const sr = e.server_result;
+  const summary = (sr && typeof sr === 'object' && sr.summary) || e.summary || (e.role && e.action ? `${e.role} ${e.action}` : '') || '';
+  return {
+    turn: e.turn ?? null,
+    actor: e.actor ?? null,
+    role: e.role ?? null,
+    action: e.action ?? null,
+    target: e.target ?? null,
+    reason: e.reason ?? null,
+    dialogue: e.dialogue ?? null,
+    summary,
+    server_result: sr ?? null,
+    created_at: e.created_at ?? null
+  };
+}
+
 module.exports = {
   getSupabaseClient,
   getMatch,
@@ -308,8 +347,9 @@ module.exports = {
   updateMatch,
   getRecentEvents,
   getRecentEventsForCurrentTurn,
-  getEventsCount,
   getPublicEvents,
+  formatEventForResponse,
+  getEventsCount,
   makeReadableSummary,
   normalizeRole,
   normalizeAction,
