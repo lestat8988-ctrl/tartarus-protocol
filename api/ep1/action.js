@@ -16,12 +16,59 @@ const {
   getRecentEvents,
   getEventsCount,
   getPublicEvents,
-  makeReadableSummary,
   normalizeRole,
   normalizeAction
 } = require('./store');
 
 const RECENT_EVENTS_LIMIT = 5;
+
+const ROLE_KO = { captain: '함장', doctor: '의사', engineer: '엔지니어', navigator: '네비게이터', pilot: '파일럿' };
+const TARGET_KO = { player: '함장', captain: '함장', doctor: '의사', engineer: '엔지니어', navigator: '네비게이터', pilot: '파일럿' };
+
+function makeReadableSummaryKo(role, action, target, dialogue) {
+  const r = ROLE_KO[role] || role || '승무원';
+  const a = String(action || 'WAIT').toUpperCase();
+  const t = target ? (TARGET_KO[String(target).toLowerCase()] || target) : null;
+
+  switch (a) {
+    case 'QUESTION':
+      if (role === 'navigator') return t ? `네비게이터가 ${t}에게 동선을 추궁했다.` : '네비게이터가 추궁했다.';
+      if (role === 'doctor') return t ? `의사가 ${t}에게 확인을 요청했다.` : '의사가 확인을 요청했다.';
+      if (role === 'engineer') return t ? `엔지니어가 ${t}에게 기술적 질문을 했다.` : '엔지니어가 질문했다.';
+      if (role === 'pilot') return t ? `파일럿이 ${t}에게 물었다.` : '파일럿이 물었다.';
+      return t ? `${r}가 ${t}에게 질문했다.` : `${r}가 질문했다.`;
+    case 'OBSERVE':
+      if (role === 'captain') return '함장이 브리지를 살폈다.';
+      if (role === 'doctor') return '의사가 승무원들의 반응을 관찰했다.';
+      if (role === 'engineer') return '엔지니어가 시스템 상태를 점검했다.';
+      if (role === 'navigator') return '네비게이터가 상황을 살폈다.';
+      if (role === 'pilot') return '파일럿이 브리지의 분위기 변화를 살폈다.';
+      return `${r}가 상황을 관찰했다.`;
+    case 'CHECK_LOG':
+      if (role === 'engineer') return '엔지니어가 시스템 로그를 확인했다.';
+      return `${r}가 기록을 확인했다.`;
+    case 'REPAIR':
+      if (role === 'engineer') return '엔지니어가 장비를 점검했다.';
+      return `${r}가 수리를 진행했다.`;
+    case 'ACCUSE':
+      return t ? `${r}가 ${t}를 고발했다.` : `${r}가 고발했다.`;
+    case 'WAIT':
+      if (role === 'pilot') return '파일럿이 대기하며 분위기를 살폈다.';
+      return `${r}가 대기했다.`;
+    default:
+      break;
+  }
+  if (t) return `${r}가 ${t}에게 ${a.toLowerCase()}했다.`;
+  const d = (dialogue || '').slice(0, 40);
+  return d ? `${r}: ${d}${d.length >= 40 ? '...' : ''}` : `${r}가 행동했다.`;
+}
+
+function summaryFallbackKo(role, action) {
+  const r = ROLE_KO[role] || role || '승무원';
+  const a = String(action || 'WAIT').toUpperCase();
+  const actKo = { QUESTION: '질문', OBSERVE: '관찰', CHECK_LOG: '로그 확인', REPAIR: '수리', ACCUSE: '고발', WAIT: '대기' }[a] || '행동';
+  return `${r}가 ${actKo}했다.`;
+}
 
 function parseBody(req) {
   const raw = req.body;
@@ -99,7 +146,7 @@ module.exports = async (req, res) => {
     await updateMatch(matchId, { turn: newTurn });
   }
 
-  const readableSummary = makeReadableSummary(role, action, payload.target, payload.dialogue);
+  const readableSummary = makeReadableSummaryKo(role, action, payload.target, payload.dialogue);
   const serverResult = { summary: readableSummary, event_type: getEventType(action) };
 
   const ok = await appendEvent(matchId, payload, readableSummary, serverResult);
@@ -115,7 +162,7 @@ module.exports = async (req, res) => {
     actor: e.actor,
     role: e.role,
     action: e.action,
-    summary: e.server_result?.summary || `${e.role} ${e.action}`
+    summary: e.server_result?.summary || summaryFallbackKo(e.role, e.action)
   }));
   const events_count = await getEventsCount(matchId);
 
