@@ -9,9 +9,9 @@
  * Captain dialogue 우선순위: dialogue > text > command > input > fallback. 실제 입력 있으면 fallback 사용 안 함.
  *
  * Crew dialogue 우선순위:
- * 1. req.body에 실제 LLM 생성 결과(dialogue/reason/target) 있으면 우선 사용
- * 2. 비어 있으면 여기서 LLM 생성 시도 (재시도 1회)
- * 3. 실패 시에만 role별 fallback 사용
+ * 1. req.body에 유효한 dialogue 있으면 그대로 사용
+ * 2. 비어 있으면 서버에서 LLM 생성 (OPENAI_API_KEY 필요, 재시도 1회)
+ * 3. LLM 실패 시에만 role별 fallback 4문장 사용
  *
  * summary vs dialogue 분리:
  * - summary: action/role 기반 helper로 public_events용. dialogue를 덮어쓰지 않음.
@@ -203,6 +203,7 @@ async function resolveCrewPayloadWithLLM(matchId, body, role) {
   const rawReasonPresent = body.reason != null && typeof body.reason === 'string' && String(body.reason).trim() !== '';
 
   if (rawDialoguePresent) {
+    // body에 유효한 dialogue 있음 → 그대로 사용 (reason/target도 body 우선)
     return {
       action: normalizeAction(body.action),
       target: body.target ?? null,
@@ -214,10 +215,11 @@ async function resolveCrewPayloadWithLLM(matchId, body, role) {
 
   const match = await getMatch(matchId);
   if (!match) {
+    const fallbackReasonVal = (body.reason && body.reason !== 'crew') ? body.reason : '상황을 파악 중이다.';
     return {
       action: normalizeAction(body.action),
       target: body.target ?? null,
-      reason: body.reason ?? '상황을 파악 중이다.',
+      reason: fallbackReasonVal,
       dialogue: CREW_DIALOGUE_FALLBACK_KO[role] || '상황을 확인하겠습니다.',
       _debug: buildCrewDebug('fallback', 'match_not_found', false, rawReasonPresent, null)
     };
@@ -235,7 +237,7 @@ async function resolveCrewPayloadWithLLM(matchId, body, role) {
   const privateCtx = getPrivateContextForRole(match, role);
   if (privateCtx) observation.private_context = privateCtx;
 
-  // 여기서 LLM 생성 시도
+  // dialogue 비어 있음 → 서버에서 LLM으로 crew dialogue 생성 (우선순위 1)
   let llmOut = await generateCrewDialogueLLM(matchId, role, observation);
   if (!llmOut.result) {
     await new Promise((r) => setTimeout(r, 500));
@@ -251,13 +253,14 @@ async function resolveCrewPayloadWithLLM(matchId, body, role) {
     };
   }
 
-  // 실패 시 fallback
+  // LLM 실패 → fallback 4문장 (최후 수단). reason은 "crew" 대신 실제 의미 있는 값 사용.
   const fallbackReason = llmOut.errorCode || 'unknown';
   const llmErrMsg = llmOut.errorMessage || null;
+  const fallbackReasonVal = (body.reason && body.reason !== 'crew') ? body.reason : '상황을 파악 중이다.';
   return {
     action: normalizeAction(body.action),
     target: body.target ?? null,
-    reason: body.reason ?? '상황을 파악 중이다.',
+    reason: fallbackReasonVal,
     dialogue: CREW_DIALOGUE_FALLBACK_KO[role] || '상황을 확인하겠습니다.',
     _debug: buildCrewDebug('fallback', fallbackReason, false, rawReasonPresent, llmErrMsg)
   };
@@ -267,10 +270,11 @@ async function resolvePayloadForCrew(matchId, body, role) {
   const resolved = await resolveCrewPayloadWithLLM(matchId, body, role);
   if (resolved) return resolved;
   const rawReasonPresent = body.reason != null && typeof body.reason === 'string' && String(body.reason).trim() !== '';
+  const fallbackReasonVal = (body.reason && body.reason !== 'crew') ? body.reason : '상황을 파악 중이다.';
   return {
     action: normalizeAction(body.action),
     target: body.target ?? null,
-    reason: body.reason ?? '상황을 파악 중이다.',
+    reason: fallbackReasonVal,
     dialogue: CREW_DIALOGUE_FALLBACK_KO[role] || '상황을 확인하겠습니다.',
     _debug: buildCrewDebug('fallback', 'unknown', false, rawReasonPresent, null)
   };
