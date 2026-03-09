@@ -696,7 +696,7 @@
       <div id="log"></div>
 
       <div class="action-bar">
-        <!-- preset 버튼 경로: data-ep1 값을 그대로 captain dialogue로 전송 -->
+        <!-- quick button 경로: data-ep1 문구 그대로 captain dialogue로 전송. buildPayloadFromPreset 사용. -->
         <button class="action-btn" data-msg="interrogate" data-ep1="QUESTION doctor 의사, 그때 어디 있었지?" onclick="sendMessage(this.getAttribute('data-ep1'))">승무원 심문</button>
         <button class="action-btn" data-msg="cctv" data-ep1="CHECK_LOG CCTV 로그를 확인한다." onclick="sendMessage(this.getAttribute('data-ep1'))">CCTV 로그 확인</button>
         <button class="action-btn" data-msg="engine" data-ep1="CHECK_LOG 엔진실 로그를 확인한다." onclick="sendMessage(this.getAttribute('data-ep1'))">엔진실 확인</button>
@@ -873,8 +873,8 @@
       return { action, target: action === 'QUESTION' ? target : null, dialogue: dialogue || (defaults[action] || '') };
     }
 
-    // preset 버튼 경로: [ACCUSE], 키워드 매칭, parseEp1Input. [AUTO-KILL]/[WITNESS]는 시스템 전용.
-    function rawToEp1Payload(raw) {
+    // preset 버튼 경로: [ACCUSE], quick button 문구. [AUTO-KILL]/[WITNESS] 사용 안 함.
+    function buildPayloadFromPreset(raw) {
       const s = String(raw || '').trim();
       if (/^\[ACCUSE\]/i.test(s)) {
         const t = s.replace(/^\[ACCUSE\]/i, '').trim().toLowerCase();
@@ -882,19 +882,19 @@
         const target = roleMap[t] || t;
         return { action: 'ACCUSE', target: target || null, dialogue: '', reason: 'player_input' };
       }
-      if (/^\[AUTO-KILL\]/i.test(s)) {
-        const victim = s.replace(/^\[AUTO-KILL\]/i, '').trim();
-        return { action: 'OBSERVE', target: null, dialogue: `[AUTO-KILL] ${victim}`, reason: 'auto_kill' };
-      }
-      if (/^\[WITNESS\]/i.test(s)) {
-        return { action: 'OBSERVE', target: null, dialogue: s.replace(/^\[WITNESS\]/i, '').trim(), reason: 'witness' };
-      }
       const lower = s.toLowerCase();
       if (/cctv|check\s+cctv/i.test(lower)) return { action: 'CHECK_LOG', target: null, dialogue: 'CCTV 로그를 확인한다.', reason: 'player_input' };
       if (/interrogate|status|report/i.test(lower)) return { action: 'QUESTION', target: 'doctor', dialogue: '의사, 그때 어디 있었지?', reason: 'player_input' };
       if (/engine|check\s+engine/i.test(lower)) return { action: 'CHECK_LOG', target: null, dialogue: '엔진실 로그를 확인한다.', reason: 'player_input' };
       const parsed = parseEp1Input(s);
       return { action: parsed.action, target: parsed.target, dialogue: parsed.dialogue, reason: 'player_input' };
+    }
+    // auto_kill payload 생성: 전용 경로. 일반 SEND/quick button과 절대 섞이지 않음.
+    function buildAutoKillPayload(victim) {
+      return { action: 'OBSERVE', target: null, dialogue: '[AUTO-KILL] ' + victim, reason: 'auto_kill' };
+    }
+    function buildWitnessPayload(witness, victim) {
+      return { action: 'OBSERVE', target: null, dialogue: witness + ' witnessed the murder of ' + victim, reason: 'witness' };
     }
 
     // 일반 SEND 입력 경로: 사용자 입력 그대로 dialogue로 사용. auto_kill/witness/preset 키워드 사용 안 함.
@@ -961,19 +961,46 @@
       }
     }
 
+    // captain payload 생성: match_id, turn, actor, role, action, target, reason, dialogue
+    function buildCaptainActionBody(captainPayload) {
+      var matchId = MATCH_ID || newMatchId();
+      if (!MATCH_ID) MATCH_ID = matchId;
+      var dialogueVal = (captainPayload.dialogue != null && captainPayload.dialogue !== '') ? String(captainPayload.dialogue) : null;
+      return {
+        match_id: matchId,
+        turn: currentTurn,
+        actor: 'captain',
+        role: 'captain',
+        action: captainPayload.action || 'OBSERVE',
+        target: captainPayload.target ?? null,
+        reason: captainPayload.reason || 'player_input',
+        dialogue: dialogueVal
+      };
+    }
+    // crew payload 생성: dialogue는 항상 crew 대사 문자열. match_id 절대 넣지 않음.
+    function buildCrewActionBody(crewPayload, role) {
+      var matchId = MATCH_ID || newMatchId();
+      if (!MATCH_ID) MATCH_ID = matchId;
+      var dialogueVal = (crewPayload.dialogue != null && typeof crewPayload.dialogue === 'string') ? crewPayload.dialogue : '';
+      return {
+        match_id: matchId,
+        turn: currentTurn,
+        actor: 'agent_' + role,
+        role: role,
+        action: crewPayload.action || 'OBSERVE',
+        target: crewPayload.target ?? null,
+        reason: crewPayload.reason || 'crew',
+        dialogue: dialogueVal
+      };
+    }
     async function ep1CallAction(payload, opts) {
       if (!MATCH_ID) { MATCH_ID = newMatchId(); }
-      const isCrew = opts && opts.role && opts.role !== 'captain';
-      const body = {
-        match_id: MATCH_ID,
-        turn: currentTurn,
-        actor: isCrew ? `agent_${opts.role}` : 'captain',
-        role: isCrew ? opts.role : 'captain',
-        action: payload.action,
-        target: payload.target ?? null,
-        reason: payload.reason || (isCrew ? 'crew_fallback' : 'player_input'),
-        dialogue: payload.dialogue ?? null
-      };
+      var body;
+      if (opts && opts.role && opts.role !== 'captain') {
+        body = buildCrewActionBody(payload, opts.role);
+      } else {
+        body = buildCaptainActionBody(payload);
+      }
       const res = await fetch('/api/ep1/action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1072,8 +1099,16 @@
     async function runEp1Flow(message, deadCrew, opts) {
       try {
         if (!MATCH_ID) { MATCH_ID = newMatchId(); }
-        var captainPayload = (opts && opts.captainPayload) ? opts.captainPayload : rawToEp1Payload(message);
-
+        var captainPayload;
+        if (opts && opts.captainPayload) {
+          captainPayload = opts.captainPayload;
+        } else if (opts && opts.autoKillVictim) {
+          captainPayload = buildAutoKillPayload(opts.autoKillVictim);
+        } else if (opts && opts.witnessVictim && opts.witnessName) {
+          captainPayload = buildWitnessPayload(opts.witnessName, opts.witnessVictim);
+        } else {
+          captainPayload = buildPayloadFromPreset(message);
+        }
         setPhase('crew_resolving');
         var captainData = await ep1CallAction(captainPayload);
         if (captainData.next_state && captainData.next_state.turn != null) currentTurn = captainData.next_state.turn;
@@ -1462,7 +1497,7 @@
       
       try {
         printLine('[EMERGENCY ALERT]', "role-alert");
-        var data = await runEp1Flow('[AUTO-KILL] ' + victim, deadCrew, { lastWitnessLine: window.__lastWitnessLine || '' });
+        var data = await runEp1Flow(null, deadCrew, { autoKillVictim: victim, lastWitnessLine: window.__lastWitnessLine || '' });
         var content = data.resultText || data.result || '';
         var lines = String(content).split('\n');
         var witnessTestimonyFound = false;
@@ -1511,7 +1546,7 @@
       printLine(`[WITNESS TESTIMONY INCOMING]`, "witness-alert");
       
       try {
-        var data = await runEp1Flow('[WITNESS] ' + witness + ' witnessed the murder of ' + victim, deadCrew, { lastWitnessLine: window.__lastWitnessLine || '' });
+        var data = await runEp1Flow(null, deadCrew, { witnessVictim: victim, witnessName: witness, lastWitnessLine: window.__lastWitnessLine || '' });
         var content = data.resultText || data.result || '';
         var lines = String(content).split('\n');
         for (var i = 0; i < lines.length; i++) {
@@ -1739,7 +1774,7 @@
       if (isFromInput) {
         captainPayload = buildPayloadFromUserInput(raw);
       } else {
-        captainPayload = rawToEp1Payload(raw);
+        captainPayload = buildPayloadFromPreset(raw);
       }
       if (!captainPayload) { isSubmittingCaptainAction = false; return; }
       var captainDialogue = captainPayload.dialogue || raw;
@@ -1749,7 +1784,7 @@
       history.push({ role: "user", content: raw });
 
       try {
-        var opts = isFromInput ? { captainPayload: captainPayload } : {};
+        var opts = { captainPayload: captainPayload };
         var data = await runEp1Flow(raw, deadCrew, opts);
         var displayText = data.resultText || data.result || '';
 
@@ -1763,8 +1798,8 @@
           var isVictory = data.state === 'victory' || data.outcome === 'victory';
           setTimeout(function() { showResult(isVictory ? 'victory' : 'defeat', displayText, data.actualImposter); }, 800);
         } else if (data.state === 'victory' || data.state === 'defeat') {
-          if (text.indexOf('[ACCUSE]') === 0) {
-            var accused = text.replace('[ACCUSE]', '').trim();
+          if (raw.indexOf('[ACCUSE]') === 0) {
+            var accused = raw.replace(/^\[ACCUSE\]/i, '').trim();
             if (accused && deadCrew.indexOf(accused) < 0) deadCrew.push(accused);
           }
           setTimeout(function() { showResult(data.state, displayText || '', data.actualImposter); }, 1000);
