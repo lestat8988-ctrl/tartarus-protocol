@@ -109,7 +109,12 @@ function truncateDialogue(s, max = 300) {
 }
 
 function parseAndValidateCrewLLM(content, role) {
-  if (!content || typeof content !== 'string') return null;
+  const out = parseAndValidateCrewLLMWithDebug(content, role);
+  return out.result;
+}
+
+function parseAndValidateCrewLLMWithDebug(content, role) {
+  if (!content || typeof content !== 'string') return { result: null, errorCode: 'empty_response' };
   try {
     const cleaned = content.replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*$/, '$1').trim();
     const parsed = JSON.parse(cleaned);
@@ -121,10 +126,11 @@ function parseAndValidateCrewLLM(content, role) {
     let reason = parsed.reason != null ? String(parsed.reason).trim().slice(0, 120) : null;
     let dialogue = parsed.dialogue != null ? String(parsed.dialogue).trim() : '';
     dialogue = truncateDialogue(dialogue) || null;
-    if (!dialogue || isPredominantlyEnglish(dialogue) || isPredominantlyEnglish(reason)) return null;
-    return { action, target, reason: reason || '상황을 파악 중이다.', dialogue };
+    if (!dialogue) return { result: null, errorCode: 'empty_dialogue' };
+    if (isPredominantlyEnglish(dialogue) || isPredominantlyEnglish(reason)) return { result: null, errorCode: 'safety_fallback' };
+    return { result: { action, target, reason: reason || '상황을 파악 중이다.', dialogue }, errorCode: null };
   } catch {
-    return null;
+    return { result: null, errorCode: 'invalid_json' };
   }
 }
 
@@ -133,7 +139,7 @@ async function generateCrewDialogueLLM(matchId, role, observation) {
   const baseUrl = (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');
   const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
   const timeoutMs = parseInt(process.env.LLM_TIMEOUT_MS || '10000', 10);
-  if (!apiKey) return null;
+  if (!apiKey) return { result: null, errorCode: 'missing_openai_key', errorMessage: 'OPENAI_API_KEY not set' };
 
   const systemContent = `${LLM_SYSTEM_BASE}\n\n${ROLE_PROMPTS[role] || ''}`;
   const obsJson = JSON.stringify(observation).slice(0, 1600);
@@ -164,30 +170,58 @@ async function generateCrewDialogueLLM(matchId, role, observation) {
     });
     clearTimeout(timeoutId);
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const errMsg = data?.error?.message || data?.message || `HTTP ${res.status}`;
+      return { result: null, errorCode: 'llm_error', errorMessage: String(errMsg).slice(0, 80) };
+    }
     const content = data?.choices?.[0]?.message?.content || '';
-    return parseAndValidateCrewLLM(content, role);
-  } catch {
+    const parsed = parseAndValidateCrewLLMWithDebug(content, role);
+    if (parsed.result) return { result: parsed.result, errorCode: null, errorMessage: null };
+    return { result: null, errorCode: parsed.errorCode || 'parse_error', errorMessage: parsed.errorCode || null };
+  } catch (err) {
     clearTimeout(timeoutId);
-    return null;
+    const msg = err?.message || String(err);
+    const code = /abort|timeout/i.test(msg) ? 'llm_error' : 'llm_error';
+    return { result: null, errorCode: code, errorMessage: msg.slice(0, 80) };
   }
+}
+
+function buildCrewDebug(source, fallbackReason, rawDialoguePresent, rawReasonPresent, llmErrorMessage) {
+  return {
+    generation_source: source,
+    fallback_reason: fallbackReason,
+    raw_dialogue_present: !!rawDialoguePresent,
+    raw_reason_present: !!rawReasonPresent,
+    llm_error_message: llmErrorMessage != null ? String(llmErrorMessage).slice(0, 120) : null
+  };
 }
 
 async function resolveCrewPayloadWithLLM(matchId, body, role) {
   const rawDialogue = body.dialogue ?? body.command ?? body.input ?? body.text ?? '';
   const s = (rawDialogue != null && typeof rawDialogue === 'string') ? String(rawDialogue).trim() : '';
+  const rawDialoguePresent = !isEmptyDialogue(s) && !looksLikeEnglishTestString(s);
+  const rawReasonPresent = body.reason != null && typeof body.reason === 'string' && String(body.reason).trim() !== '';
 
-  if (!isEmptyDialogue(s) && !looksLikeEnglishTestString(s)) {
+  if (rawDialoguePresent) {
     return {
       action: normalizeAction(body.action),
       target: body.target ?? null,
       reason: body.reason ?? null,
-      dialogue: s
+      dialogue: s,
+      _debug: buildCrewDebug('body', null, true, rawReasonPresent, null)
     };
   }
 
   const match = await getMatch(matchId);
-  if (!match) return null;
+  if (!match) {
+    return {
+      action: normalizeAction(body.action),
+      target: body.target ?? null,
+      reason: body.reason ?? '상황을 파악 중이다.',
+      dialogue: CREW_DIALOGUE_FALLBACK_KO[role] || '상황을 확인하겠습니다.',
+      _debug: buildCrewDebug('fallback', 'match_not_found', false, rawReasonPresent, null)
+    };
+  }
 
   const recentRaw = await getRecentEventsForCurrentTurn(matchId);
   const captainEv = (recentRaw || []).find((e) => e.role === 'captain');
@@ -202,36 +236,43 @@ async function resolveCrewPayloadWithLLM(matchId, body, role) {
   if (privateCtx) observation.private_context = privateCtx;
 
   // 여기서 LLM 생성 시도
-  let result = await generateCrewDialogueLLM(matchId, role, observation);
-  if (!result) {
+  let llmOut = await generateCrewDialogueLLM(matchId, role, observation);
+  if (!llmOut.result) {
     await new Promise((r) => setTimeout(r, 500));
-    result = await generateCrewDialogueLLM(matchId, role, observation);
+    llmOut = await generateCrewDialogueLLM(matchId, role, observation);
   }
-  if (result) {
+  if (llmOut.result) {
     return {
-      action: result.action,
-      target: result.target,
-      reason: result.reason,
-      dialogue: result.dialogue
+      action: llmOut.result.action,
+      target: llmOut.result.target,
+      reason: llmOut.result.reason,
+      dialogue: llmOut.result.dialogue,
+      _debug: buildCrewDebug('llm', null, false, rawReasonPresent, null)
     };
   }
 
   // 실패 시 fallback
+  const fallbackReason = llmOut.errorCode || 'unknown';
+  const llmErrMsg = llmOut.errorMessage || null;
   return {
     action: normalizeAction(body.action),
     target: body.target ?? null,
     reason: body.reason ?? '상황을 파악 중이다.',
-    dialogue: CREW_DIALOGUE_FALLBACK_KO[role] || '상황을 확인하겠습니다.'
+    dialogue: CREW_DIALOGUE_FALLBACK_KO[role] || '상황을 확인하겠습니다.',
+    _debug: buildCrewDebug('fallback', fallbackReason, false, rawReasonPresent, llmErrMsg)
   };
 }
 
 async function resolvePayloadForCrew(matchId, body, role) {
   const resolved = await resolveCrewPayloadWithLLM(matchId, body, role);
-  return resolved || {
+  if (resolved) return resolved;
+  const rawReasonPresent = body.reason != null && typeof body.reason === 'string' && String(body.reason).trim() !== '';
+  return {
     action: normalizeAction(body.action),
     target: body.target ?? null,
     reason: body.reason ?? '상황을 파악 중이다.',
-    dialogue: CREW_DIALOGUE_FALLBACK_KO[role] || '상황을 확인하겠습니다.'
+    dialogue: CREW_DIALOGUE_FALLBACK_KO[role] || '상황을 확인하겠습니다.',
+    _debug: buildCrewDebug('fallback', 'unknown', false, rawReasonPresent, null)
   };
 }
 
@@ -375,6 +416,7 @@ module.exports = async (req, res) => {
   let target = body.target ?? null;
   let reason = body.reason ?? null;
   let dialogue = null;
+  let crewGenerationDebug = null;
 
   const match = await getOrCreateMatch(matchId);
   if (!match) {
@@ -395,6 +437,7 @@ module.exports = async (req, res) => {
     target = crewResolved.target;
     reason = crewResolved.reason;
     dialogue = crewResolved.dialogue || CREW_DIALOGUE_FALLBACK_KO[role] || '상황을 확인하겠습니다.';
+    crewGenerationDebug = crewResolved._debug || null;
   } else {
     dialogue = resolveDialogueForPayload(body, role) || '상황을 확인하겠습니다.';
   }
@@ -426,14 +469,22 @@ module.exports = async (req, res) => {
   }).filter(Boolean);
   const events_count = await getEventsCount(matchId);
 
+  const serverResultPayload = {
+    accepted: true,
+    summary: readableSummary,
+    event_type: getEventType(action),
+    placeholder: true
+  };
+  if (crewGenerationDebug) {
+    serverResultPayload.generation_source = crewGenerationDebug.generation_source;
+    serverResultPayload.fallback_reason = crewGenerationDebug.fallback_reason;
+    serverResultPayload.raw_dialogue_present = crewGenerationDebug.raw_dialogue_present;
+    serverResultPayload.raw_reason_present = crewGenerationDebug.raw_reason_present;
+    serverResultPayload.llm_error_message = crewGenerationDebug.llm_error_message;
+  }
   return res.status(200).json({
     ok: true,
-    server_result: {
-      accepted: true,
-      summary: readableSummary,
-      event_type: getEventType(action),
-      placeholder: true
-    },
+    server_result: serverResultPayload,
     next_state: {
       match_id: matchId,
       turn: updatedMatch.turn ?? 1,
