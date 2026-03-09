@@ -7,11 +7,9 @@
  * tartarus_ep1_loop.js getState()가 호출.
  */
 const SECRET = process.env.TARTARUS_SECRET;
-const { getOrCreateMatch, getRecentEvents, getEventsCount, getPublicEvents, getPrivateContextForRole } = require('./store');
+const { getOrCreateMatch, getRecentEventsForCurrentTurn, getEventsCount, getPublicEvents, getPrivateContextForRole } = require('./store');
 
 const CREW_VIEWER_ROLES = ['doctor', 'engineer', 'navigator', 'pilot'];
-
-const RECENT_EVENTS_LIMIT = 5;
 
 function parseBody(req) {
   const raw = req.body;
@@ -70,7 +68,7 @@ module.exports = async (req, res) => {
   }
 
   const pub = await getPublicEvents(matchId);
-  const recentRaw = await getRecentEvents(matchId, RECENT_EVENTS_LIMIT);
+  const recentRaw = await getRecentEventsForCurrentTurn(matchId);
   const recent_events = recentRaw.map((e) => ({
     turn: e.turn,
     actor: e.actor,

@@ -12,15 +12,12 @@ const SECRET = process.env.TARTARUS_SECRET;
 const {
   getOrCreateMatch,
   appendEvent,
-  updateMatch,
-  getRecentEvents,
+  getRecentEventsForCurrentTurn,
   getEventsCount,
   getPublicEvents,
   normalizeRole,
   normalizeAction
 } = require('./store');
-
-const RECENT_EVENTS_LIMIT = 5;
 
 const ROLE_KO = { captain: '함장', doctor: '의사', engineer: '엔지니어', navigator: '네비게이터', pilot: '파일럿' };
 const TARGET_KO = { player: '함장', captain: '함장', doctor: '의사', engineer: '엔지니어', navigator: '네비게이터', pilot: '파일럿' };
@@ -30,19 +27,30 @@ function subjectKo(role) {
   return ROLE_SUBJECT_KO[role] || (ROLE_KO[role] || role || '승무원') + '가';
 }
 
+const VALID_QUESTION_TARGETS = ['doctor', 'engineer', 'navigator', 'pilot', 'player', 'captain'];
+
+function getValidQuestionTargetKo(role, target) {
+  const raw = (target ?? '').toString().trim().toLowerCase();
+  if (!raw) return null;
+  if (raw === role) return null;
+  if (!VALID_QUESTION_TARGETS.includes(raw)) return null;
+  return TARGET_KO[raw] || null;
+}
+
 function makeReadableSummaryKo(role, action, target, dialogue) {
   const subj = subjectKo(role);
   const r = ROLE_KO[role] || role || '승무원';
   const a = String(action || 'WAIT').toUpperCase();
-  const t = target ? (TARGET_KO[String(target).toLowerCase()] || target) : null;
+  const tQuestion = getValidQuestionTargetKo(role, target);
+  const tAccuse = target ? (TARGET_KO[String(target).toLowerCase()] || target) : null;
 
   switch (a) {
     case 'QUESTION':
-      if (role === 'navigator') return t ? `네비게이터가 ${t}에게 동선을 추궁했다.` : '네비게이터가 추궁했다.';
-      if (role === 'doctor') return t ? `의사가 ${t}에게 확인을 요청했다.` : '의사가 확인을 요청했다.';
-      if (role === 'engineer') return t ? `엔지니어가 ${t}에게 기술적 질문을 했다.` : '엔지니어가 질문했다.';
-      if (role === 'pilot') return t ? `파일럿이 ${t}에게 공기 변화에 대해 물었다.` : '파일럿이 이상한 기류에 대해 물었다.';
-      return t ? `${subj} ${t}에게 질문했다.` : `${subj} 질문했다.`;
+      if (role === 'navigator') return tQuestion ? `네비게이터가 ${tQuestion}에게 동선을 추궁했다.` : '네비게이터가 동선을 추궁했다.';
+      if (role === 'doctor') return tQuestion ? `의사가 ${tQuestion}에게 확인을 요청했다.` : '의사가 확인을 요청했다.';
+      if (role === 'engineer') return tQuestion ? `엔지니어가 ${tQuestion}에게 기술적 질문을 했다.` : '엔지니어가 질문했다.';
+      if (role === 'pilot') return tQuestion ? `파일럿이 ${tQuestion}에게 공기 변화에 대해 물었다.` : '파일럿이 공기 변화에 대해 물었다.';
+      return tQuestion ? `${subj} ${tQuestion}에게 질문했다.` : `${subj} 질문했다.`;
     case 'OBSERVE':
       if (role === 'captain') return '함장이 브리지를 살폈다.';
       if (role === 'doctor') return '의사가 승무원들의 반응을 관찰했다.';
@@ -57,14 +65,14 @@ function makeReadableSummaryKo(role, action, target, dialogue) {
       if (role === 'engineer') return '엔지니어가 장비를 점검했다.';
       return `${subj} 수리를 진행했다.`;
     case 'ACCUSE':
-      return t ? `${subj} ${t}를 고발했다.` : `${subj} 고발했다.`;
+      return tAccuse ? `${subj} ${tAccuse}를 고발했다.` : `${subj} 고발했다.`;
     case 'WAIT':
       if (role === 'pilot') return '파일럿이 대기하며 분위기를 살폈다.';
       return `${subj} 대기했다.`;
     default:
       break;
   }
-  if (t) return `${subj} ${t}에게 ${a.toLowerCase()}했다.`;
+  if (tQuestion) return `${subj} ${tQuestion}에게 ${a.toLowerCase()}했다.`;
   const d = (dialogue || '').slice(0, 40);
   return d ? `${r}: ${d}${d.length >= 40 ? '...' : ''}` : `${subj} 행동했다.`;
 }
@@ -147,11 +155,6 @@ module.exports = async (req, res) => {
     return errRes(res, 500, 'Failed to get or create match');
   }
 
-  if (body.turn != null && role === 'captain') {
-    const newTurn = Math.max(match.turn || 1, parseInt(body.turn, 10) || match.turn);
-    await updateMatch(matchId, { turn: newTurn });
-  }
-
   const readableSummary = makeReadableSummaryKo(role, action, payload.target, payload.dialogue);
   const serverResult = { summary: readableSummary, event_type: getEventType(action) };
 
@@ -162,7 +165,7 @@ module.exports = async (req, res) => {
 
   const updatedMatch = await getOrCreateMatch(matchId);
   const pub = await getPublicEvents(matchId);
-  const recentRaw = await getRecentEvents(matchId, RECENT_EVENTS_LIMIT);
+  const recentRaw = await getRecentEventsForCurrentTurn(matchId);
   const recent_events = recentRaw.map((e) => ({
     turn: e.turn,
     actor: e.actor,

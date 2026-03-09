@@ -204,12 +204,25 @@ async function appendEvent(matchId, payload, summary, serverResult) {
   if (!match) return false;
 
   const turn = match.turn || 1;
+  const role = payload.role ?? null;
+
+  if (role) {
+    const { data: existing } = await sb
+      .from('ep1_events')
+      .select('turn')
+      .eq('match_id', matchId)
+      .eq('turn', turn)
+      .eq('role', role)
+      .limit(1)
+      .maybeSingle();
+    if (existing) return true;
+  }
 
   const { error: evError } = await sb.from('ep1_events').insert({
     match_id: matchId,
     turn,
     actor: payload.actor ?? null,
-    role: payload.role ?? null,
+    role,
     action: payload.action ?? null,
     target: payload.target ?? null,
     reason: payload.reason ?? null,
@@ -220,9 +233,14 @@ async function appendEvent(matchId, payload, summary, serverResult) {
   if (evError) return false;
 
   const pub = Array.isArray(match.public_events) ? [...match.public_events] : [];
-  pub.push({ turn, summary: summary || makeReadableSummary(payload.role, payload.action, payload.target, payload.dialogue) });
+  const summaryText = summary || makeReadableSummary(payload.role, payload.action, payload.target, payload.dialogue);
+  pub.push({ turn, summary: summaryText });
 
-  await updateMatch(matchId, { public_events: pub });
+  const patch = { public_events: pub };
+  if (role === 'pilot') {
+    patch.turn = turn + 1;
+  }
+  await updateMatch(matchId, patch);
   return true;
 }
 
@@ -244,6 +262,27 @@ async function getRecentEvents(matchId, limit = 5) {
     .limit(limit);
   if (error) return [];
   return (data || []).reverse();
+}
+
+async function getRecentEventsForCurrentTurn(matchId) {
+  const sb = getSupabaseClient();
+  if (!sb) return [];
+  const { data: latest } = await sb
+    .from('ep1_events')
+    .select('turn')
+    .eq('match_id', matchId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const turn = latest?.turn ?? 1;
+  const { data, error } = await sb
+    .from('ep1_events')
+    .select('*')
+    .eq('match_id', matchId)
+    .eq('turn', turn)
+    .order('created_at', { ascending: true });
+  if (error) return [];
+  return (data || []).filter((e) => e.role && VALID_ROLES.has(e.role));
 }
 
 async function getEventsCount(matchId) {
@@ -268,6 +307,7 @@ module.exports = {
   appendEvent,
   updateMatch,
   getRecentEvents,
+  getRecentEventsForCurrentTurn,
   getEventsCount,
   getPublicEvents,
   makeReadableSummary,

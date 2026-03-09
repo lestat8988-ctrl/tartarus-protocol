@@ -10,9 +10,7 @@
  * TODO(debug): 필요 시 ?debug=1 등으로 hidden_host_role 확인용 엔드포인트 별도 구현
  */
 const SECRET = process.env.TARTARUS_SECRET;
-const { getOrCreateMatch, getRecentEvents, getEventsCount, getPublicEvents } = require('./store');
-
-const RECENT_EVENTS_LIMIT = 5;
+const { getOrCreateMatch, getRecentEventsForCurrentTurn, getEventsCount, getPublicEvents } = require('./store');
 
 function parseBody(req) {
   const raw = req.body;
@@ -68,7 +66,7 @@ module.exports = async (req, res) => {
   }
 
   const pub = await getPublicEvents(matchId);
-  const recentRaw = await getRecentEvents(matchId, RECENT_EVENTS_LIMIT);
+  const recentRaw = await getRecentEventsForCurrentTurn(matchId);
   const recent_events = recentRaw.map((e) => ({
     turn: e.turn,
     actor: e.actor,
