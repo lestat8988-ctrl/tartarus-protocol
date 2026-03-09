@@ -18,9 +18,11 @@
     }
     body { 
       padding: 12px; 
+      height: 100vh;
+      min-height: 100vh;
       background: #000; color: var(--terminal-green); 
       font-family: 'Share Tech Mono', monospace; 
-      display: flex; align-items: center; justify-content: center; 
+      display: flex; flex-direction: column; align-items: center; justify-content: center; 
     }
 
     /* 베젤 (테두리) - itch.io iframe 대응 */
@@ -42,33 +44,44 @@
       position: relative; display: flex; flex-direction: column; 
       box-shadow: inset 0 0 100px rgba(0,0,0,0.9); overflow: hidden; 
     }
+    #game-content { display: none; flex-direction: column; flex: 1; min-height: 0; }
+    #game-container.started #game-content { display: flex; }
+    #game-container.started #intro-briefing { display: none; }
     
-    /* --- [인트로] 레트로 BIOS 부팅 화면 --- */
-    #intro-screen {
-      position: fixed;
+    /* --- [인트로] BIOS 스플래시 (모니터 프레임 내부) --- */
+    #intro-briefing {
+      position: absolute;
       inset: 0;
-      background: #000;
-      color: var(--terminal-green);
-      font-family: 'Share Tech Mono', monospace;
-      z-index: 10000;
+      z-index: 50;
       display: flex;
       flex-direction: column;
-      align-items: center;
-      justify-content: flex-start;
-      padding: 40px 20px;
-      overflow: hidden;
+      padding: 20px 24px;
+      overflow-y: auto;
+      color: var(--terminal-green);
+      text-shadow: 0 0 2px var(--terminal-green);
+      font-family: 'Share Tech Mono', monospace;
     }
-    #intro-screen.hidden { display: none; }
+    #intro-briefing.hidden { display: none; }
+    #intro-briefing.crt-turnoff {
+      animation: crtTurnOff 0.6s ease-out forwards;
+    }
     #intro-boot-log {
-      width: 100%;
-      max-width: 600px;
-      font-size: 14px;
-      line-height: 1.8;
+      flex-shrink: 0;
+      font-size: 13px;
+      line-height: 1.7;
       white-space: pre-wrap;
       word-break: break-all;
     }
+    #intro-center {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 120px;
+      gap: 16px;
+    }
     #intro-ascii-logo {
-      margin-top: 20px;
       font-size: 8px;
       line-height: 1.2;
       white-space: pre;
@@ -83,14 +96,36 @@
       50%, 100% { opacity: 0; }
     }
     #intro-press-enter {
-      margin-top: 24px;
-      font-size: 14px;
+      font-size: 13px;
       letter-spacing: 2px;
       color: var(--terminal-green);
       display: none;
     }
     #intro-press-enter.visible { display: block; }
     #intro-press-enter.blink { animation: introBlink 0.5s steps(1) infinite; }
+    .intro-lang-row {
+      flex-shrink: 0;
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      margin-top: 16px;
+    }
+    .intro-lang-btn {
+      padding: 8px 20px;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 12px;
+      color: var(--terminal-green);
+      background: transparent;
+      border: 1px solid var(--terminal-green);
+      cursor: pointer;
+      transition: 0.2s;
+    }
+    .intro-lang-btn:hover { background: rgba(57, 255, 20, 0.15); }
+    .intro-lang-btn.active {
+      background: var(--terminal-green);
+      color: #000;
+      border-color: var(--terminal-green);
+    }
     
     /* 메인 메뉴 / 게임 화면 우측 하단 후원 안내 */
     .main-menu-support-hint,
@@ -103,10 +138,6 @@
       opacity: 0.7;
       pointer-events: none;
       z-index: 25;
-    }
-    /* CRT 턴오프 효과 (TV 꺼지듯) */
-    #intro-screen.crt-turnoff {
-      animation: crtTurnOff 0.6s ease-out forwards;
     }
     @keyframes crtTurnOff {
       0% { opacity: 1; transform: scale(1); filter: brightness(1); }
@@ -402,11 +433,13 @@
       text-shadow: 0 0 8px rgba(255, 100, 100, 0.5);
     }
 
-    /* 인트로 화면 모바일 */
+    /* 인트로 스플래시 모바일 */
     @media (max-width: 768px) {
-      #intro-boot-log { font-size: 12px; }
-      #intro-ascii-logo { font-size: 6px; }
-      #intro-press-enter { font-size: 12px; }
+      #intro-briefing { padding: 12px 16px; }
+      #intro-boot-log { font-size: 11px; }
+      #intro-ascii-logo { font-size: 5px; }
+      #intro-press-enter { font-size: 11px; }
+      .intro-lang-btn { font-size: 11px; padding: 6px 14px; }
     }
 
     /* 모바일 반응형 디자인 */
@@ -534,7 +567,14 @@
     }
 
     /* PATCH: shorts-mode layout - grid 3구역, 모니터 위/아래 꽉 차게 */
-    body:not(.shorts-mode) #shorts-stage { display: contents; } /* PATCH: 비쇼츠 시 레이아웃 무영향 */
+    body:not(.shorts-mode) #shorts-stage { display: contents; }
+    body:not(.shorts-mode) #shorts-game-wrapper {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
     html:has(body.shorts-mode) { background: #000; }
     body.shorts-mode {
       display: grid;
@@ -599,22 +639,7 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    /* PATCH: 언어 토글 (첫 화면 전용, intro 내부에 있어 인게임 진입 시 함께 숨김) */
-    .intro-lang-toggle {
-      margin-top: 24px;
-      flex-shrink: 0;
-    }
-    .intro-lang-toggle #lang-toggle-btn {
-      padding: 8px 16px;
-      font-family: 'Share Tech Mono', monospace;
-      font-size: 12px;
-      color: var(--terminal-green);
-      background: transparent;
-      border: 2px solid var(--terminal-green);
-      cursor: pointer;
-    }
-    .intro-lang-toggle #lang-toggle-btn:hover { opacity: 0.8; }
-    .hide-lang { display: none !important; } /* PATCH: 예비 (인트로 숨김으로 이미 처리됨) */
+    .hide-lang { display: none !important; }
   </style>
 </head>
 <body>
@@ -623,22 +648,6 @@
   <div id="shorts-header" style="display:none;">
     <span id="shorts-title" class="header-title" data-i18n="game.title">TARTARUS PROTOCOL v4.0 (GLOBAL)</span>
     <span id="shorts-countdown">TIME UNTIL TOTAL SHIP COLLAPSE : 10:00</span>
-  </div>
-
-  <div id="intro-screen">
-    <div id="intro-boot-log"></div>
-    <pre id="intro-ascii-logo">████████╗ █████╗ ██████╗ ████████╗ █████╗ ██████╗ ██╗   ██╗██████╗
-╚══██╔══╝██╔══██╗██╔══██╗╚══██╔══╝██╔══██╗██╔══██╗██║   ██║██╔════╝
-   ██║   ███████║██████╔╝   ██║   ███████║██████╔╝██║   ██║███████╗
-   ██║   ██╔══██║██╔══██╗   ██║   ██╔══██║██╔══██╗██║   ██║╚════██║
-   ██║   ██║  ██║██║  ██║   ██║   ██║  ██║██║  ██║╚██████╔╝███████║
-   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝</pre>
-    <div id="intro-press-enter" data-i18n="intro.pressEnter">[ PRESS ENTER TO INITIALIZE PROTOCOL ]</div>
-    <div class="main-menu-support-hint" data-i18n="intro.supportHint">Support the Developer ($2) ↓</div>
-    <!-- PATCH: 언어 토글 (첫 화면에서만 표시, 인게임 진입 시 intro 숨김과 함께 사라짐) -->
-    <div id="lang-toggle" class="intro-lang-toggle"><!-- PATCH -->
-      <button type="button" id="lang-toggle-btn">한국어</button>
-    </div><!-- PATCH -->
   </div>
 
   <div id="red-glitch-overlay" class="red-glitch-overlay"></div>
@@ -650,7 +659,25 @@
     <div class="game-support-hint" data-i18n="intro.supportHint">Support the Developer ($2) ↓</div>
     <div id="game-container">
       <div class="scanlines"></div>
-      
+
+      <div id="intro-briefing">
+        <div id="intro-boot-log"></div>
+        <div id="intro-center">
+          <pre id="intro-ascii-logo">████████╗ █████╗ ██████╗ ████████╗ █████╗ ██████╗ ██╗   ██╗██████╗
+╚══██╔══╝██╔══██╗██╔══██╗╚══██╔══╝██╔══██╗██╔══██╗██║   ██║██╔════╝
+   ██║   ███████║██████╔╝   ██║   ███████║██████╔╝██║   ██║███████╗
+   ██║   ██╔══██║██╔══██╗   ██║   ██╔══██║██╔══██╗██║   ██║╚════██║
+   ██║   ██║  ██║██║  ██║   ██║   ██║  ██║██║  ██║╚██████╔╝███████║
+   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝</pre>
+          <div id="intro-press-enter" data-i18n="intro.pressEnter">[ PRESS ENTER TO INITIALIZE PROTOCOL ]</div>
+        </div>
+        <div class="intro-lang-row">
+          <button type="button" class="intro-lang-btn" id="intro-lang-ko" data-lang="ko">한국어</button>
+          <button type="button" class="intro-lang-btn" id="intro-lang-en" data-lang="en">ENGLISH</button>
+        </div>
+      </div>
+
+      <div id="game-content">
       <div class="game-header">
         <div class="header-title" data-i18n="game.title">TARTARUS PROTOCOL v4.0 (GLOBAL)</div>
         <div id="countdown-timer">TIME UNTIL TOTAL SHIP COLLAPSE : 10:00</div>
@@ -700,6 +727,7 @@
           <div class="support-message" data-i18n="result.support">Did you enjoy the horror? Please support the dev via the [Support This Game] button below!</div>
         </div>
       </div>
+      </div><!-- /#game-content -->
     </div>
   </div>
   </div><!-- /shorts-game-wrapper -->
@@ -760,17 +788,21 @@
     var isKo = new URLSearchParams(location.search).get('lang') === 'ko'; // PATCH
     window.isKo = isKo; // PATCH
     window.__LANG = isKo ? 'ko' : 'en'; // PATCH
-    (function initLangButton(){ // PATCH
-      var wrap = document.getElementById('lang-toggle');
-      if (!wrap) return;
-      if (isKo) { wrap.style.display = 'none'; return; } // PATCH: lang=ko면 절대 표시 안 함 (English 토글 제거)
-      var btn = document.getElementById('lang-toggle-btn');
-      if (!btn) return;
-      btn.textContent = '한국어'; // PATCH
-      btn.onclick = function(){ // PATCH
+    (function initIntroLangButtons(){
+      var btnKo = document.getElementById('intro-lang-ko');
+      var btnEn = document.getElementById('intro-lang-en');
+      if (!btnKo || !btnEn) return;
+      btnKo.classList.toggle('active', isKo);
+      btnEn.classList.toggle('active', !isKo);
+      btnKo.onclick = function(){
         var url = new URL(location.href);
-        url.searchParams.set('lang', 'ko'); // PATCH: seed/pack/debug/shorts 등 유지
-        location.href = url.toString(); // PATCH
+        url.searchParams.set('lang', 'ko');
+        location.href = url.toString();
+      };
+      btnEn.onclick = function(){
+        var url = new URL(location.href);
+        url.searchParams.delete('lang');
+        location.href = url.toString();
       };
     })();
     var VER = "v15";
@@ -1156,16 +1188,6 @@
 
     document.addEventListener('click', () => { if (typeof resumeAudioOnUserGesture === 'function') resumeAudioOnUserGesture(); }, { once: true });
 
-    // --- [인트로] 레트로 BIOS 부팅 시퀀스 ---
-    function getBootLines() { return t('intro.bootLines'); }
-    const bootLogEl = document.getElementById('intro-boot-log');
-    const asciiLogoEl = document.getElementById('intro-ascii-logo');
-    const pressEnterEl = document.getElementById('intro-press-enter');
-    const introScreenEl = document.getElementById('intro-screen');
-    let introBootDone = false;
-    let introSkipRequested = false;
-    let introExitStarted = false;
-
     function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
     function loadImageSafe(src, timeoutMs) {
@@ -1189,46 +1211,60 @@
       else { ctx.fillStyle = '#000'; ctx.fillRect(x, y, w || 1, h || 1); }
     }
 
+    const introBriefingEl = document.getElementById('intro-briefing');
+    const bootLogEl = document.getElementById('intro-boot-log');
+    const asciiLogoEl = document.getElementById('intro-ascii-logo');
+    const pressEnterEl = document.getElementById('intro-press-enter');
+    const gameContainerEl = document.getElementById('game-container');
+    let introBootDone = false;
+    let introSkipRequested = false;
+    let introExitStarted = false;
+
+    function getBootLines() { return t('intro.bootLines'); }
+
     async function runBootSequence() {
       const BOOT_LINES = getBootLines();
-      let prev = '';
-      for (const line of BOOT_LINES) {
+      if (!Array.isArray(BOOT_LINES) || BOOT_LINES.length === 0) {
+        showIntroLogoAndPrompt();
+        return;
+      }
+      var prev = '';
+      for (var i = 0; i < BOOT_LINES.length; i++) {
+        var line = BOOT_LINES[i];
         if (introSkipRequested) {
           bootLogEl.textContent = BOOT_LINES.join('\n');
           break;
         }
-        const base = prev + (prev ? '\n' : '');
-        for (let i = 0; i < line.length; i++) {
+        var base = prev + (prev ? '\n' : '');
+        for (var j = 0; j < line.length; j++) {
           if (introSkipRequested) break;
-          bootLogEl.textContent = base + line.slice(0, i + 1);
-          if (line[i] !== ' ') playBeep(line[i]);
+          bootLogEl.textContent = base + line.slice(0, j + 1);
+          if (line[j] !== ' ') playBeep(line[j]);
           await sleep(25);
         }
         prev = base + line;
         bootLogEl.textContent = prev;
       }
-      if (introSkipRequested) {
-        bootLogEl.textContent = BOOT_LINES.join('\n');
-      }
+      if (introSkipRequested) bootLogEl.textContent = BOOT_LINES.join('\n');
       showIntroLogoAndPrompt();
     }
 
     function showIntroLogoAndPrompt() {
       introBootDone = true;
-      asciiLogoEl.classList.add('visible', 'blink');
-      pressEnterEl.classList.add('visible', 'blink');
       introSkipRequested = false;
+      if (asciiLogoEl) { asciiLogoEl.classList.add('visible', 'blink'); }
+      if (pressEnterEl) { pressEnterEl.classList.add('visible', 'blink'); }
     }
 
     function startGameFromIntro() {
       if (!introBootDone || introExitStarted) return;
       introExitStarted = true;
-      introScreenEl.classList.add('crt-turnoff');
-      setTimeout(() => {
-        introScreenEl.classList.add('hidden');
-        introScreenEl.classList.remove('crt-turnoff');
-        document.getElementById('lang-toggle')?.classList.add('hide-lang'); // PATCH: 인게임 진입 시 언어 버튼 숨김
-        if(window.fitShortsScale)window.fitShortsScale(); // PATCH: recalc shorts layout
+      introBriefingEl.classList.add('crt-turnoff');
+      setTimeout(function() {
+        introBriefingEl.classList.add('hidden');
+        introBriefingEl.classList.remove('crt-turnoff');
+        gameContainerEl.classList.add('started');
+        if (window.fitShortsScale) window.fitShortsScale();
         startActualGame();
       }, 650);
     }
@@ -1258,23 +1294,23 @@
       if (ctx.state === 'suspended') ctx.resume();
     }
 
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && introScreenEl && !introScreenEl.classList.contains('hidden')) {
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && introBriefingEl && !introBriefingEl.classList.contains('hidden')) {
         resumeAudioOnUserGesture();
         if (introBootDone) startGameFromIntro();
-        else { introSkipRequested = true; }
+        else introSkipRequested = true;
       }
     });
 
-    document.addEventListener('click', () => {
-      if (introScreenEl && !introScreenEl.classList.contains('hidden')) {
+    document.addEventListener('click', function(e) {
+      if (introBriefingEl && !introBriefingEl.classList.contains('hidden')) {
+        if (e.target.closest('.intro-lang-row')) return;
         resumeAudioOnUserGesture();
         if (introBootDone) startGameFromIntro();
         else introSkipRequested = true;
       }
     }, { capture: true });
 
-    // ★ 1. Opening Script (이미지 로딩 대기 + fallback) ★
     function runInitialUI() {
       if (window.__BOOT_DONE__) return;
       window.__BOOT_DONE__ = true;
@@ -1572,7 +1608,6 @@
 
     // ★ 3. 메시지 전송 (EP1 API) ★
     async function sendMessage(text) {
-      document.getElementById('lang-toggle')?.classList.add('hide-lang'); // PATCH
       if (gameEnded) return;
       if (gamePhase !== 'captain_input') return; // 함장 턴이 아닐 때 전송 차단
       if (isSubmittingCaptainAction) return; // captain 중복 제출 방지
@@ -1670,7 +1705,6 @@
 
     // 모달 제어 - 사상자 처리: 살아있는 인물만 버튼에 표시
     function openAccuseModal() {
-      document.getElementById('lang-toggle')?.classList.add('hide-lang'); // PATCH
       if (gameEnded) return;
 
       console.log('[ACCUSE MODAL] deadCrew=', deadCrew);
