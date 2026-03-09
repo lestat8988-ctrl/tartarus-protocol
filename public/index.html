@@ -282,6 +282,11 @@
     .input-hint { font-size: 11px; opacity: 0.9; margin-top: 8px; margin-bottom: 4px; color: var(--terminal-green); line-height: 1.45; }
     .input-row { display: flex; align-items: center; border-top: 1px solid var(--terminal-green); padding-top: 12px; margin-top: 12px; z-index: 20; }
     #input { flex: 1; background: transparent; border: none; color: var(--terminal-green); font-size: 16px; font-family: inherit; outline: none; margin-left: 10px; }
+    #input:disabled, .input-row.disabled #input { opacity: 0.4; cursor: not-allowed; color: #666; }
+    .input-send-btn { background: transparent; border: 1px solid var(--terminal-green); color: var(--terminal-green); padding: 6px 12px; font-family: inherit; cursor: pointer; margin-left: 8px; font-size: 12px; }
+    .input-send-btn:hover { background: var(--terminal-green); color: #000; }
+    .input-send-btn:disabled, .input-row.disabled .input-send-btn { opacity: 0.4; cursor: not-allowed; border-color: #555; color: #555; }
+    .action-btn:disabled, .accuse-btn-main:disabled { opacity: 0.4; cursor: not-allowed; border-color: #555; color: #555; }
 
     /* 긴급 처형 버튼 */
     .accuse-btn-main { 
@@ -665,9 +670,10 @@
       </div>
 
       <div class="input-hint" id="input-hint"></div><!-- PATCH -->
-      <div class="input-row">
+      <div class="input-row" id="input-row">
         <span>&gt;</span>
         <input id="input" type="text" autocomplete="off" placeholder="" data-i18n-placeholder="game.placeholder" />
+        <button type="button" class="input-send-btn" id="input-send-btn" onclick="sendMessage()">SEND</button>
       </div>
       
       <button class="accuse-btn-main" onclick="openAccuseModal()" data-i18n="game.accuseBtn">[ INITIATE PURGE PROTOCOL (ACCUSE) ]</button>
@@ -993,6 +999,7 @@
     const logEl = document.getElementById('log');
     const inputEl = document.getElementById('input');
     const accuseModal = document.getElementById('accuse-modal');
+    setPhase('crew_resolving'); // 초기: 인트로 전까지 입력 비활성
     const resultModal = document.getElementById('result-modal');
     const resultBox = document.getElementById('result-box');
 
@@ -1007,6 +1014,31 @@
     let gameEnded = false;
     let typingSkipped = false;
     let currentTypingResolver = null;
+
+    // phase: captain_input | crew_resolving | server_update | game_over
+    let gamePhase = 'crew_resolving'; // 초기엔 비활성, startActualGame에서 captain_input으로 전환
+    const PHASE_HINTS = {
+      captain_input: '함장 명령을 입력하세요',
+      crew_resolving: '크루 반응 진행 중...',
+      server_update: '상태 갱신 중...',
+      game_over: '게임 종료'
+    };
+    function setPhase(phase) {
+      gamePhase = phase;
+      const isCaptainTurn = phase === 'captain_input';
+      const inputRow = document.getElementById('input-row');
+      const sendBtn = document.getElementById('input-send-btn');
+      if (inputEl) {
+        inputEl.disabled = !isCaptainTurn;
+        inputEl.placeholder = PHASE_HINTS[phase] || PHASE_HINTS.captain_input;
+      }
+      if (document.getElementById('input-hint')) {
+        document.getElementById('input-hint').textContent = PHASE_HINTS[phase] || PHASE_HINTS.captain_input;
+      }
+      if (inputRow) inputRow.classList.toggle('disabled', !isCaptainTurn);
+      if (sendBtn) sendBtn.disabled = !isCaptainTurn;
+      document.querySelectorAll('.action-btn, .accuse-btn-main').forEach(btn => { btn.disabled = !isCaptainTurn; });
+    }
 
     // Web Audio API 기반 타이핑/경고 사운드 (mp3 파일 없음)
     let audioCtx = null;
@@ -1139,6 +1171,7 @@
     }
 
     function startActualGame() {
+      setPhase('captain_input'); // captain turn start
       startGameTimer();
       printLine(t('opening.boot'), "role-system");
       printLine(t('opening.target'), "role-system");
@@ -1223,6 +1256,7 @@
     async function triggerAutoKill() {
       console.log('[AUTO-KILL] fired at', new Date().toLocaleTimeString());
       if (gameEnded) return;
+      setPhase('crew_resolving'); // crew resolving
 
       // Get alive crew members
       const aliveCrew = ['Navigator', 'Engineer', 'Doctor', 'Pilot'].filter(crew => !deadCrew.includes(crew));
@@ -1285,10 +1319,13 @@
         // Check if all crew are dead
         if (deadCrew.length >= 4) {
           setTimeout(() => triggerTotalFailure(), 2000);
+        } else if (witnessTestimonyFound || aliveCrew.length <= 1) {
+          setPhase('captain_input');
         }
       } catch (err) {
         printLine(`[ERROR] ${err.message}`, "role-alert");
         glitchEl.classList.remove('active');
+        setPhase('captain_input');
       }
     }
 
@@ -1325,8 +1362,10 @@
         }
         
         history.push({ role: "assistant", content });
+        setPhase('captain_input');
       } catch (err) {
         printLine(`[ERROR] ${err.message}`, "role-alert");
+        setPhase('captain_input');
       }
     }
 
@@ -1471,15 +1510,18 @@
     async function sendMessage(text) {
       document.getElementById('lang-toggle')?.classList.add('hide-lang'); // PATCH
       if (gameEnded) return;
+      if (gamePhase !== 'captain_input') return; // 함장 턴이 아닐 때 전송 차단
       if (!text) text = inputEl.value;
       if (!text.trim()) return;
 
+      setPhase('crew_resolving'); // crew resolving
       inputEl.value = '';
       printLine(`> ${text}`, "role-user");
       history.push({ role: "user", content: text });
 
       try {
         const data = await getLocalResponse(text, deadCrew);
+        setPhase('server_update'); // server update
 
         // resultText/result 둘 다 방어하여 표시 로직이 깨지지 않게
         const displayText = data.resultText ?? data.result ?? '';
@@ -1538,11 +1580,16 @@
             setTimeout(() => showResult('victory', displayText || '', data.actualImposter), 1000);
           } else if (lower.includes("defeat") || lower.includes("innocent")) {
             setTimeout(() => showResult('defeat', displayText || '', data.actualImposter), 1000);
+          } else {
+            setPhase('captain_input');
           }
+        } else {
+          setPhase('captain_input');
         }
 
       } catch (err) {
         printLine(`[ERROR] ${err.message}`, "role-alert");
+        setPhase('captain_input');
       }
     }
 
@@ -1583,6 +1630,7 @@
 
     function showResult(state, message, actualImposter) {
       gameEnded = true;
+      setPhase('game_over'); // game over lock
       if (gameTimer) clearInterval(gameTimer);
       
       // Disable all buttons
