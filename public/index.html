@@ -922,6 +922,10 @@
       return data;
     }
 
+    function eventToSummary(e) {
+      return e.summary || (e.role && e.action ? `${e.role} ${e.action}` : '') || '';
+    }
+
     async function runEp1Flow(message, deadCrew, opts) {
       try {
         if (!MATCH_ID) { MATCH_ID = newMatchId(); }
@@ -930,13 +934,37 @@
 
         if (data.next_state && data.next_state.turn != null) currentTurn = data.next_state.turn;
 
-        // 새 액션의 summary만 표시 (recent_events 중복 방지)
-        const resultText = data.server_result?.summary || '';
+        let isGameOver = !!data.game_over;
+        let outcome = data.outcome ?? data.next_state?.outcome ?? null;
 
-        const isGameOver = !!data.game_over;
-        const outcome = data.outcome ?? data.next_state?.outcome ?? null;
+        // 1) action 응답의 public_events에서 새 이벤트만 수집
+        const pub = data.next_state?.public_events || [];
+        const resultLines = [];
+        for (let i = lastRenderedEventCount; i < pub.length; i++) {
+          const line = eventToSummary(pub[i]);
+          if (line) resultLines.push(line);
+        }
+        lastRenderedEventCount = pub.length;
+
+        // 2) crew 반응 폴링 (서버가 비동기로 crew 추가할 수 있음)
+        const POLL_INTERVAL_MS = 1200;
+        const MAX_POLLS = 6;
+        for (let p = 0; p < MAX_POLLS; p++) {
+          await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+          const resData = await ep1CallResult();
+          if (resData.game_over) { isGameOver = true; outcome = resData.outcome ?? outcome; }
+          const resPub = resData.public_events || [];
+          if (resPub.length <= lastRenderedEventCount) continue;
+          for (let i = lastRenderedEventCount; i < resPub.length; i++) {
+            const line = eventToSummary(resPub[i]);
+            if (line) resultLines.push(line);
+          }
+          lastRenderedEventCount = resPub.length;
+          if (isGameOver) break;
+        }
+
         const state = outcome === 'victory' || outcome === 'defeat' ? outcome : 'playing';
-
+        const resultText = resultLines.join('\n');
         history.push({ role: 'assistant', content: resultText });
 
         return {
@@ -1515,9 +1543,9 @@
 
       try {
         const data = await runEp1Flow(text, deadCrew);
-        setPhase('server_update'); // server update
+        setPhase('server_update'); // server update (crew 반영 완료 후)
 
-        // resultText/result 둘 다 방어하여 표시 로직이 깨지지 않게
+        // resultText = captain + crew 요약들 (줄바꿈 구분)
         const displayText = data.resultText ?? data.result ?? '';
         
         // 줄바꿈이 있으면 나눠서 출력 (시스템 트리거 메시지 숨김)
@@ -1575,15 +1603,15 @@
           } else if (lower.includes("defeat") || lower.includes("innocent")) {
             setTimeout(() => showResult('defeat', displayText || '', data.actualImposter), 1000);
           } else {
-            setPhase('captain_input');
+            setPhase('captain_input'); // crew_resolving -> captain_input 복귀
           }
         } else {
-          setPhase('captain_input');
+          setPhase('captain_input'); // 정상 턴 종료, 다음 함장 턴
         }
 
       } catch (err) {
         printLine(`[ERROR] ${err.message}`, "role-alert");
-        setPhase('captain_input');
+        setPhase('captain_input'); // 에러 시에도 입력 복귀
       }
     }
 
