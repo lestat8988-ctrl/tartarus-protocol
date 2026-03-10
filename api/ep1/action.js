@@ -203,13 +203,13 @@ async function resolveCrewPayloadWithLLM(matchId, body, role) {
   const rawReasonPresent = body.reason != null && typeof body.reason === 'string' && String(body.reason).trim() !== '';
 
   if (rawDialoguePresent) {
-    // body에 유효한 dialogue 있음 → 그대로 사용 (reason/target도 body 우선)
+    // body에 유효한 dialogue 있음 → 그대로 사용. generation_source는 "llm" (fallback 아님)
     return {
       action: normalizeAction(body.action),
       target: body.target ?? null,
       reason: body.reason ?? null,
       dialogue: s,
-      _debug: buildCrewDebug('body', null, true, rawReasonPresent, null)
+      _debug: buildCrewDebug('llm', null, true, rawReasonPresent, null)
     };
   }
 
@@ -457,6 +457,13 @@ module.exports = async (req, res) => {
 
   const readableSummary = makeReadableSummaryKo(role, action, payload.target, payload.dialogue);
   const serverResult = { summary: readableSummary, event_type: getEventType(action) };
+  if (crewGenerationDebug) {
+    serverResult.generation_source = crewGenerationDebug.generation_source;
+    serverResult.fallback_reason = crewGenerationDebug.fallback_reason;
+    serverResult.raw_dialogue_present = crewGenerationDebug.raw_dialogue_present;
+    serverResult.raw_reason_present = crewGenerationDebug.raw_reason_present;
+    serverResult.llm_error_message = crewGenerationDebug.llm_error_message;
+  }
 
   const ok = await appendEvent(matchId, payload, readableSummary, serverResult);
   if (!ok) {
@@ -473,19 +480,7 @@ module.exports = async (req, res) => {
   }).filter(Boolean);
   const events_count = await getEventsCount(matchId);
 
-  const serverResultPayload = {
-    accepted: true,
-    summary: readableSummary,
-    event_type: getEventType(action),
-    placeholder: true
-  };
-  if (crewGenerationDebug) {
-    serverResultPayload.generation_source = crewGenerationDebug.generation_source;
-    serverResultPayload.fallback_reason = crewGenerationDebug.fallback_reason;
-    serverResultPayload.raw_dialogue_present = crewGenerationDebug.raw_dialogue_present;
-    serverResultPayload.raw_reason_present = crewGenerationDebug.raw_reason_present;
-    serverResultPayload.llm_error_message = crewGenerationDebug.llm_error_message;
-  }
+  const serverResultPayload = { ...serverResult, accepted: true, placeholder: true };
   return res.status(200).json({
     ok: true,
     server_result: serverResultPayload,
