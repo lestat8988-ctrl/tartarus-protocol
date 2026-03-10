@@ -59,7 +59,7 @@
     #game-container.started #game-content { display: flex; }
     #game-container.started #intro-briefing { display: none; }
     
-    /* --- [인트로] Hero + 엔딩 크레딧식 세로 스크롤 (원근 없음) --- */
+    /* --- [인트로] BG 배경 이미지 + 엔딩 크레딧식 세로 스크롤 (원근 없음) --- */
     #intro-briefing {
       position: absolute;
       inset: 0;
@@ -70,7 +70,9 @@
       overflow: hidden;
       color: var(--terminal-green);
       font-family: 'Share Tech Mono', monospace;
-      background: #000;
+      background: #000 url('/assets/tartarus-ship-neptune.png') center center no-repeat;
+      background-size: clamp(320px, 70vw, 900px) auto;
+      background-position: center 45%;
     }
     #intro-briefing::before {
       content: '';
@@ -86,33 +88,13 @@
       inset: 0;
       pointer-events: none;
       z-index: 6;
-      background: radial-gradient(ellipse 90% 90% at 50% 50%, transparent 60%, rgba(0,0,0,0.12) 100%);
+      background: 
+        linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.5) 30%, rgba(0,0,0,0.55) 65%, rgba(0,0,0,0.9) 100%),
+        radial-gradient(ellipse 85% 85% at 50% 50%, transparent 45%, rgba(0,0,0,0.4) 100%);
     }
     #intro-briefing.hidden { display: none; }
     #intro-briefing.crt-turnoff {
       animation: crtTurnOff 0.6s ease-out forwards;
-    }
-    #intro-hero {
-      flex-shrink: 0;
-      height: 220px;
-      min-height: 160px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 16px;
-      position: relative;
-      z-index: 10;
-      background: radial-gradient(ellipse 100% 100% at 50% 50%, rgba(20,50,35,0.2) 0%, transparent 70%), #0d0d0d;
-    }
-    #intro-hero img {
-      max-width: 95%;
-      max-height: 100%;
-      width: auto;
-      height: auto;
-      object-fit: contain;
-      object-position: center center;
-      opacity: 1;
-      filter: brightness(1.4) contrast(1.25) saturate(1.15) drop-shadow(0 0 20px rgba(57,255,20,0.6));
     }
     #intro-scroll-wrapper {
       flex: 1;
@@ -535,9 +517,12 @@
       text-shadow: 0 0 8px rgba(255, 100, 100, 0.5);
     }
 
-    /* 인트로 hero + 스크롤 모바일 */
+    /* 인트로 BG + 스크롤 모바일 */
     @media (max-width: 768px) {
-      #intro-hero { height: 150px; min-height: 120px; padding: 12px; }
+      #intro-briefing {
+        background-size: contain;
+        background-position: center 35%;
+      }
       #intro-scroll-content { padding: 16px 16px 80px; }
       #intro-scroll-title { font-size: 14px; letter-spacing: 3px; margin-bottom: 16px; }
       #intro-scroll-subtitle { font-size: 11px; margin-bottom: 20px; }
@@ -766,9 +751,6 @@
       <div class="scanlines"></div>
 
       <div id="intro-briefing">
-        <div id="intro-hero">
-          <img src="/assets/tartarus-ship-neptune.png" alt="" />
-        </div>
         <div id="intro-scroll-wrapper">
           <div id="intro-scroll-content">
             <div id="intro-scroll-title">TARTARUS PROTOCOL</div>
