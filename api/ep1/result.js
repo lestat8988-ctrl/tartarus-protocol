@@ -1,7 +1,7 @@
 /**
  * api/ep1/result.js - 1편 전용 결과 조회 API (Supabase)
  * POST body: { match_id }
- * returns: { match_id, game_over, outcome, turn, phase, location, public_events, recent_events, events_count }
+ * returns: { match_id, game_over, outcome, turn, phase, location, public_events, recent_events, events_count, impostor, actual_imposter }
  *
  * tartarus_ep1_loop.js getResult()가 호출.
  *
@@ -28,6 +28,13 @@ function checkAuth(req) {
 
 function errRes(res, status, message) {
   return res.status(status).json({ ok: false, error: { message } });
+}
+
+function toPascalImpostor(role) {
+  if (!role || typeof role !== 'string') return null;
+  const s = String(role).trim().toLowerCase();
+  const map = { doctor: 'Doctor', engineer: 'Engineer', navigator: 'Navigator', pilot: 'Pilot' };
+  return map[s] || null;
 }
 
 module.exports = async (req, res) => {
@@ -74,6 +81,7 @@ module.exports = async (req, res) => {
     return full;
   }).filter(Boolean);
   const events_count = await getEventsCount(matchId);
+  const impostor = toPascalImpostor(match.hidden_host_role);
 
   return res.status(200).json({
     debug_version: 'ep1-result-full-events-v2',
@@ -85,6 +93,8 @@ module.exports = async (req, res) => {
     location: match.location ?? 'bridge',
     public_events: Array.isArray(pub) ? pub : [],
     recent_events,
-    events_count
+    events_count,
+    impostor: impostor ?? null,
+    actual_imposter: impostor ?? null
   });
 };
