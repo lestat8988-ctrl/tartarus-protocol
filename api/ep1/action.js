@@ -66,16 +66,25 @@ action: QUESTION 우선. dialogue: 1~2문장, 120자 이내.`,
 action: OBSERVE 또는 QUESTION. dialogue: 1~2문장, 120자 이내.`
 };
 
-/** impostor일 때 role별 태도 가이드 (자백 금지, 시선 돌리기·역공·흐리기) */
-const IMPOSTOR_ATTITUDE = {
-  doctor: '반응·증상·생체 지표로 화제를 돌리거나 애매하게 답한다. 다른 사람 의심을 유도. 과잉 침착 또는 과잉 방어.',
-  engineer: '로그·기록·시스템 오류를 핑계로 화제를 돌린다. 사람 심문보다 기계 문제로 몰아간다. 건조하게 회피.',
-  navigator: '동선 추궁으로 역공한다. 다른 이의 시간·위치를 집요하게 묻는다. 자기 알리바이는 흐리게.',
-  pilot: '분위기·감각·직감 탓으로 흐린다. 결정적 질문엔 회피. 이상한 감각만 강조하고 구체적 답은 피한다.'
+/** impostor일 때 role별 행동 규칙 (자백 금지, target은 자기 제외, 시선 돌리기·역공·흐리기) */
+const IMPOSTOR_BEHAVIOR = {
+  doctor: '생체반응·스트레스·증상 핑계로 의심을 흐린다. 사람 상태를 읽는 척하며 다른 사람에게 시선 전환. target은 반드시 자신(doctor)이 아닌 다른 role로.',
+  engineer: '로그·기록·오류·센서 탓으로 사실을 기술적 문제처럼 흐린다. CHECK_LOG를 방패처럼 사용. 사람 심문보다 기계로 몰아감. target은 반드시 자신(engineer)이 아닌 다른 role로.',
+  navigator: '동선·시간·알리바이 추궁을 과하게 밀어붙이며 역공. 질문은 날카롭지만 자기 동선은 흐리게. target은 반드시 자신(navigator)이 아닌 다른 role로.',
+  pilot: '분위기·공기·직감 탓으로 불안을 퍼뜨리며 방향을 흐림. 감각적 경고는 많지만 구체성은 살짝 부족하게. target은 반드시 자신(pilot)이 아닌 다른 role로.'
 };
 
-/** innocent일 때 태도 가이드 */
-const INNOCENT_ATTITUDE = '일관되고 직선적인 추론. 불필요한 회피 없음. 실제 관찰·로그·동선·분위기 근거 중심. 덜 방어적.';
+/** impostor 공통 규칙 */
+const IMPOSTOR_RULES = '자기에게 의심이 오지 않게 한다. 대상을 다른 사람 쪽으로 redirect. 애매한 단정·반쯤 맞는 지적·과잉 침착·과잉 추궁 중 하나. 노골적 자백 금지. 너무 완벽한 추론 피함. innocent보다 방어적·비틀린 reasoning.';
+
+/** innocent일 때 행동 규칙 */
+const INNOCENT_BEHAVIOR = '직선적이고 덜 방어적. 실제 관찰 근거 중심. 쓸데없는 회피 없음. 일관되고 담백한 reasoning.';
+
+/** turn 1 impostor: 선제 방어/시선 분산 */
+const FIRST_TURN_IMPOSTOR = 'turn 1이면 선제적으로 방어하거나 시선을 분산시킨다. 먼저 다른 이의 이상함을 언급하거나, 로그/동선/분위기로 화제를 돌린다.';
+
+/** turn 1 innocent: role 근거 중심 관찰 */
+const FIRST_TURN_INNOCENT = 'turn 1이면 자기 role 특성에 맞는 관찰을 담백하게 한다. 불필요한 추측 없이 보이는 것만 말한다.';
 
 function isEmptyDialogue(s) {
   if (s == null) return true;
@@ -156,15 +165,15 @@ async function generateCrewDialogueLLM(matchId, role, observation) {
   const timeoutMs = parseInt(process.env.LLM_TIMEOUT_MS || '10000', 10);
   if (!apiKey) return { result: null, errorCode: 'missing_openai_key', errorMessage: 'OPENAI_API_KEY not set' };
 
-  const systemContent = `${LLM_SYSTEM_BASE}\n\n${ROLE_PROMPTS[role] || ''}\n\nprivate_context가 있으면 attitude_guidance와 private_note를 반영하여 대사 결·태도를 결정하라.`;
-  const obsJson = JSON.stringify(observation).slice(0, 1800);
+  const systemContent = `${LLM_SYSTEM_BASE}\n\n${ROLE_PROMPTS[role] || ''}\n\n[태도 규칙] observation의 am_i_hidden_host, behavior_rules, suspicion_style, first_turn_hint를 반드시 따른다. am_i_hidden_host가 true면 redirect_deflect_evade 스타일. false면 direct_observation 스타일. target이 있으면 am_i_hidden_host일 때 자신(your_role)이 아닌 다른 role을 지목한다.`;
+  const obsJson = JSON.stringify(observation).slice(0, 2000);
   const roleActionHint = {
-    doctor: 'action은 QUESTION 또는 OBSERVE 위주로 선택.',
-    engineer: 'action은 CHECK_LOG 또는 OBSERVE 위주로 선택.',
-    navigator: 'action은 QUESTION 우선으로 선택.',
-    pilot: 'action은 OBSERVE 또는 QUESTION 위주로 선택.'
+    doctor: 'action: QUESTION 또는 OBSERVE.',
+    engineer: 'action: CHECK_LOG 또는 OBSERVE.',
+    navigator: 'action: QUESTION 우선.',
+    pilot: 'action: OBSERVE 또는 QUESTION.'
   }[role] || '';
-  const userContent = `Observation:\n${obsJson}\n\n반드시 한국어로만 답하라. dialogue 1~2문장·120자 이내. reason 짧게. private_context.attitude_guidance를 반영하여 말투·태도를 조절하라.${roleActionHint ? ' ' + roleActionHint : ''}\nRespond with JSON only: {"action":"...","target":null|"...","reason":"...","dialogue":"..."}`;
+  const userContent = `Observation:\n${obsJson}\n\n한국어만. dialogue 1~2문장·120자 이내. reason 짧고 선명하게. behavior_rules와 first_turn_hint를 강하게 반영. am_i_hidden_host에 따라 태도가 확실히 달라져야 한다.${roleActionHint ? ' ' + roleActionHint : ''}\nJSON: {"action":"...","target":null|"...","reason":"...","dialogue":"..."}`;
 
   const url = `${baseUrl}/chat/completions`;
   const controller = new AbortController();
@@ -248,21 +257,29 @@ async function resolveCrewPayloadWithLLM(matchId, body, role) {
 
   const recentRaw = await getRecentEventsForCurrentTurn(matchId);
   const captainEv = (recentRaw || []).find((e) => e.role === 'captain');
+  const turnNum = match.turn ?? 1;
+  const privateCtx = getPrivateContextForRole(match, role);
+  const amIHost = !!(privateCtx && privateCtx.is_hidden_host);
+
   const observation = {
     match_id: matchId,
-    turn: match.turn ?? 1,
+    turn: turnNum,
     captain_action: captainEv ? { action: captainEv.action, target: captainEv.target, dialogue: captainEv.dialogue } : {},
     recentEvents: (recentRaw || []).map((e) => ({ role: e.role, action: e.action, dialogue: (e.dialogue || '').slice(0, 80) })),
-    your_role: role
+    your_role: role,
+    am_i_hidden_host: amIHost,
+    suspicion_style: amIHost ? 'redirect_deflect_evade' : 'direct_observation',
+    turn_pressure: turnNum <= 1 ? 'early' : 'mid',
+    behavior_rules: amIHost
+      ? `${IMPOSTOR_RULES} [role별]: ${IMPOSTOR_BEHAVIOR[role] || IMPOSTOR_BEHAVIOR.doctor}`
+      : INNOCENT_BEHAVIOR,
+    first_turn_hint: turnNum <= 1 ? (amIHost ? FIRST_TURN_IMPOSTOR : FIRST_TURN_INNOCENT) : null
   };
-  const privateCtx = getPrivateContextForRole(match, role);
   if (privateCtx) {
-    const isHost = !!privateCtx.is_hidden_host;
-    const attitude = isHost ? (IMPOSTOR_ATTITUDE[role] || IMPOSTOR_ATTITUDE.doctor) : INNOCENT_ATTITUDE;
     observation.private_context = {
       ...privateCtx,
-      suspicion_bias: attitude,
-      attitude_guidance: attitude
+      suspicion_bias: observation.behavior_rules,
+      attitude_guidance: observation.behavior_rules
     };
   }
 
