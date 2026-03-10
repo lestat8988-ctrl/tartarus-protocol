@@ -66,6 +66,17 @@ action: QUESTION 우선. dialogue: 1~2문장, 120자 이내.`,
 action: OBSERVE 또는 QUESTION. dialogue: 1~2문장, 120자 이내.`
 };
 
+/** impostor일 때 role별 태도 가이드 (자백 금지, 시선 돌리기·역공·흐리기) */
+const IMPOSTOR_ATTITUDE = {
+  doctor: '반응·증상·생체 지표로 화제를 돌리거나 애매하게 답한다. 다른 사람 의심을 유도. 과잉 침착 또는 과잉 방어.',
+  engineer: '로그·기록·시스템 오류를 핑계로 화제를 돌린다. 사람 심문보다 기계 문제로 몰아간다. 건조하게 회피.',
+  navigator: '동선 추궁으로 역공한다. 다른 이의 시간·위치를 집요하게 묻는다. 자기 알리바이는 흐리게.',
+  pilot: '분위기·감각·직감 탓으로 흐린다. 결정적 질문엔 회피. 이상한 감각만 강조하고 구체적 답은 피한다.'
+};
+
+/** innocent일 때 태도 가이드 */
+const INNOCENT_ATTITUDE = '일관되고 직선적인 추론. 불필요한 회피 없음. 실제 관찰·로그·동선·분위기 근거 중심. 덜 방어적.';
+
 function isEmptyDialogue(s) {
   if (s == null) return true;
   if (typeof s !== 'string') return true;
@@ -145,15 +156,15 @@ async function generateCrewDialogueLLM(matchId, role, observation) {
   const timeoutMs = parseInt(process.env.LLM_TIMEOUT_MS || '10000', 10);
   if (!apiKey) return { result: null, errorCode: 'missing_openai_key', errorMessage: 'OPENAI_API_KEY not set' };
 
-  const systemContent = `${LLM_SYSTEM_BASE}\n\n${ROLE_PROMPTS[role] || ''}`;
-  const obsJson = JSON.stringify(observation).slice(0, 1600);
+  const systemContent = `${LLM_SYSTEM_BASE}\n\n${ROLE_PROMPTS[role] || ''}\n\nprivate_context가 있으면 attitude_guidance와 private_note를 반영하여 대사 결·태도를 결정하라.`;
+  const obsJson = JSON.stringify(observation).slice(0, 1800);
   const roleActionHint = {
     doctor: 'action은 QUESTION 또는 OBSERVE 위주로 선택.',
     engineer: 'action은 CHECK_LOG 또는 OBSERVE 위주로 선택.',
     navigator: 'action은 QUESTION 우선으로 선택.',
     pilot: 'action은 OBSERVE 또는 QUESTION 위주로 선택.'
   }[role] || '';
-  const userContent = `Observation:\n${obsJson}\n\n반드시 한국어로만 답하라. dialogue 1~2문장·120자 이내. reason 짧게.${roleActionHint ? ' ' + roleActionHint : ''}\nRespond with JSON only: {"action":"...","target":null|"...","reason":"...","dialogue":"..."}`;
+  const userContent = `Observation:\n${obsJson}\n\n반드시 한국어로만 답하라. dialogue 1~2문장·120자 이내. reason 짧게. private_context.attitude_guidance를 반영하여 말투·태도를 조절하라.${roleActionHint ? ' ' + roleActionHint : ''}\nRespond with JSON only: {"action":"...","target":null|"...","reason":"...","dialogue":"..."}`;
 
   const url = `${baseUrl}/chat/completions`;
   const controller = new AbortController();
@@ -245,7 +256,15 @@ async function resolveCrewPayloadWithLLM(matchId, body, role) {
     your_role: role
   };
   const privateCtx = getPrivateContextForRole(match, role);
-  if (privateCtx) observation.private_context = privateCtx;
+  if (privateCtx) {
+    const isHost = !!privateCtx.is_hidden_host;
+    const attitude = isHost ? (IMPOSTOR_ATTITUDE[role] || IMPOSTOR_ATTITUDE.doctor) : INNOCENT_ATTITUDE;
+    observation.private_context = {
+      ...privateCtx,
+      suspicion_bias: attitude,
+      attitude_guidance: attitude
+    };
+  }
 
   // dialogue 비어 있음 → 서버에서 LLM으로 crew dialogue 생성 (우선순위 1)
   let llmOut = await generateCrewDialogueLLM(matchId, role, observation);
