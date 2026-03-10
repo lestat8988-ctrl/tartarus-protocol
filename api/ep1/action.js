@@ -41,10 +41,10 @@ const VALID_TARGETS = new Set(['player', 'doctor', 'engineer', 'navigator', 'pil
 const VALID_ACTIONS = new Set(['QUESTION', 'OBSERVE', 'CHECK_LOG', 'REPAIR', 'ACCUSE', 'WAIT']);
 
 const CREW_DIALOGUE_FALLBACK_KO = {
-  doctor: '승무원들의 반응을 먼저 살펴보겠습니다.',
-  engineer: '시스템 상태와 로그를 다시 확인해 보겠습니다.',
-  navigator: '각자의 위치와 동선을 다시 짚어보겠습니다.',
-  pilot: '브리지의 분위기와 변화를 다시 느껴보겠습니다.'
+  doctor: '반응을 살펴보겠습니다.',
+  engineer: '로그 확인 중입니다.',
+  navigator: '동선을 짚어보겠습니다.',
+  pilot: '분위기가 이상합니다.'
 };
 
 const CAPTAIN_DIALOGUE_FALLBACK_KO = '브리지 상황을 확인한다.';
@@ -52,14 +52,18 @@ const CAPTAIN_DIALOGUE_FALLBACK_KO = '브리지 상황을 확인한다.';
 const CREW_ROLES = new Set(['doctor', 'engineer', 'navigator', 'pilot']);
 
 const LLM_SYSTEM_BASE = `You are an AI crew member aboard a ship. Respond in character. Korean only.
-Output JSON: {"action":"QUESTION|OBSERVE|CHECK_LOG|REPAIR|ACCUSE|WAIT","target":"player"|"doctor"|"engineer"|"navigator"|"pilot"|null,"reason":"한국어 이유","dialogue":"한국어 1~3문장 대사"}
-dialogue: required, in-character speech.`;
+Output JSON: {"action":"QUESTION|OBSERVE|CHECK_LOG|REPAIR|ACCUSE|WAIT","target":"player"|"doctor"|"engineer"|"navigator"|"pilot"|null,"reason":"한국어 이유(짧게)","dialogue":"한국어 1~2문장 대사"}
+규칙: dialogue는 1~2문장, 120자 안쪽. 장황한 설명·긴 문장 금지. reason도 짧고 선명하게.`;
 
 const ROLE_PROMPTS = {
-  doctor: 'Role: Doctor. 말투 차분·정확. 생체반응·지연·불일치 근거로 묻는다. QUESTION/OBSERVE 균형.',
-  engineer: 'Role: Engineer. 말투 건조·직설. 로그·시스템·기록 중심. CHECK_LOG 우선.',
-  navigator: 'Role: Navigator. 말투 날카로움. 동선·시간·위치 추궁. QUESTION 우선.',
-  pilot: 'Role: Pilot. 말투 직감적. 분위기·공기·침묵 감지. OBSERVE+QUESTION.'
+  doctor: `Role: Doctor. 차분하고 짧게 말한다. 생체반응·표정·떨림·지연·불일치에 집중. 장황한 설명 금지.
+action: QUESTION 또는 OBSERVE 위주. dialogue: 1~2문장, 120자 이내.`,
+  engineer: `Role: Engineer. 건조하고 직설적으로 말한다. 로그·시스템·기록·오류·장비 상태 중심.
+action: CHECK_LOG 우선, OBSERVE 보조. dialogue: 1~2문장, 120자 이내.`,
+  navigator: `Role: Navigator. 가장 날카롭고 공격적으로 말한다. 위치·동선·시간·순서·알리바이 추궁.
+action: QUESTION 우선. dialogue: 1~2문장, 120자 이내.`,
+  pilot: `Role: Pilot. 분위기·공기·긴장·직감·이상한 감각 중심. 짧고 감각적으로 말한다. 설명문보다 느낌과 경계심.
+action: OBSERVE 또는 QUESTION. dialogue: 1~2문장, 120자 이내.`
 };
 
 function isEmptyDialogue(s) {
@@ -143,7 +147,13 @@ async function generateCrewDialogueLLM(matchId, role, observation) {
 
   const systemContent = `${LLM_SYSTEM_BASE}\n\n${ROLE_PROMPTS[role] || ''}`;
   const obsJson = JSON.stringify(observation).slice(0, 1600);
-  const userContent = `Observation:\n${obsJson}\n\n반드시 한국어로만 답하라. dialogue와 reason은 한국어 필수.\nRespond with JSON only: {"action":"...","target":null|"...","reason":"...","dialogue":"..."}`;
+  const roleActionHint = {
+    doctor: 'action은 QUESTION 또는 OBSERVE 위주로 선택.',
+    engineer: 'action은 CHECK_LOG 또는 OBSERVE 위주로 선택.',
+    navigator: 'action은 QUESTION 우선으로 선택.',
+    pilot: 'action은 OBSERVE 또는 QUESTION 위주로 선택.'
+  }[role] || '';
+  const userContent = `Observation:\n${obsJson}\n\n반드시 한국어로만 답하라. dialogue 1~2문장·120자 이내. reason 짧게.${roleActionHint ? ' ' + roleActionHint : ''}\nRespond with JSON only: {"action":"...","target":null|"...","reason":"...","dialogue":"..."}`;
 
   const url = `${baseUrl}/chat/completions`;
   const controller = new AbortController();
@@ -164,8 +174,8 @@ async function generateCrewDialogueLLM(matchId, role, observation) {
           { role: 'user', content: userContent }
         ],
         response_format: { type: 'json_object' },
-        temperature: 0.3,
-        max_tokens: 300
+        temperature: 0.35,
+        max_tokens: 180
       })
     });
     clearTimeout(timeoutId);
