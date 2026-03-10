@@ -53,7 +53,7 @@
       inset: 0;
       pointer-events: none;
       z-index: 15;
-      background: radial-gradient(ellipse 85% 85% at 50% 50%, transparent 50%, rgba(0,0,0,0.25) 100%);
+      background: radial-gradient(ellipse 90% 90% at 50% 50%, transparent 55%, rgba(0,0,0,0.15) 100%);
     }
     #game-content { display: none; flex-direction: column; flex: 1; min-height: 0; }
     #game-container.started #game-content { display: flex; }
@@ -79,7 +79,7 @@
       inset: 0;
       pointer-events: none;
       z-index: 1;
-      background: repeating-linear-gradient(0deg, rgba(0,0,0,0.06) 0px, transparent 1px, transparent 3px);
+      background: repeating-linear-gradient(0deg, rgba(0,0,0,0.05) 0px, transparent 1px, transparent 3px);
     }
     #intro-header {
       flex-shrink: 0;
@@ -209,8 +209,8 @@
       100% { opacity: 0; transform: scale(0.98); filter: brightness(0); visibility: hidden; }
     }
     
-    /* 스캔라인 - 미세한 가로줄 (가독성 유지) */
-    .scanlines { position: absolute; inset: 0; pointer-events: none; z-index: 10; background: repeating-linear-gradient(0deg, rgba(0,0,0,0.06) 0px, transparent 1px, transparent 3px); }
+    /* 스캔라인 - 미세한 가로줄 (CRT 느낌, 가독성 유지) */
+    .scanlines { position: absolute; inset: 0; pointer-events: none; z-index: 10; background: repeating-linear-gradient(0deg, rgba(0,0,0,0.05) 0px, transparent 1px, transparent 3px); }
     
     /* 헤더 영역 (PC: Grid 3열 / 모바일: 세로) */
     .game-header { 
@@ -223,7 +223,7 @@
       align-items: center;
     }
     
-    .header-title { font-size: 14px; justify-self: start; text-shadow: 0 0 6px var(--terminal-green); }
+    .header-title { font-size: 14px; justify-self: start; text-shadow: 0 0 8px var(--terminal-green), 0 0 4px var(--terminal-green); }
     
     .header-clock { font-size: 14px; justify-self: end; display: none; }
     
@@ -347,26 +347,26 @@
       text-shadow: 0 0 10px #ffff00, 0 0 20px #ffff00;
     }
     
-    /* 로그 영역 */
-    #log { flex: 1; overflow-y: auto; padding: 0 4px 24px 0; font-size: 15px; line-height: 1.55; z-index: 20; text-shadow: 0 0 2px var(--terminal-green); }
+    /* 로그 영역 - 본문은 글로우 최소화 */
+    #log { flex: 1; overflow-y: auto; padding: 0 4px 24px 0; font-size: 15px; line-height: 1.55; z-index: 20; text-shadow: 0 0 1px rgba(57,255,20,0.4); }
     #log::-webkit-scrollbar { width: 8px; }
     #log::-webkit-scrollbar-thumb { background: var(--terminal-green); }
 
     .line { margin-bottom: 5px; }
     .dialogue-line { margin-bottom: 14px; }
-    .dialogue-speaker { font-size: 13px; font-weight: bold; margin-bottom: 4px; letter-spacing: 1.5px; opacity: 1; }
+    .dialogue-speaker { font-size: 13px; font-weight: bold; margin-bottom: 4px; letter-spacing: 1.5px; opacity: 1; text-shadow: 0 0 4px currentColor; }
     .dialogue-text { font-size: 17px; line-height: 1.6; }
     .dialogue-summary { font-size: 11px; opacity: 0.6; margin-top: 4px; color: rgba(57, 255, 20, 0.75); }
-    #phase-status { font-size: 13px; color: var(--terminal-green); opacity: 0.95; margin-bottom: 6px; min-height: 1.8em; font-weight: bold; }
+    #phase-status { font-size: 13px; color: var(--terminal-green); opacity: 0.95; margin-bottom: 6px; min-height: 1.8em; font-weight: bold; text-shadow: 0 0 4px var(--terminal-green); }
 
-    /* 캐릭터별 색상 (형광 효과) - 고정된 역할만 존재 */
-    .role-alert { color: #ff0000; font-weight: bold; text-shadow: 0 0 3px #ff0000; }
-    .role-navigator { color: #ffd700; text-shadow: 0 0 3px #ffd700; }
-    .role-engineer { color: #ff8c00; text-shadow: 0 0 3px #ff8c00; }
-    .role-doctor { color: #00bfff; text-shadow: 0 0 3px #00bfff; }
-    .role-pilot { color: #da70d6; text-shadow: 0 0 3px #da70d6; }
-    .role-system { color: #39ff14; text-shadow: 0 0 2px #39ff14; }
-    .role-user { color: #ffffff; font-weight: bold; text-shadow: 0 0 3px #ffffff; }
+    /* 캐릭터별 색상 (네온 글로우) - 역할명·경고문 강화 */
+    .role-alert { color: #ff0000; font-weight: bold; text-shadow: 0 0 6px #ff0000, 0 0 3px #ff0000; }
+    .role-navigator { color: #ffd700; text-shadow: 0 0 5px #ffd700, 0 0 2px #ffd700; }
+    .role-engineer { color: #ff8c00; text-shadow: 0 0 5px #ff8c00, 0 0 2px #ff8c00; }
+    .role-doctor { color: #00bfff; text-shadow: 0 0 5px #00bfff, 0 0 2px #00bfff; }
+    .role-pilot { color: #da70d6; text-shadow: 0 0 5px #da70d6, 0 0 2px #da70d6; }
+    .role-system { color: #39ff14; text-shadow: 0 0 4px #39ff14, 0 0 2px #39ff14; }
+    .role-user { color: #ffffff; font-weight: bold; text-shadow: 0 0 5px #ffffff, 0 0 2px #ffffff; }
 
     /* ★ 하단 버튼 3개 (스타일 복구) ★ */
     .action-bar { display: flex; gap: 10px; margin-top: 10px; z-index: 20; }
@@ -374,17 +374,17 @@
       flex: 1; background: rgba(0, 20, 0, 0.5); border: 1px solid var(--terminal-green);
       color: var(--terminal-green); padding: 12px; font-family: inherit; cursor: pointer;
       text-transform: uppercase; transition: 0.2s; font-weight: bold;
-      text-shadow: 0 0 4px var(--terminal-green);
+      text-shadow: 0 0 6px var(--terminal-green), 0 0 3px var(--terminal-green);
     }
-    .action-btn:hover { background: var(--terminal-green); color: #000; text-shadow: 0 0 8px var(--terminal-green); }
+    .action-btn:hover { background: var(--terminal-green); color: #000; text-shadow: 0 0 10px var(--terminal-green), 0 0 5px var(--terminal-green); }
 
     /* 입력창 */
     .input-hint { font-size: 11px; opacity: 0.9; margin-top: 8px; margin-bottom: 4px; color: var(--terminal-green); line-height: 1.45; }
     .input-row { display: flex; align-items: center; border-top: 1px solid var(--terminal-green); padding-top: 12px; margin-top: 12px; z-index: 20; }
     #input { flex: 1; background: transparent; border: none; color: var(--terminal-green); font-size: 16px; font-family: inherit; outline: none; margin-left: 10px; }
     #input:disabled, .input-row.disabled #input { opacity: 0.4; cursor: not-allowed; color: #666; }
-    .input-send-btn { background: transparent; border: 1px solid var(--terminal-green); color: var(--terminal-green); padding: 6px 12px; font-family: inherit; cursor: pointer; margin-left: 8px; font-size: 12px; }
-    .input-send-btn:hover { background: var(--terminal-green); color: #000; }
+    .input-send-btn { background: transparent; border: 1px solid var(--terminal-green); color: var(--terminal-green); padding: 6px 12px; font-family: inherit; cursor: pointer; margin-left: 8px; font-size: 12px; text-shadow: 0 0 4px var(--terminal-green); }
+    .input-send-btn:hover { background: var(--terminal-green); color: #000; text-shadow: 0 0 6px var(--terminal-green); }
     .input-send-btn:disabled, .input-row.disabled .input-send-btn { opacity: 0.4; cursor: not-allowed; border-color: #555; color: #555; }
     .action-btn:disabled, .accuse-btn-main:disabled { opacity: 0.4; cursor: not-allowed; border-color: #555; color: #555; }
 
@@ -393,9 +393,9 @@
       width: 100%; margin-top: 10px; border: 2px solid var(--alert-red); color: var(--alert-red);
       background: rgba(50,0,0,0.3); padding: 10px; cursor: pointer; font-family: inherit;
       font-size: 16px; font-weight: bold; z-index: 20;
-      text-shadow: 0 0 6px var(--alert-red);
+      text-shadow: 0 0 8px var(--alert-red), 0 0 4px var(--alert-red);
     }
-    .accuse-btn-main:hover { background: var(--alert-red); color: #000; text-shadow: 0 0 10px var(--alert-red); }
+    .accuse-btn-main:hover { background: var(--alert-red); color: #000; text-shadow: 0 0 12px var(--alert-red), 0 0 6px var(--alert-red); }
 
     /* 팝업창 (처형 선택 & 결과) */
     .modal-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.95); z-index: 100; display: none; justify-content: center; align-items: center; flex-direction: column; }
@@ -413,10 +413,10 @@
     }
     
     .accuse-box { border-color: var(--alert-red); color: var(--alert-red); }
-    .accuse-modal-title { font-size: 20px; font-weight: bold; margin-bottom: 12px; text-shadow: 0 0 6px var(--alert-red); }
+    .accuse-modal-title { font-size: 20px; font-weight: bold; margin-bottom: 12px; text-shadow: 0 0 8px var(--alert-red), 0 0 4px var(--alert-red); }
     .accuse-modal-instruction { font-size: 13px; opacity: 0.9; margin-bottom: 16px; line-height: 1.4; }
-    .target-btn { display: block; width: 100%; padding: 12px; margin-bottom: 10px; background: transparent; border: 1px solid var(--alert-red); color: var(--alert-red); cursor: pointer; font-family: inherit; }
-    .target-btn:hover { background: var(--alert-red); color: #000; }
+    .target-btn { display: block; width: 100%; padding: 12px; margin-bottom: 10px; background: transparent; border: 1px solid var(--alert-red); color: var(--alert-red); cursor: pointer; font-family: inherit; text-shadow: 0 0 4px var(--alert-red); }
+    .target-btn:hover { background: var(--alert-red); color: #000; text-shadow: 0 0 6px var(--alert-red); }
 
     /* 결과창 모달 스타일 (레이아웃: 화면 밖 이탈 방지) */
     #result-modal .modal-box {
@@ -431,16 +431,17 @@
       align-items: center;
     }
     #result-modal .modal-box * { box-sizing: border-box; }
-    .result-title { font-size: 36px; font-weight: bold; margin-bottom: 16px; }
+    .result-title { font-size: 36px; font-weight: bold; margin-bottom: 16px; text-shadow: 0 0 8px currentColor, 0 0 4px currentColor; }
     .result-desc { font-size: 20px; line-height: 1.6; margin-bottom: 20px; text-align: center; }
-    .result-imposter { font-size: 28px; font-weight: bold; margin: 24px 0 30px; text-shadow: 0 0 10px currentColor; }
+    .result-imposter { font-size: 28px; font-weight: bold; margin: 24px 0 30px; text-shadow: 0 0 12px currentColor, 0 0 6px currentColor; }
     .result-key-evidence { font-size: 14px; line-height: 1.5; margin: 12px 0 20px; padding: 12px; background: rgba(0,0,0,0.3); border: 1px solid currentColor; white-space: pre-wrap; text-align: left; max-width: 100%; } /* PATCH */
     .restart-btn { 
       margin-top: auto; padding: 14px 36px; font-size: 18px;
       background: transparent; border: 2px solid currentColor; color: currentColor; 
-      font-family: inherit; cursor: pointer; font-weight: bold; 
+      font-family: inherit; cursor: pointer; font-weight: bold;
+      text-shadow: 0 0 6px currentColor;
     }
-    .restart-btn:hover { background: currentColor; color: #000; }
+    .restart-btn:hover { background: currentColor; color: #000; text-shadow: 0 0 8px currentColor; }
     
     /* 결과창 승리/패배 색상 구분 */
     #result-modal.modal-victory .modal-box {
