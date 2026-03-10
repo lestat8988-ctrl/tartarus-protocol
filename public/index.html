@@ -755,28 +755,7 @@
           <div id="intro-scroll-content">
             <div id="intro-scroll-title">TARTARUS PROTOCOL</div>
             <div id="intro-scroll-subtitle">USS C TARTARUS<br>2198 / NEPTUNE OUTER ORBIT</div>
-            <div id="intro-scroll-lines">
-              <div class="intro-scroll-line">타르타로스 호는</div>
-              <div class="intro-scroll-line">해왕성 외곽에서</div>
-              <div class="intro-scroll-line">차세대 중력 워프 실험을 수행하던</div>
-              <div class="intro-scroll-line">실전형 우주 실험선이다.</div>
-              <div class="intro-scroll-line" style="margin-top:16px;">워프 전이 도중 위상 충격이 발생했다.</div>
-              <div class="intro-scroll-line" style="margin-top:16px;">AXIS 비상 프로토콜이 발동했고,</div>
-              <div class="intro-scroll-line">핵심 승무원만 강제 기상했다.</div>
-              <div class="intro-scroll-line" style="margin-top:16px;">통신은 두절되었다.</div>
-              <div class="intro-scroll-line">일부 구역은 정전되었다.</div>
-              <div class="intro-scroll-line">일부 구역은 격리되었다.</div>
-              <div class="intro-scroll-line" style="margin-top:16px;">기상한 인원 중</div>
-              <div class="intro-scroll-line">한 명의 생체 신원이 일치하지 않는다.</div>
-              <div class="intro-scroll-line" style="margin-top:16px;">AXIS는 손상되었다.</div>
-              <div class="intro-scroll-line">하지만 AXIS 내부의 봉인된 비인가 계층,</div>
-              <div class="intro-scroll-line">HADES는 깨어났다.</div>
-              <div class="intro-scroll-line" style="margin-top:16px;">그것은 악의가 아니다.</div>
-              <div class="intro-scroll-line">계산이 그렇게 결정했을 뿐이다.</div>
-              <div class="intro-scroll-line" style="margin-top:16px;">함장은 권총 1발만 가진다.</div>
-              <div class="intro-scroll-line">중첩체를 찾아내라.</div>
-              <div class="intro-scroll-line strong">함선은 살아남을 것입니다.<br>누가 그 자리에 있을지는, 여러분이 결정하세요.</div>
-            </div>
+            <div id="intro-scroll-lines"></div>
           </div>
         </div>
         <div id="intro-bottom">
@@ -899,10 +878,79 @@
     })();
   </script>
   <script>
-    // PATCH: lang 판정은 URL 파라미터만, 한국어 버튼 1개 방식 (lang=ko면 버튼 없음)
-    var isKo = new URLSearchParams(location.search).get('lang') === 'ko'; // PATCH
-    window.isKo = isKo; // PATCH
-    window.__LANG = isKo ? 'ko' : 'en'; // PATCH
+    // PATCH: lang 판정은 URL 파라미터만, 기본값 영어 (lang=ko일 때만 한국어)
+    var isKo = new URLSearchParams(location.search).get('lang') === 'ko';
+    window.isKo = isKo;
+    window.__LANG = isKo ? 'ko' : 'en';
+    var INTRO_TEXT = {
+      en: {
+        lines: [
+          'The Tartarus',
+          'was a frontline experimental vessel',
+          'conducting next-generation gravity warp trials',
+          'beyond Neptune.',
+          { text: 'During warp transfer,', margin: true },
+          'a phase shock occurred.',
+          { text: 'AXIS emergency protocol activated.', margin: true },
+          'Core crew were forcibly awakened.',
+          { text: 'Communications were lost.', margin: true },
+          'Several sectors went dark.',
+          'Several sectors were sealed.',
+          { text: 'Among the awakened crew,', margin: true },
+          'one biological identity no longer matches.',
+          { text: 'AXIS was damaged.', margin: true },
+          'But within AXIS,',
+          'the sealed unauthorized layer HADES awakened.',
+          { text: 'It is not malice.', margin: true },
+          'It is only a decision made by calculation.',
+          { text: 'The Captain has one bullet.', margin: true },
+          'Find the overlap.',
+          { text: 'The ship will survive.<br>Who remains aboard is for you to decide.', margin: true, strong: true }
+        ]
+      },
+      ko: {
+        lines: [
+          '타르타로스 호는',
+          '해왕성 외곽에서',
+          '차세대 중력 워프 실험을 수행하던',
+          '실전형 우주 실험선이다.',
+          { text: '워프 전이 도중 위상 충격이 발생했다.', margin: true },
+          { text: 'AXIS 비상 프로토콜이 발동했고,', margin: true },
+          '핵심 승무원만 강제 기상했다.',
+          { text: '통신은 두절되었다.', margin: true },
+          '일부 구역은 정전되었다.',
+          '일부 구역은 격리되었다.',
+          { text: '기상한 인원 중', margin: true },
+          '한 명의 생체 신원이 일치하지 않는다.',
+          { text: 'AXIS는 손상되었다.', margin: true },
+          '하지만 AXIS 내부의 봉인된 비인가 계층,',
+          'HADES는 깨어났다.',
+          { text: '그것은 악의가 아니다.', margin: true },
+          '계산이 그렇게 결정했을 뿐이다.',
+          { text: '함장은 권총 1발만 가진다.', margin: true },
+          '중첩체를 찾아내라.',
+          { text: '함선은 살아남을 것입니다.<br>누가 그 자리에 있을지는, 여러분이 결정하세요.', margin: true, strong: true }
+        ]
+      }
+    };
+    function applyIntroScrollLang() {
+      var lang = window.__LANG === 'ko' ? 'ko' : 'en';
+      var data = INTRO_TEXT[lang];
+      var container = document.getElementById('intro-scroll-lines');
+      if (!container || !data) return;
+      container.innerHTML = '';
+      for (var i = 0; i < data.lines.length; i++) {
+        var item = data.lines[i];
+        var text = typeof item === 'string' ? item : item.text;
+        var margin = item && item.margin;
+        var strong = item && item.strong;
+        var div = document.createElement('div');
+        div.className = 'intro-scroll-line' + (strong ? ' strong' : '');
+        if (margin) div.style.marginTop = '16px';
+        div.innerHTML = text;
+        container.appendChild(div);
+      }
+    }
     (function initIntroLangButtons(){
       var btnKo = document.getElementById('intro-lang-ko');
       var btnEn = document.getElementById('intro-lang-en');
@@ -919,6 +967,11 @@
         url.searchParams.delete('lang');
         location.href = url.toString();
       };
+      applyIntroScrollLang();
+      var startEn = document.getElementById('intro-start-en');
+      var startKo = document.getElementById('intro-start-ko');
+      if (startEn) startEn.style.display = isKo ? 'none' : 'inline';
+      if (startKo) startKo.style.display = isKo ? 'inline' : 'none';
     })();
     var VER = "v15";
     window.__match_config = null; // PATCH
