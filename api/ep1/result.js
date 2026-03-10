@@ -1,7 +1,7 @@
 /**
  * api/ep1/result.js - 1편 전용 결과 조회 API (Supabase)
  * POST body: { match_id }
- * returns: { match_id, game_over, outcome, turn, phase, location, public_events, recent_events, events_count, impostor, actual_imposter }
+ * returns: { match_id, game_over, outcome, turn, phase, location, public_events, recent_events, events_count, culprit, hidden_host, impostor, actual_imposter, true_impostor }
  *
  * tartarus_ep1_loop.js getResult()가 호출.
  *
@@ -35,6 +35,12 @@ function toPascalImpostor(role) {
   const s = String(role).trim().toLowerCase();
   const map = { doctor: 'Doctor', engineer: 'Engineer', navigator: 'Navigator', pilot: 'Pilot' };
   return map[s] || null;
+}
+
+function resolveImpostorFromMatch(match) {
+  if (!match) return null;
+  const raw = match.hidden_host_role ?? match.private_state?.hidden_host_role ?? null;
+  return toPascalImpostor(raw);
 }
 
 module.exports = async (req, res) => {
@@ -81,7 +87,7 @@ module.exports = async (req, res) => {
     return full;
   }).filter(Boolean);
   const events_count = await getEventsCount(matchId);
-  const impostor = toPascalImpostor(match.hidden_host_role);
+  const impostorVal = resolveImpostorFromMatch(match);
 
   return res.status(200).json({
     debug_version: 'ep1-result-full-events-v2',
@@ -94,7 +100,10 @@ module.exports = async (req, res) => {
     public_events: Array.isArray(pub) ? pub : [],
     recent_events,
     events_count,
-    impostor: impostor ?? null,
-    actual_imposter: impostor ?? null
+    culprit: impostorVal ?? null,
+    hidden_host: impostorVal ?? null,
+    impostor: impostorVal ?? null,
+    actual_imposter: impostorVal ?? null,
+    true_impostor: impostorVal ?? null
   });
 };
