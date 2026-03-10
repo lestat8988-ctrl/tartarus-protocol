@@ -25,24 +25,35 @@
       display: flex; flex-direction: column; align-items: center; justify-content: center; 
     }
 
-    /* 베젤 (테두리) - itch.io iframe 대응 */
+    /* CRT 화면 래퍼 - 프레임 제거, 검은 공간 위 CRT만 */
     .crt-bezel { 
       width: 100%; max-width: 1200px; 
       height: 100%; max-height: calc(100vh - 24px);
-      background: repeating-linear-gradient(0deg, #dcdcdc 0px, #d0d0c0 1px, #dcdcdc 2px, #c8c8b8 3px, #dcdcdc 4px), linear-gradient(135deg, #c0c0b0 0%, #d4d4c4 50%, #b8b8a8 100%);
-      background-blend-mode: overlay; border: 35px solid #b0b0a0; border-radius: 20px; 
-      padding: 20px; position: relative; 
-      box-shadow: 0 25px 80px rgba(0,0,0,0.6), inset 0 0 80px rgba(0,0,0,0.7); 
+      background: transparent;
+      border: none;
+      padding: 20px;
+      position: relative;
     }
 
-    /* 화면 내부 - itch.io iframe 내 꽉 차게 */
+    /* CRT 화면 - 검은 배경 + 비네팅 */
     #game-container { 
-      background: var(--bg-black); border: 2px solid #333; border-radius: 5px; 
+      background: var(--bg-black);
+      border: none;
+      border-radius: 0;
       padding: 20px; 
       flex: 1; min-height: 0;
       height: 100%; max-height: calc(100vh - 120px); min-height: 350px;
       position: relative; display: flex; flex-direction: column; 
-      box-shadow: inset 0 0 100px rgba(0,0,0,0.9); overflow: hidden; 
+      overflow: hidden;
+      box-shadow: none;
+    }
+    #game-container::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 15;
+      background: radial-gradient(ellipse 85% 85% at 50% 50%, transparent 50%, rgba(0,0,0,0.25) 100%);
     }
     #game-content { display: none; flex-direction: column; flex: 1; min-height: 0; }
     #game-container.started #game-content { display: flex; }
@@ -60,6 +71,40 @@
       color: var(--terminal-green);
       text-shadow: 0 0 2px var(--terminal-green);
       font-family: 'Share Tech Mono', monospace;
+      background: radial-gradient(ellipse 120% 80% at 50% 0%, rgba(20,40,20,0.4) 0%, transparent 50%), linear-gradient(180deg, rgba(0,0,0,0.3) 0%, transparent 30%), #000;
+    }
+    #intro-briefing::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 1;
+      background: repeating-linear-gradient(0deg, rgba(0,0,0,0.06) 0px, transparent 1px, transparent 3px);
+    }
+    #intro-header {
+      flex-shrink: 0;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(57,255,20,0.3);
+    }
+    #intro-title {
+      font-size: 16px;
+      letter-spacing: 4px;
+      color: var(--terminal-green);
+      text-shadow: 0 0 8px var(--terminal-green);
+      margin-bottom: 12px;
+    }
+    #intro-world-text {
+      font-size: 12px;
+      line-height: 1.6;
+      color: rgba(57,255,20,0.9);
+      margin-bottom: 8px;
+    }
+    #intro-world-text .intro-warn { color: var(--alert-red); text-shadow: 0 0 4px var(--alert-red); }
+    .intro-mission {
+      font-size: 11px;
+      line-height: 1.5;
+      color: rgba(57,255,20,0.75);
     }
     #intro-briefing.hidden { display: none; }
     #intro-briefing.crt-turnoff {
@@ -103,6 +148,24 @@
     }
     #intro-press-enter.visible { display: block; }
     #intro-press-enter.blink { animation: introBlink 0.5s steps(1) infinite; }
+    #intro-start-btn {
+      display: none;
+      padding: 12px 28px;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 13px;
+      letter-spacing: 2px;
+      color: #000;
+      background: var(--terminal-green);
+      border: 2px solid var(--terminal-green);
+      cursor: pointer;
+      transition: 0.2s;
+      box-shadow: 0 0 12px rgba(57,255,20,0.5);
+    }
+    #intro-start-btn.visible { display: block; }
+    #intro-start-btn:hover {
+      background: rgba(57,255,20,0.9);
+      box-shadow: 0 0 20px rgba(57,255,20,0.7);
+    }
     .intro-lang-row {
       flex-shrink: 0;
       display: flex;
@@ -146,8 +209,8 @@
       100% { opacity: 0; transform: scale(0.98); filter: brightness(0); visibility: hidden; }
     }
     
-    /* 스캔라인 (배경 효과) */
-    .scanlines { position: absolute; inset: 0; pointer-events: none; z-index: 10; background: repeating-linear-gradient(0deg, rgba(0,0,0,0.1) 0px, transparent 1px, transparent 2px); }
+    /* 스캔라인 - 미세한 가로줄 (가독성 유지) */
+    .scanlines { position: absolute; inset: 0; pointer-events: none; z-index: 10; background: repeating-linear-gradient(0deg, rgba(0,0,0,0.06) 0px, transparent 1px, transparent 3px); }
     
     /* 헤더 영역 (PC: Grid 3열 / 모바일: 세로) */
     .game-header { 
@@ -160,7 +223,7 @@
       align-items: center;
     }
     
-    .header-title { font-size: 14px; justify-self: start; }
+    .header-title { font-size: 14px; justify-self: start; text-shadow: 0 0 6px var(--terminal-green); }
     
     .header-clock { font-size: 14px; justify-self: end; display: none; }
     
@@ -307,12 +370,13 @@
 
     /* ★ 하단 버튼 3개 (스타일 복구) ★ */
     .action-bar { display: flex; gap: 10px; margin-top: 10px; z-index: 20; }
-    .action-btn { 
-      flex: 1; background: rgba(0, 20, 0, 0.5); border: 1px solid var(--terminal-green); 
-      color: var(--terminal-green); padding: 12px; font-family: inherit; cursor: pointer; 
+    .action-btn {
+      flex: 1; background: rgba(0, 20, 0, 0.5); border: 1px solid var(--terminal-green);
+      color: var(--terminal-green); padding: 12px; font-family: inherit; cursor: pointer;
       text-transform: uppercase; transition: 0.2s; font-weight: bold;
+      text-shadow: 0 0 4px var(--terminal-green);
     }
-    .action-btn:hover { background: var(--terminal-green); color: #000; }
+    .action-btn:hover { background: var(--terminal-green); color: #000; text-shadow: 0 0 8px var(--terminal-green); }
 
     /* 입력창 */
     .input-hint { font-size: 11px; opacity: 0.9; margin-top: 8px; margin-bottom: 4px; color: var(--terminal-green); line-height: 1.45; }
@@ -325,12 +389,13 @@
     .action-btn:disabled, .accuse-btn-main:disabled { opacity: 0.4; cursor: not-allowed; border-color: #555; color: #555; }
 
     /* 긴급 처형 버튼 */
-    .accuse-btn-main { 
-      width: 100%; margin-top: 10px; border: 2px solid var(--alert-red); color: var(--alert-red); 
-      background: rgba(50,0,0,0.3); padding: 10px; cursor: pointer; font-family: inherit; 
-      font-size: 16px; font-weight: bold; z-index: 20; 
+    .accuse-btn-main {
+      width: 100%; margin-top: 10px; border: 2px solid var(--alert-red); color: var(--alert-red);
+      background: rgba(50,0,0,0.3); padding: 10px; cursor: pointer; font-family: inherit;
+      font-size: 16px; font-weight: bold; z-index: 20;
+      text-shadow: 0 0 6px var(--alert-red);
     }
-    .accuse-btn-main:hover { background: var(--alert-red); color: #000; }
+    .accuse-btn-main:hover { background: var(--alert-red); color: #000; text-shadow: 0 0 10px var(--alert-red); }
 
     /* 팝업창 (처형 선택 & 결과) */
     .modal-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.95); z-index: 100; display: none; justify-content: center; align-items: center; flex-direction: column; }
@@ -348,7 +413,7 @@
     }
     
     .accuse-box { border-color: var(--alert-red); color: var(--alert-red); }
-    .accuse-modal-title { font-size: 20px; font-weight: bold; margin-bottom: 12px; }
+    .accuse-modal-title { font-size: 20px; font-weight: bold; margin-bottom: 12px; text-shadow: 0 0 6px var(--alert-red); }
     .accuse-modal-instruction { font-size: 13px; opacity: 0.9; margin-bottom: 16px; line-height: 1.4; }
     .target-btn { display: block; width: 100%; padding: 12px; margin-bottom: 10px; background: transparent; border: 1px solid var(--alert-red); color: var(--alert-red); cursor: pointer; font-family: inherit; }
     .target-btn:hover { background: var(--alert-red); color: #000; }
@@ -441,8 +506,12 @@
     /* 인트로 스플래시 모바일 */
     @media (max-width: 768px) {
       #intro-briefing { padding: 12px 16px; }
+      #intro-title { font-size: 13px; letter-spacing: 2px; }
+      #intro-world-text { font-size: 11px; }
+      .intro-mission { font-size: 10px; }
       #intro-boot-log { font-size: 11px; }
       #intro-ascii-logo { font-size: 5px; }
+      #intro-start-btn { font-size: 11px; padding: 10px 20px; }
       #intro-press-enter { font-size: 11px; }
       .intro-lang-btn { font-size: 11px; padding: 6px 14px; }
     }
@@ -451,12 +520,10 @@
     @media (max-width: 768px) {
       body { padding: 5px; }
       
-      /* 1. CRT 베젤 테두리와 패딩 대폭 축소 */
+      /* CRT 래퍼 - 모바일 패딩만 */
       .crt-bezel {
         width: 100%;
-        border: 8px solid #b0b0a0;
         padding: 8px;
-        border-radius: 10px;
       }
       
       /* 4. 게임 컨테이너 높이를 유동적으로 변경 */
@@ -666,6 +733,23 @@
       <div class="scanlines"></div>
 
       <div id="intro-briefing">
+        <div id="intro-header">
+          <div id="intro-title">TARTARUS PROTOCOL</div>
+          <div id="intro-world-text">
+            <div id="intro-world-en" style="display:block;">
+              USSC Tartarus. Gravity drive anomaly.<br>
+              Connection to unknown space. We brought something back.<br>
+              <span class="intro-warn">One of the crew is HOST.</span>
+              <div class="intro-mission" style="margin-top:8px;">Find the HOST. Execute before time runs out.</div>
+            </div>
+            <div id="intro-world-ko" style="display:none;">
+              USSC 타르타로스. 중력 드라이브 이상.<br>
+              미지 공간과의 연결. 무언가를 데려왔다.<br>
+              <span class="intro-warn">승무원 중 한 명은 HOST.</span>
+              <div class="intro-mission" style="margin-top:8px;">시간이 끝나기 전에 찾아 처형하라.</div>
+            </div>
+          </div>
+        </div>
         <div id="intro-boot-log"></div>
         <div id="intro-center">
           <pre id="intro-ascii-logo">████████╗ █████╗ ██████╗ ████████╗ █████╗ ██████╗ ██╗   ██╗██████╗
@@ -674,7 +758,8 @@
    ██║   ██╔══██║██╔══██╗   ██║   ██╔══██║██╔══██╗██║   ██║╚════██║
    ██║   ██║  ██║██║  ██║   ██║   ██║  ██║██║  ██║╚██████╔╝███████║
    ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝</pre>
-          <div id="intro-press-enter" data-i18n="intro.pressEnter">[ PRESS ENTER TO INITIALIZE PROTOCOL ]</div>
+          <button type="button" id="intro-start-btn"><span id="intro-start-en">[ SYSTEM INITIALIZE ]</span><span id="intro-start-ko" style="display:none;">[ 시스템 기동 ]</span></button>
+          <div id="intro-press-enter" data-i18n="intro.pressEnter">[ PRESS ENTER ]</div>
         </div>
         <div class="intro-lang-row">
           <button type="button" class="intro-lang-btn" id="intro-lang-ko" data-lang="ko">한국어</button>
@@ -1371,10 +1456,24 @@
       showIntroLogoAndPrompt();
     }
 
+    function applyIntroWorldLang() {
+      var lang = (window.__LANG === 'ko') ? 'ko' : 'en';
+      var enEl = document.getElementById('intro-world-en');
+      var koEl = document.getElementById('intro-world-ko');
+      var startEn = document.getElementById('intro-start-en');
+      var startKo = document.getElementById('intro-start-ko');
+      if (enEl) enEl.style.display = (lang === 'en') ? 'block' : 'none';
+      if (koEl) koEl.style.display = (lang === 'ko') ? 'block' : 'none';
+      if (startEn) startEn.style.display = (lang === 'en') ? 'inline' : 'none';
+      if (startKo) startKo.style.display = (lang === 'ko') ? 'inline' : 'none';
+    }
     function showIntroLogoAndPrompt() {
       introBootDone = true;
       introSkipRequested = false;
+      applyIntroWorldLang();
       if (asciiLogoEl) { asciiLogoEl.classList.add('visible', 'blink'); }
+      var startBtn = document.getElementById('intro-start-btn');
+      if (startBtn) { startBtn.classList.add('visible'); startBtn.onclick = function() { startGameFromIntro(); }; }
       if (pressEnterEl) { pressEnterEl.classList.add('visible', 'blink'); }
     }
 
@@ -1436,6 +1535,7 @@
       if (window.__BOOT_DONE__) return;
       window.__BOOT_DONE__ = true;
       applyLocale();
+      if (typeof applyIntroWorldLang === 'function') applyIntroWorldLang();
       runBootSequence();
     }
     var imgList = Array.prototype.slice.call(document.querySelectorAll('img[src]')).map(function(img) { return img.src; });
