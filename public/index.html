@@ -1148,11 +1148,14 @@
         var resultText = resultLines.join('\n');
         history.push({ role: 'assistant', content: resultText });
 
+        var impostorVal = resData.true_impostor || resData.actual_imposter || resData.impostor || resData.hidden_host || resData.culprit || null;
+        if (impostorVal && typeof impostorVal === 'string' && impostorVal.trim() === '') impostorVal = null;
+
         return {
           result: resultText,
           resultText: resultText,
           state: (outcome === 'victory' || outcome === 'defeat') ? outcome : 'playing',
-          actualImposter: null,
+          actualImposter: impostorVal,
           isGameOver: isGameOver,
           outcome: outcome,
           deadCrew: deadCrew
@@ -1573,8 +1576,16 @@
       printLine(t('system.allTerminated'), "role-system");
       printLine(t('system.missionFailed'), "role-system");
       
-      setTimeout(() => {
-        showResult('defeat', 'TOTAL SYSTEM FAILURE. All crew members terminated.', null); // PATCH: null → showResult에서 match_config fallback 사용
+      setTimeout(async function() {
+        var impostorVal = null;
+        if (MATCH_ID) {
+          try {
+            var resData = await ep1CallResult();
+            impostorVal = resData.true_impostor || resData.actual_imposter || resData.impostor || resData.hidden_host || resData.culprit || null;
+            if (impostorVal && typeof impostorVal === 'string' && impostorVal.trim() === '') impostorVal = null;
+          } catch (e) {}
+        }
+        showResult('defeat', 'TOTAL SYSTEM FAILURE. All crew members terminated.', impostorVal);
       }, 2000);
     }
 
@@ -1879,12 +1890,16 @@
       const imposterEl = document.getElementById('result-imposter');
       const keyEvidenceEl = document.getElementById('result-key-evidence'); // PATCH
       
-      // actualImposter || match_config.impostorRole || impostor_role || 'Unknown' // PATCH
-      let traitorName = (actualImposter && actualImposter !== 'Unknown') ? actualImposter : (window.__match_config && (window.__match_config.impostorRole || window.__match_config.impostor_role)) || 'Unknown'; // PATCH
-      if (traitorName === "Unknown") {
-        const match = message.match(/Identity Code\s*:\s*\[(.*?)\]/i) || message.match(/\[REAL_IMPOSTER:\s*([^\]]+)\]/i);
-        if (match) traitorName = match[1].trim();
+      var traitorName = (actualImposter && String(actualImposter).trim() !== '') ? String(actualImposter).trim() : null;
+      if (!traitorName && window.__match_config) {
+        traitorName = (window.__match_config.impostorRole || window.__match_config.impostor_role) || null;
+        if (traitorName) traitorName = String(traitorName).trim() || null;
       }
+      if (!traitorName && message) {
+        var match = String(message).match(/Identity Code\s*:\s*\[(.*?)\]/i) || String(message).match(/\[REAL_IMPOSTER:\s*([^\]]+)\]/i);
+        if (match) traitorName = match[1].trim() || null;
+      }
+      traitorName = traitorName || 'Unknown';
 
       // KEY EVIDENCE: primary.keyEvidence 또는 primary.lines 상위 2줄 // PATCH
       let keyEvidenceText = '';
