@@ -1048,10 +1048,10 @@
       var roleKo = (ROLE_LABEL_KO && ROLE_LABEL_KO[roleLower]) || roleLower;
       return 'QUESTION ' + roleLower + ' ' + roleKo + ', 그때 어디 있었지?';
     }
-    function sendInterrogateClick(ev) {
-      if (ev) { ev.preventDefault(); ev.stopPropagation(); if (ev.stopImmediatePropagation) ev.stopImmediatePropagation(); }
+    function sendInterrogateClick(ev, interrogateBtn) {
       if (questionInFlight) return;
       questionInFlight = true;
+      if (ev) { ev.preventDefault(); ev.stopPropagation(); if (ev.stopImmediatePropagation) ev.stopImmediatePropagation(); }
       if (gameEnded) { questionInFlight = false; return; }
       var now = Date.now();
       if ((now - lastQuestionDispatchAt) < QUESTION_DEBOUNCE_MS) { questionInFlight = false; return; }
@@ -1060,7 +1060,7 @@
       var key = m ? ('QUESTION:' + (m[1] || '').toLowerCase()) : msg;
       lastQuestionKey = key;
       lastQuestionDispatchAt = now;
-      var btn = ev && ev.currentTarget ? ev.currentTarget : document.querySelector('.action-btn[data-msg="interrogate"]');
+      var btn = interrogateBtn || (ev && ev.currentTarget && ev.currentTarget.getAttribute && ev.currentTarget.getAttribute('data-msg') === 'interrogate' ? ev.currentTarget : null) || document.querySelector('.action-btn[data-msg="interrogate"]');
       if (btn) btn.disabled = true;
       var p = sendMessage(msg);
       if (p && typeof p.finally === 'function') {
@@ -1191,6 +1191,10 @@
           if (main && (e.role && ROLE_LABEL_KO[e.role] || e.role === 'system')) {
             var role = e.role || 'system';
             var mainT = getMainTextFromEvent(e);
+            if (role === 'captain' && mainT && /^QUESTION\s+/i.test(String(mainT).trim()) && typeof formatCaptainDisplay === 'function') {
+              mainT = formatCaptainDisplay(mainT, { action: e.action || 'OBSERVE', target: e.target || null });
+            }
+            if (role === 'captain' && mainT && /^QUESTION\s+/i.test(String(mainT).trim())) continue;
             printDialogueLine(role, mainT, e.summary || null, key);
             renderedEventKeys.add(key);
           } else if (main) {
@@ -1644,6 +1648,7 @@
     let questionInFlight = false; // 승무원 심문 버튼 재진입 차단
     let lastQuestionDispatchAt = 0;
     let lastQuestionKey = '';
+    let interrogateBtnBound = false; // 첫 클릭 전용: listener 중복 부착 방지
     const QUESTION_DEBOUNCE_MS = 800;
 
     let gamePhase = 'crew_resolving';
@@ -1863,6 +1868,20 @@
         }
       }
       await ep1EnsureMatch();
+      if (!interrogateBtnBound) {
+        interrogateBtnBound = true;
+        var bar = document.querySelector('.action-bar');
+        if (bar) {
+          bar.addEventListener('click', function(ev) {
+            var t = ev.target && ev.target.closest ? ev.target.closest('.action-btn[data-msg="interrogate"]') : null;
+            if (!t) return;
+            ev.preventDefault();
+            ev.stopPropagation();
+            if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
+            sendInterrogateClick(ev, t);
+          }, { capture: true, passive: false });
+        }
+      }
     }
 
     function resumeAudioOnUserGesture() {
@@ -2400,16 +2419,6 @@
     // ===== expose UI handlers to window (no logic changes) =====
     window.sendMessage = sendMessage;
     window.sendInterrogateClick = sendInterrogateClick;
-    (function bindInterrogateButton() {
-      var btn = document.getElementById('interrogate-btn');
-      if (!btn) return;
-      btn.addEventListener('click', function(ev) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
-        sendInterrogateClick(ev);
-      }, { capture: true, passive: false });
-    })();
     window.openAccuseModal = openAccuseModal;
     window.triggerAccuse = triggerAccuse;
     window.closeAccuseModal = closeAccuseModal;
