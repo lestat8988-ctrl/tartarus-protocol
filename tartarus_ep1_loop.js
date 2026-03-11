@@ -251,6 +251,16 @@ function isLogOrSystemDialogue(text) {
   return /(로그|시스템|기록|엔진|센서|데이터|점검|확인|이상|불일치|anomaly|record|engine)/.test(t);
 }
 
+/** 관찰/확인형 대사. 질문·추궁이 아닌 상황 파악·반응 확인형. QUESTION→OBSERVE 보정용. */
+function isObserveOrConfirmDialogue(text) {
+  if (!text || typeof text !== 'string') return false;
+  const t = text.trim();
+  if (t.endsWith('?')) return false;
+  const observeMarkers = /(관찰|살펴보겠습니다|확인하겠습니다|확인\s*중|지켜보겠습니다|주의\s*깊게|분위기|반응을\s*(살펴|확인)|상황을\s*(확인|파악|살펴))/;
+  const questionMarkers = /(어디|언제|왜|누구|무엇|뭐|어떻게|이유|설명해|말해|물어)/;
+  return observeMarkers.test(t) && !questionMarkers.test(t);
+}
+
 const TARGET_MENTION_PATTERNS = {
   captain: /함장님?|함장[,.\s]/,
   player: /함장님?|함장[,.\s]/,
@@ -269,9 +279,14 @@ function doesDialogueExplicitlyMentionTarget(dialogue, target) {
 }
 
 function applyActionBias(action, dialogue, role) {
-  if (action !== 'OBSERVE') return action;
   const d = (dialogue || '').trim();
   if (!d) return action;
+
+  if (action === 'QUESTION' && isObserveOrConfirmDialogue(d)) {
+    if (role === 'engineer' && isLogOrSystemDialogue(d)) return 'CHECK_LOG';
+    return 'OBSERVE';
+  }
+  if (action !== 'OBSERVE') return action;
 
   if (role === 'navigator' && isQuestionLikeDialogue(d)) return 'QUESTION';
   if (role === 'doctor' && isDoctorQuestionLikeDialogue(d)) return 'QUESTION';
@@ -301,7 +316,9 @@ function normalizeCrewOutput(raw, role) {
 
   if (target && action === 'QUESTION' && role === 'doctor' && !doesDialogueExplicitlyMentionTarget(dialogue, target)) target = null;
 
+  const prevAction = action;
   action = applyActionBias(action, dialogue, role);
+  if (prevAction === 'QUESTION' && (action === 'OBSERVE' || action === 'CHECK_LOG')) target = null;
 
   return { action, target, reason, dialogue };
 }
