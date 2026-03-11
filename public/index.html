@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -1175,6 +1175,20 @@
       const s = e.summary || (e.role && e.action ? `${e.role} ${e.action}` : '') || '';
       return `${t}:${r}:${a}:${e.action || ''}:${s}`;
     }
+    function captainQuestionDedupeKey(turn, target, normalizedDisplay) {
+      var t = (turn ?? 1).toString();
+      var tg = (target || '').toString().trim().toLowerCase();
+      var norm = (normalizedDisplay || '').toString().trim();
+      if (!norm && tg && typeof ROLE_LABEL_KO !== 'undefined' && ROLE_LABEL_KO[tg]) {
+        norm = ROLE_LABEL_KO[tg] + ', 그때 어디 있었지?';
+      }
+      if (!norm && tg) norm = tg + ', 그때 어디 있었지?';
+      return 'captain|QUESTION|' + t + '|' + tg + '|' + norm;
+    }
+    function hasCaptainQuestionRenderedForTurn(turn) {
+      var prefix = 'captain|QUESTION|' + (turn ?? 1) + '|';
+      return Array.from(renderedEventKeys).some(function(k) { return k && String(k).indexOf(prefix) === 0; });
+    }
 
     async function ep1EnsureMatch() {
       if (MATCH_ID) return;
@@ -1316,13 +1330,26 @@
         var line = eventToSummary(e);
         var actorCaptain = e.actor && String(e.actor).toLowerCase() === 'captain';
         var _evT = e.turn ?? currentTurn ?? 1;
-        var _skipCapQ = skipCaptainQuestion || renderedEventKeys.has('captain_question_rendered:' + _evT);
+        var _skipCapQ = skipCaptainQuestion || renderedEventKeys.has('captain_question_rendered:' + _evT) || (typeof hasCaptainQuestionRenderedForTurn === 'function' && hasCaptainQuestionRenderedForTurn(_evT));
         if (role === 'captain' || actorCaptain) {
           var capRaw = (e.dialogue || e.summary || '').trim();
           var isCapQ = e.action === 'QUESTION' || /^QUESTION\s+/i.test(capRaw) || isCaptainQuestionRaw(capRaw) || isCaptainQuestionSummary(capRaw);
-          if (isCapQ || _skipCapQ) {
+          if (isCapQ) {
+            var capNorm = capRaw;
+            if (capRaw && typeof formatCaptainDisplay === 'function') {
+              capNorm = formatCaptainDisplay(capRaw, { action: 'QUESTION', target: e.target || null });
+            }
+            var capQKey = captainQuestionDedupeKey(_evT, e.target, capNorm);
+            if (renderedEventKeys.has(capQKey)) {
+              renderedEventKeys.add(eventDedupeKey(e));
+              continue;
+            }
+            renderedEventKeys.add(capQKey);
             renderedEventKeys.add(eventDedupeKey(e));
-            if (isCapQ) continue;
+            continue;
+          }
+          if (_skipCapQ) {
+            renderedEventKeys.add(eventDedupeKey(e));
             if (isCaptainQuestionSummary(capRaw)) continue;
             continue;
           }
@@ -2301,7 +2328,8 @@
       var captainDisplay = (typeof formatCaptainDisplay === 'function') ? formatCaptainDisplay(raw, captainPayload) : raw;
       printDialogueLine('captain', captainDisplay, null);
       if (captainPayload.action === 'QUESTION') {
-        renderedEventKeys.add('captain_question_rendered:' + (currentTurn || 1));
+        var capQKey = captainQuestionDedupeKey(currentTurn || 1, captainPayload.target, captainDisplay);
+        renderedEventKeys.add(capQKey);
       }
       inputEl.value = '';
       history.push({ role: "user", content: raw });
