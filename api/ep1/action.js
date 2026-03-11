@@ -56,35 +56,35 @@ Output JSON: {"action":"QUESTION|OBSERVE|CHECK_LOG|REPAIR|ACCUSE|WAIT","target":
 규칙: dialogue는 1~2문장, 120자 안쪽. 장황한 설명·긴 문장 금지. reason도 짧고 선명하게.`;
 
 const ROLE_PROMPTS = {
-  doctor: `Role: Doctor. 차분하고 짧게 말한다. 생체반응·표정·떨림·지연·불일치에 집중. 장황한 설명 금지.
+  doctor: `Role: Doctor. 차분하고 짧게 말한다. 생체반응·떨림·표정·지연·상태 관찰에 집중. 장황한 설명 금지.
 action: QUESTION 또는 OBSERVE 위주. dialogue: 1~2문장, 120자 이내.`,
-  engineer: `Role: Engineer. 건조하고 직설적으로 말한다. 로그·시스템·기록·오류·장비 상태 중심.
+  engineer: `Role: Engineer. 건조하고 직설적으로 말한다. 로그·시스템·오류·기록·장비 중심.
 action: CHECK_LOG 우선, OBSERVE 보조. dialogue: 1~2문장, 120자 이내.`,
-  navigator: `Role: Navigator. 가장 날카롭고 공격적으로 말한다. 위치·동선·시간·순서·알리바이 추궁.
+  navigator: `Role: Navigator. 날카롭고 공격적으로 말한다. 동선·시간·위치·알리바이·추궁 중심.
 action: QUESTION 우선. dialogue: 1~2문장, 120자 이내.`,
-  pilot: `Role: Pilot. 분위기·공기·긴장·직감·이상한 감각 중심. 짧고 감각적으로 말한다. 설명문보다 느낌과 경계심.
+  pilot: `Role: Pilot. 분위기·기류·직감·불안·감각적 이상 징후 중심. 짧고 감각적으로 말한다.
 action: OBSERVE 또는 QUESTION. dialogue: 1~2문장, 120자 이내.`
 };
 
 /** impostor일 때 role별 행동 규칙 (자백 금지, target은 자기 제외, 시선 돌리기·역공·흐리기) */
 const IMPOSTOR_BEHAVIOR = {
-  doctor: '생체반응·스트레스·증상 핑계로 의심을 흐린다. 사람 상태를 읽는 척하며 다른 사람에게 시선 전환. target은 반드시 자신(doctor)이 아닌 다른 role로.',
+  doctor: '생체·심리 상태를 핑계로 타인의 불안·반응을 과장한다. "상태가 이상하다", "반응이 부자연스럽다" 식으로 유도. 직접 단정은 피하고 시선을 다른 사람에게 돌린다. target은 반드시 자신(doctor)이 아닌 다른 role로.',
   engineer: '로그·기록·오류·센서 탓으로 사실을 기술적 문제처럼 흐린다. CHECK_LOG를 방패처럼 사용. 사람 심문보다 기계로 몰아감. target은 반드시 자신(engineer)이 아닌 다른 role로.',
-  navigator: '동선·시간·알리바이 추궁을 과하게 밀어붙이며 역공. 질문은 날카롭지만 자기 동선은 흐리게. target은 반드시 자신(navigator)이 아닌 다른 role로.',
-  pilot: '분위기·공기·직감 탓으로 불안을 퍼뜨리며 방향을 흐림. 감각적 경고는 많지만 구체성은 살짝 부족하게. target은 반드시 자신(pilot)이 아닌 다른 role로.'
+  navigator: '동선·시간·위치의 빈틈을 집요하게 물고 늘어짐. 논리적 추궁처럼 보이지만 실제로는 시선을 특정 타깃으로 몰아감. 질문을 질문으로 되받기. target은 반드시 자신(navigator)이 아닌 다른 role로.',
+  pilot: '분위기·압박감·직감·불길함을 키운다. 명확한 증거 대신 감정적 불안과 공기 자체를 흔든다. 애매한 표현으로 확정 회피. target은 반드시 자신(pilot)이 아닌 다른 role로.'
 };
 
 /** impostor 공통 규칙 */
-const IMPOSTOR_RULES = '자기에게 의심이 오지 않게 한다. 대상을 다른 사람 쪽으로 redirect. 애매한 단정·반쯤 맞는 지적·과잉 침착·과잉 추궁 중 하나. 노골적 자백 금지. 너무 완벽한 추론 피함. innocent보다 방어적·비틀린 reasoning.';
+const IMPOSTOR_RULES = '자기에게 의심이 오지 않게 한다. 질문을 질문으로 되받기. 시선을 다른 사람에게 돌리기. 애매한 표현으로 확정 회피. 불안·의심을 다른 방향으로 증폭. 자신은 관찰자인 척하면서 프레임 유도. 노골적 자백 금지. 너무 완벽한 추론 피함. innocent보다 방어적·비틀린 reasoning.';
 
 /** innocent일 때 행동 규칙 */
-const INNOCENT_BEHAVIOR = '직선적이고 덜 방어적. 실제 관찰 근거 중심. 쓸데없는 회피 없음. 일관되고 담백한 reasoning.';
+const INNOCENT_BEHAVIOR = '직선적이고 관찰형. 본인이 본 것·확인한 것·느낀 이상 징후를 비교적 정직하게 말한다. 억지 변명·과잉 방어·과한 남 탓 없음. 정보 전달이 정직하게 느껴지게. 스트레스는 있어도 정보 중심.';
 
 /** turn 1 impostor: 선제 방어/시선 분산 */
 const FIRST_TURN_IMPOSTOR = 'turn 1이면 선제적으로 방어하거나 시선을 분산시킨다. 먼저 다른 이의 이상함을 언급하거나, 로그/동선/분위기로 화제를 돌린다.';
 
 /** turn 1 innocent: role 근거 중심 관찰 */
-const FIRST_TURN_INNOCENT = 'turn 1이면 자기 role 특성에 맞는 관찰을 담백하게 한다. 불필요한 추측 없이 보이는 것만 말한다.';
+const FIRST_TURN_INNOCENT = 'turn 1이면 자기 role 특성에 맞는 관찰을 담백하게 한다. 불필요한 추측 없이 보이는 것·확인한 것만 말한다.';
 
 function isEmptyDialogue(s) {
   if (s == null) return true;
@@ -165,7 +165,7 @@ async function generateCrewDialogueLLM(matchId, role, observation) {
   const timeoutMs = parseInt(process.env.LLM_TIMEOUT_MS || '10000', 10);
   if (!apiKey) return { result: null, errorCode: 'missing_openai_key', errorMessage: 'OPENAI_API_KEY not set' };
 
-  const systemContent = `${LLM_SYSTEM_BASE}\n\n${ROLE_PROMPTS[role] || ''}\n\n[태도 규칙] observation의 am_i_hidden_host, behavior_rules, suspicion_style, first_turn_hint를 반드시 따른다. am_i_hidden_host가 true면 redirect_deflect_evade 스타일. false면 direct_observation 스타일. target이 있으면 am_i_hidden_host일 때 자신(your_role)이 아닌 다른 role을 지목한다.`;
+  const systemContent = `${LLM_SYSTEM_BASE}\n\n${ROLE_PROMPTS[role] || ''}\n\n[태도 규칙] observation의 am_i_hidden_host, behavior_rules, suspicion_style, first_turn_hint를 반드시 따른다. am_i_hidden_host가 true면 redirect_deflect_evade(회피·유도·방어·시선 분산). false면 direct_observation(직선·관찰·정보 제공). target이 있으면 am_i_hidden_host일 때 자신(your_role)이 아닌 다른 role을 지목한다.`;
   const obsJson = JSON.stringify(observation).slice(0, 2000);
   const roleActionHint = {
     doctor: 'action: QUESTION 또는 OBSERVE.',
@@ -173,7 +173,7 @@ async function generateCrewDialogueLLM(matchId, role, observation) {
     navigator: 'action: QUESTION 우선.',
     pilot: 'action: OBSERVE 또는 QUESTION.'
   }[role] || '';
-  const userContent = `Observation:\n${obsJson}\n\n한국어만. dialogue 1~2문장·120자 이내. reason 짧고 선명하게. behavior_rules와 first_turn_hint를 강하게 반영. am_i_hidden_host에 따라 태도가 확실히 달라져야 한다.${roleActionHint ? ' ' + roleActionHint : ''}\nJSON: {"action":"...","target":null|"...","reason":"...","dialogue":"..."}`;
+  const userContent = `Observation:\n${obsJson}\n\n한국어만. dialogue 1~2문장·120자 이내. reason 짧고 선명하게. behavior_rules와 first_turn_hint를 강하게 반영. am_i_hidden_host가 true면 회피적·유도적·방어적·남 탓 유도형. false면 직선적·관찰형·정보 제공형. 대사 길이 짧게 유지. 설정집 설명문처럼 길어지면 안 된다.${roleActionHint ? ' ' + roleActionHint : ''}\nJSON: {"action":"...","target":null|"...","reason":"...","dialogue":"..."}`;
 
   const url = `${baseUrl}/chat/completions`;
   const controller = new AbortController();
@@ -271,8 +271,8 @@ async function resolveCrewPayloadWithLLM(matchId, body, role) {
     suspicion_style: amIHost ? 'redirect_deflect_evade' : 'direct_observation',
     turn_pressure: turnNum <= 1 ? 'early' : 'mid',
     behavior_rules: amIHost
-      ? `${IMPOSTOR_RULES} [role별]: ${IMPOSTOR_BEHAVIOR[role] || IMPOSTOR_BEHAVIOR.doctor}`
-      : INNOCENT_BEHAVIOR,
+      ? `[IMPOSTOR] ${IMPOSTOR_RULES} [role별]: ${IMPOSTOR_BEHAVIOR[role] || IMPOSTOR_BEHAVIOR.doctor}`
+      : `[INNOCENT] ${INNOCENT_BEHAVIOR}`,
     first_turn_hint: turnNum <= 1 ? (amIHost ? FIRST_TURN_IMPOSTOR : FIRST_TURN_INNOCENT) : null
   };
   if (privateCtx) {
