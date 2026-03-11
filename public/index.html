@@ -1297,14 +1297,22 @@
       return e.summary || (e.role && e.action ? `${e.role} ${e.action}` : '') || '';
     }
 
+    function isCaptainQuestionSummary(line) {
+      if (!line || typeof line !== 'string') return false;
+      var t = String(line).trim();
+      return /^함장이?\s+.*질문|^함장이?\s+.*확인을\s*요청|^함장이?\s+.*기술적\s*질문|^함장이?\s+.*동선을\s*추궁|^함장이?\s+.*공기\s*변화/i.test(t);
+    }
     function appendNewEventsFromList(events, resultLines, deadCrewArr, opts) {
       const list = Array.isArray(events) ? events : [];
+      var skipCaptainQuestion = !!(opts && opts.skipCaptainInResult);
       for (const e of list) {
         var role = String(e.role || 'system').toLowerCase().trim();
         var summ = String(e.summary || '').trim();
         var line = eventToSummary(e);
-        if (role === 'captain') {
+        var actorCaptain = e.actor && String(e.actor).toLowerCase() === 'captain';
+        if (role === 'captain' || actorCaptain) {
           renderedEventKeys.add(eventDedupeKey(e));
+          if (skipCaptainQuestion && (e.action === 'QUESTION' || /^QUESTION\s+/i.test(String(e.dialogue || e.summary || '').trim()))) continue;
           var capRaw = (e.dialogue || e.summary || '').trim();
           if (/^QUESTION\s+(doctor|engineer|navigator|pilot|의사|엔지니어|네비게이터|파일럿|\S+)\s+/i.test(capRaw)) continue;
           if (!(opts && opts.skipCaptainInResult)) {
@@ -1317,9 +1325,12 @@
           }
           continue;
         }
+        if (skipCaptainQuestion && isCaptainQuestionSummary(line)) continue;
+        if (skipCaptainQuestion && isCaptainQuestionSummary(summ)) continue;
         if ((!e.role || role === 'system') && /^함장이?\s|^함장\s*:/.test(summ)) continue;
         if (['doctor', 'engineer', 'navigator', 'pilot'].indexOf(role) >= 0) {
           if (isRoleDead(role, deadCrewArr)) continue;
+          if (skipCaptainQuestion && isCaptainQuestionSummary(line)) continue;
           var crewMain = getMainTextFromEvent(e);
           var crewSumm = e.summary || null;
           updateCrewPlaceholder(role, crewMain || crewSumm || ((window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN)[role]) || '—', crewSumm, eventDedupeKey(e));
@@ -1330,6 +1341,8 @@
         const key = eventDedupeKey(e);
         var mainText = getMainTextFromEvent(e);
         const summary = e.summary || null;
+        if (skipCaptainQuestion && isCaptainQuestionSummary(line)) continue;
+        if (skipCaptainQuestion && isCaptainQuestionSummary(mainText)) continue;
         if ((role === 'captain' || (e.actor && String(e.actor).toLowerCase() === 'captain')) && mainText && /^(QUESTION|CHECK_LOG|OBSERVE|REPAIR|WAIT)\s/i.test(String(mainText).trim())) {
           continue;
         }
@@ -1337,6 +1350,7 @@
           mainText = formatCaptainDisplay(mainText, { action: e.action || 'OBSERVE', target: e.target || null });
         }
         if (mainText && /^QUESTION\s+/i.test(String(mainText).trim())) continue;
+        if (skipCaptainQuestion && /^(의사|엔지니어|네비게이터|파일럿),\s*그때\s*어디\s*있었지/i.test(String(mainText).trim())) continue;
         var existingRow = false;
         if (logEl) {
           var rows = logEl.querySelectorAll('.dialogue-line[data-event-key]');
