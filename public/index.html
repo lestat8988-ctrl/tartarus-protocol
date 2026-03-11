@@ -1123,11 +1123,12 @@
 
     function eventDedupeKey(e) {
       const t = e.turn ?? '';
+      const r = e.role ?? '';
       const a = e.actor ?? '';
       const c = e.created_at ?? '';
-      if (t && a && c) return `${t}:${a}:${c}`;
+      if (t && a && c) return `${t}:${r}:${a}:${c}`;
       const s = e.summary || (e.role && e.action ? `${e.role} ${e.action}` : '') || '';
-      return `${t}:${a}:${e.role || ''}:${e.action || ''}:${s}`;
+      return `${t}:${r}:${a}:${e.action || ''}:${s}`;
     }
 
     async function ep1EnsureMatch() {
@@ -1254,6 +1255,15 @@
           continue;
         }
         if ((!e.role || role === 'system') && /^함장이?\s|^함장\s*:/.test(summ)) continue;
+        if (['doctor', 'engineer', 'navigator', 'pilot'].indexOf(role) >= 0) {
+          var crewMain = getMainTextFromEvent(e);
+          var crewSumm = e.summary || null;
+          updateCrewPlaceholder(role, crewMain || crewSumm || ((window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN)[role]) || '—', crewSumm, eventDedupeKey(e));
+          renderedEventKeys.add(eventDedupeKey(e));
+          var line = eventToSummary(e);
+          if (line) resultLines.push(line);
+          continue;
+        }
         const key = eventDedupeKey(e);
         const mainText = getMainTextFromEvent(e);
         const summary = e.summary || null;
@@ -1279,6 +1289,22 @@
 
     function getMainTextFromEvent(e) {
       return (e && (e.dialogue || e.summary || e.action)) || '';
+    }
+    function syncCrewSlotsFromResult(resData) {
+      if (!resData || !logEl) return;
+      var recent = resData.recent_events || [];
+      var fallbackMap = (window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN);
+      var CREW_ROLES_SYNC = ['doctor', 'engineer', 'navigator', 'pilot'];
+      for (var i = 0; i < CREW_ROLES_SYNC.length; i++) {
+        var role = CREW_ROLES_SYNC[i];
+        var ev = findCrewEventInRecent(recent, role);
+        var displayText = '';
+        if (ev && (ev.dialogue || ev.summary || ev.action)) displayText = getMainTextFromEvent(ev);
+        else if (ev && ev.summary) displayText = ev.summary;
+        else displayText = (fallbackMap && fallbackMap[role]) || '—';
+        var safeText = displayText || (fallbackMap && fallbackMap[role]) || '—';
+        updateCrewPlaceholder(role, safeText, ev ? ev.summary : null, ev ? eventDedupeKey(ev) : null);
+      }
     }
     function findCrewEventInRecent(recentEvents, role) {
       if (!Array.isArray(recentEvents)) return null;
@@ -1415,6 +1441,9 @@
         setPhase('server_update');
         var resData = await ep1CallResult();
         if (resData.game_over) { isGameOver = true; outcome = resData.outcome || outcome; }
+        if (resData.turn != null) currentTurn = resData.turn;
+
+        if (typeof syncCrewSlotsFromResult === 'function') syncCrewSlotsFromResult(resData);
 
         var resultLines = [];
         var resRecent = resData.recent_events || [];
