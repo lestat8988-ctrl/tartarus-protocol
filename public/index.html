@@ -783,8 +783,8 @@
       <div id="log"></div>
 
       <div class="action-bar">
-        <!-- quick button 경로: data-ep1 문구 그대로 captain dialogue로 전송. buildPayloadFromPreset 사용. -->
-        <button class="action-btn" data-msg="interrogate" data-ep1="QUESTION doctor 의사, 그때 어디 있었지?" onclick="sendMessage(this.getAttribute('data-ep1'))">승무원 심문</button>
+        <!-- quick button: getInterrogateMessage()로 생존 승무원 기반 질문 생성 -->
+        <button class="action-btn" data-msg="interrogate" onclick="sendMessage(typeof getInterrogateMessage==='function'?getInterrogateMessage():'QUESTION doctor 의사, 그때 어디 있었지?')">승무원 심문</button>
         <button class="action-btn" data-msg="cctv" data-ep1="CHECK_LOG CCTV 로그를 확인한다." onclick="sendMessage(this.getAttribute('data-ep1'))">CCTV 로그 확인</button>
         <button class="action-btn" data-msg="engine" data-ep1="CHECK_LOG 엔진실 로그를 확인한다." onclick="sendMessage(this.getAttribute('data-ep1'))">엔진실 확인</button>
       </div>
@@ -1034,6 +1034,15 @@
       return { action, target: action === 'QUESTION' ? target : null, dialogue: dialogue || (defaults[action] || '') };
     }
 
+    function getInterrogateMessage() {
+      var crewList = ['Navigator', 'Engineer', 'Doctor', 'Pilot'];
+      var alive = crewList.filter(function(c) { return !deadCrew.includes(c); });
+      if (alive.length === 0) return 'OBSERVE 브리지 상황을 확인한다.';
+      var target = alive[Math.floor(Math.random() * alive.length)];
+      var roleLower = target.toLowerCase();
+      var roleKo = (ROLE_LABEL_KO && ROLE_LABEL_KO[roleLower]) || roleLower;
+      return 'QUESTION ' + roleLower + ' ' + roleKo + ', 그때 어디 있었지?';
+    }
     // preset 버튼 경로: [ACCUSE], quick button 문구. [AUTO-KILL]/[WITNESS] 사용 안 함.
     function buildPayloadFromPreset(raw) {
       const s = String(raw || '').trim();
@@ -1044,11 +1053,14 @@
         return { action: 'ACCUSE', target: target || null, dialogue: '', reason: 'player_input' };
       }
       const lower = s.toLowerCase();
-      if (/cctv|check\s+cctv/i.test(lower)) return { action: 'CHECK_LOG', target: null, dialogue: 'CCTV 로그를 확인한다.', reason: 'player_input' };
-      if (/interrogate|status|report/i.test(lower)) return { action: 'QUESTION', target: 'doctor', dialogue: '의사, 그때 어디 있었지?', reason: 'player_input' };
-      if (/engine|check\s+engine/i.test(lower)) return { action: 'CHECK_LOG', target: null, dialogue: '엔진실 로그를 확인한다.', reason: 'player_input' };
+      if (/cctv|check\s+cctv/i.test(lower)) return { action: 'CHECK_LOG', target: null, dialogue: s, reason: 'player_input' };
+      if (/interrogate|status|report/i.test(lower) || /^question\s+(doctor|engineer|navigator|pilot)\s+/i.test(s)) {
+        var parsed = parseEp1Input(s);
+        return { action: 'QUESTION', target: parsed.target || 'doctor', dialogue: s, reason: 'player_input' };
+      }
+      if (/engine|check\s+engine/i.test(lower)) return { action: 'CHECK_LOG', target: null, dialogue: s, reason: 'player_input' };
       const parsed = parseEp1Input(s);
-      return { action: parsed.action, target: parsed.target, dialogue: parsed.dialogue, reason: 'player_input' };
+      return { action: parsed.action, target: parsed.target, dialogue: s, reason: 'player_input' };
     }
     // auto_kill payload 생성: 전용 경로. 일반 SEND/quick button과 절대 섞이지 않음.
     function buildAutoKillPayload(victim) {
@@ -1058,12 +1070,12 @@
       return { action: 'OBSERVE', target: null, dialogue: witness + ' witnessed the murder of ' + victim, reason: 'witness' };
     }
 
-    // 일반 SEND 입력 경로: 사용자 입력 그대로 dialogue로 사용. auto_kill/witness/preset 키워드 사용 안 함.
+    // 일반 SEND 입력 경로: raw 원문을 dialogue로 보존. action/target 파싱만 별도.
     function buildPayloadFromUserInput(raw) {
       const s = String(raw || '').trim();
       if (!s) return null;
       const parsed = parseEp1InputForUserInput(s);
-      return { action: parsed.action, target: parsed.target, dialogue: parsed.dialogue, reason: 'player_input' };
+      return { action: parsed.action, target: parsed.target, dialogue: s, reason: 'player_input' };
     }
     function parseEp1InputForUserInput(raw) {
       const s = String(raw || '').trim();
@@ -1122,11 +1134,11 @@
       }
     }
 
-    // captain payload 생성: match_id, turn, actor, role, action, target, reason, dialogue
-    function buildCaptainActionBody(captainPayload) {
+    // captain payload 생성: dialogue는 raw 원문 보존. match_id, turn, actor, role, action, target, reason
+    function buildCaptainActionBody(captainPayload, rawInput) {
       var matchId = MATCH_ID || newMatchId();
       if (!MATCH_ID) MATCH_ID = matchId;
-      var dialogueVal = (captainPayload.dialogue != null && captainPayload.dialogue !== '') ? String(captainPayload.dialogue) : null;
+      var dialogueVal = (rawInput != null && String(rawInput).trim() !== '') ? String(rawInput).trim() : (captainPayload.dialogue != null && captainPayload.dialogue !== '') ? String(captainPayload.dialogue) : null;
       return {
         match_id: matchId,
         turn: currentTurn,
@@ -1160,7 +1172,7 @@
       if (opts && opts.role && opts.role !== 'captain') {
         body = buildCrewActionBody(payload, opts.role);
       } else {
-        body = buildCaptainActionBody(payload);
+        body = buildCaptainActionBody(payload, opts && opts.rawInput);
       }
       const res = await fetch('/api/ep1/action', {
         method: 'POST',
@@ -1279,30 +1291,27 @@
       if (window.fitShortsScale) window.fitShortsScale();
     }
     function updateCrewPlaceholder(role, mainText, summary, eventKey) {
-      var r = role, t = mainText, s = summary, k = eventKey;
-      setTimeout(function() {
-        if (!logEl) return;
-        var row = logEl.querySelector('.dialogue-line[data-crew-slot="' + r + '"]');
-        if (!row) return;
-        if (k) row.setAttribute('data-event-key', k);
-        var textEl = row.querySelector('.dialogue-text');
-        if (textEl) {
-          textEl.textContent = t || '';
-          textEl.classList.remove('crew-placeholder');
+      if (!logEl) return;
+      var row = logEl.querySelector('.dialogue-line[data-crew-slot="' + role + '"]');
+      if (!row) return;
+      if (eventKey) row.setAttribute('data-event-key', eventKey);
+      var textEl = row.querySelector('.dialogue-text');
+      if (textEl) {
+        textEl.textContent = mainText || '';
+        textEl.classList.remove('crew-placeholder');
+      }
+      var subEl = row.querySelector('.dialogue-summary');
+      if (summary && mainText) {
+        if (subEl) { subEl.textContent = summary; subEl.style.display = ''; }
+        else {
+          var sub = document.createElement('div');
+          sub.className = 'dialogue-summary';
+          sub.textContent = summary;
+          row.appendChild(sub);
         }
-        var subEl = row.querySelector('.dialogue-summary');
-        if (s && t) {
-          if (subEl) { subEl.textContent = s; subEl.style.display = ''; }
-          else {
-            var sub = document.createElement('div');
-            sub.className = 'dialogue-summary';
-            sub.textContent = s;
-            row.appendChild(sub);
-          }
-        } else if (subEl) subEl.style.display = 'none';
-        logEl.scrollTop = logEl.scrollHeight;
-        if (window.fitShortsScale) window.fitShortsScale();
-      }, 0);
+      } else if (subEl) subEl.style.display = 'none';
+      logEl.scrollTop = logEl.scrollHeight;
+      if (window.fitShortsScale) window.fitShortsScale();
     }
 
     async function runEp1Flow(message, deadCrew, opts) {
@@ -1319,7 +1328,7 @@
           captainPayload = buildPayloadFromPreset(message);
         }
         setPhase('crew_resolving');
-        var captainData = await ep1CallAction(captainPayload);
+        var captainData = await ep1CallAction(captainPayload, { rawInput: message });
         if (captainData.next_state && captainData.next_state.turn != null) currentTurn = captainData.next_state.turn;
         var isGameOver = !!captainData.game_over;
         var outcome = captainData.outcome || captainData.next_state?.outcome || null;
@@ -1761,7 +1770,7 @@
         if (!witnessTestimonyFound && aliveCrew.length > 1) {
           setTimeout(function() { requestWitnessTestimony(victim, aliveCrew.filter(function(c) { return c !== victim; })); }, 2000);
         }
-        setTimeout(function() { glitchEl.classList.remove('active'); }, 1000);
+        setTimeout(function() { glitchEl.classList.remove('active'); }, 900);
         if (deadCrew.length >= 4) {
           setTimeout(triggerTotalFailure, 2000);
         } else if (witnessTestimonyFound || aliveCrew.length <= 1) {
@@ -2012,7 +2021,6 @@
 
     async function sendMessage(text) {
       if (gameEnded) return;
-      if (gamePhase !== 'captain_input') return;
       if (isSubmittingCaptainAction) return;
       var isFromInput = (typeof text !== 'string' || text === '');
       var raw = isFromInput ? (inputEl.value || '').trim() : String(text).trim();
@@ -2026,9 +2034,8 @@
         captainPayload = buildPayloadFromPreset(raw);
       }
       if (!captainPayload) { isSubmittingCaptainAction = false; return; }
-      var captainDialogue = captainPayload.dialogue || raw;
       setPhase('crew_resolving');
-      printDialogueLine('captain', captainDialogue, null);
+      printDialogueLine('captain', raw, null);
       inputEl.value = '';
       history.push({ role: "user", content: raw });
 
