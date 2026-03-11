@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -1066,13 +1066,15 @@
           var rest = s.slice(prefix.length).trim();
           return rest || roleKo(captainPayload.target) + ', 그때 어디 있었지?';
         }
-        var m = s.match(/^QUESTION\s+(doctor|engineer|navigator|pilot)\s+/i);
+        var m = s.match(/^QUESTION\s+(doctor|engineer|navigator|pilot|의사|엔지니어|네비게이터|파일럿)\s+/i);
         if (m) return s.slice(m[0].length).trim() || roleKo(m[1]) + ', 그때 어디 있었지?';
       }
       var stripped = s.replace(/^(CHECK_LOG|OBSERVE|REPAIR|WAIT)\s+/i, '').trim();
       if (stripped !== s) return stripped;
-      var qm = s.match(/^QUESTION\s+(doctor|engineer|navigator|pilot)\s+(.+)$/i);
+      var qm = s.match(/^QUESTION\s+(doctor|engineer|navigator|pilot|의사|엔지니어|네비게이터|파일럿)\s+(.+)$/i);
       if (qm) return qm[2].trim() || roleKo(qm[1]) + ', 그때 어디 있었지?';
+      var qmAny = s.match(/^QUESTION\s+(\S+)\s+(.+)$/);
+      if (qmAny) return qmAny[2].trim() || roleKo(qmAny[1]) + ', 그때 어디 있었지?';
       return s;
     }
     // preset 버튼 경로: [ACCUSE], quick button 문구. [AUTO-KILL]/[WITNESS] 사용 안 함.
@@ -1266,15 +1268,23 @@
       return e.summary || (e.role && e.action ? `${e.role} ${e.action}` : '') || '';
     }
 
-    function appendNewEventsFromList(events, resultLines, deadCrewArr) {
+    function appendNewEventsFromList(events, resultLines, deadCrewArr, opts) {
       const list = Array.isArray(events) ? events : [];
       for (const e of list) {
-        var role = (e.role || 'system').toLowerCase();
+        var role = String(e.role || 'system').toLowerCase().trim();
         var summ = String(e.summary || '').trim();
         var line = eventToSummary(e);
         if (role === 'captain') {
           renderedEventKeys.add(eventDedupeKey(e));
-          if (line) resultLines.push(line);
+          if (!(opts && opts.skipCaptainInResult)) {
+            var capRaw = (e.dialogue || e.summary || '').trim();
+            var capFormatted = capRaw;
+            if (capRaw && typeof formatCaptainDisplay === 'function') {
+              var capPayload = { action: e.action || 'OBSERVE', target: e.target || null };
+              capFormatted = formatCaptainDisplay(capRaw, capPayload);
+            }
+            if (capFormatted) resultLines.push(capFormatted);
+          }
           continue;
         }
         if ((!e.role || role === 'system') && /^함장이?\s|^함장\s*:/.test(summ)) continue;
@@ -1288,8 +1298,14 @@
           continue;
         }
         const key = eventDedupeKey(e);
-        const mainText = getMainTextFromEvent(e);
+        var mainText = getMainTextFromEvent(e);
         const summary = e.summary || null;
+        if ((role === 'captain' || (e.actor && String(e.actor).toLowerCase() === 'captain')) && mainText && /^(QUESTION|CHECK_LOG|OBSERVE|REPAIR|WAIT)\s/i.test(String(mainText).trim())) {
+          continue;
+        }
+        if (mainText && /^(QUESTION|CHECK_LOG|OBSERVE|REPAIR|WAIT)\s/i.test(String(mainText).trim()) && typeof formatCaptainDisplay === 'function') {
+          mainText = formatCaptainDisplay(mainText, { action: e.action || 'OBSERVE', target: e.target || null });
+        }
         var existingRow = false;
         if (logEl) {
           var rows = logEl.querySelectorAll('.dialogue-line[data-event-key]');
@@ -1523,7 +1539,7 @@
         var resRecent = resData.recent_events || [];
         var resPub = resData.public_events || [];
         var events = resRecent.length > 0 ? resRecent : resPub;
-        appendNewEventsFromList(events, resultLines, deadCrew);
+        appendNewEventsFromList(events, resultLines, deadCrew, opts && opts.captainPayload ? { skipCaptainInResult: true } : null);
         var resultText = resultLines.join('\n');
         history.push({ role: 'assistant', content: resultText });
 
