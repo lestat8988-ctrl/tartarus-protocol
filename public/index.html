@@ -1310,14 +1310,16 @@
       if (!logEl) return;
       var row = logEl.querySelector('.dialogue-line[data-crew-slot="' + role + '"]');
       if (!row) return;
+      var fallbackMap = (window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN);
+      var safeText = (mainText && String(mainText).trim()) ? String(mainText).trim() : ((fallbackMap && fallbackMap[role]) || '—');
       if (eventKey) row.setAttribute('data-event-key', eventKey);
       var textEl = row.querySelector('.dialogue-text');
       if (textEl) {
-        textEl.textContent = mainText || '';
+        textEl.textContent = safeText;
         textEl.classList.remove('crew-placeholder');
       }
       var subEl = row.querySelector('.dialogue-summary');
-      if (summary && mainText) {
+      if (summary && safeText) {
         if (subEl) { subEl.textContent = summary; subEl.style.display = ''; }
         else {
           var sub = document.createElement('div');
@@ -1362,11 +1364,18 @@
               var crewData = await ep1CallAction(crewPayload, { role: role });
               if (crewData.next_state && crewData.next_state.turn != null) currentTurn = crewData.next_state.turn;
               var ev = findCrewEventInRecent(crewData.next_state && crewData.next_state.recent_events, role);
-              var currEv = (crewData.server_result && crewData.server_result.current_event) || ev;
-              var mainText = getMainTextFromEvent(ev) || (currEv && (currEv.dialogue || currEv.summary));
-              var summ = (ev && ev.summary) || (currEv && currEv.summary) || (crewData.server_result && crewData.server_result.summary) || null;
+              var sr = crewData.server_result || {};
+              var currEv = sr.current_event || null;
               var fallbackMap = (window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN);
-              var displayText = mainText || summ || (fallbackMap && fallbackMap[role]) || '—';
+              var fallbackVal = (fallbackMap && fallbackMap[role]) || '—';
+              var displayText = '';
+              if (currEv && currEv.dialogue && String(currEv.dialogue).trim()) displayText = String(currEv.dialogue).trim();
+              else if (ev && (ev.dialogue || ev.summary || ev.action)) displayText = getMainTextFromEvent(ev);
+              else if (currEv && currEv.summary && String(currEv.summary).trim()) displayText = String(currEv.summary).trim();
+              else if (sr.summary && String(sr.summary).trim()) displayText = String(sr.summary).trim();
+              else displayText = fallbackVal;
+              if (!displayText || (CREW_PLACEHOLDER_KO[role] && displayText === CREW_PLACEHOLDER_KO[role]) || (CREW_PLACEHOLDER_EN[role] && displayText === CREW_PLACEHOLDER_EN[role])) displayText = fallbackVal;
+              var summ = (ev && ev.summary) || (currEv && currEv.summary) || sr.summary || null;
               var key = ev ? eventDedupeKey(ev) : (currEv && currEv.role ? role + ':' + (currEv.dialogue || currEv.summary || '').slice(0, 20) : null);
               var r = role, dt = displayText, s = mainText ? summ : null, k = key;
               setTimeout(function() { updateCrewPlaceholder(r, dt, s, k); }, 0);
