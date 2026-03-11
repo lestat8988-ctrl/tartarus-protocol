@@ -1362,11 +1362,12 @@
               var crewData = await ep1CallAction(crewPayload, { role: role });
               if (crewData.next_state && crewData.next_state.turn != null) currentTurn = crewData.next_state.turn;
               var ev = findCrewEventInRecent(crewData.next_state && crewData.next_state.recent_events, role);
-              var mainText = getMainTextFromEvent(ev);
-              var summ = (ev && ev.summary) || (crewData.server_result && crewData.server_result.summary) || null;
+              var currEv = (crewData.server_result && crewData.server_result.current_event) || ev;
+              var mainText = getMainTextFromEvent(ev) || (currEv && (currEv.dialogue || currEv.summary));
+              var summ = (ev && ev.summary) || (currEv && currEv.summary) || (crewData.server_result && crewData.server_result.summary) || null;
               var fallbackMap = (window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN);
               var displayText = mainText || summ || (fallbackMap && fallbackMap[role]) || '—';
-              var key = ev ? eventDedupeKey(ev) : null;
+              var key = ev ? eventDedupeKey(ev) : (currEv && currEv.role ? role + ':' + (currEv.dialogue || currEv.summary || '').slice(0, 20) : null);
               var r = role, dt = displayText, s = mainText ? summ : null, k = key;
               setTimeout(function() { updateCrewPlaceholder(r, dt, s, k); }, 0);
               if (ev) renderedEventKeys.add(key);

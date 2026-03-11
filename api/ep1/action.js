@@ -375,6 +375,7 @@ function makeReadableSummaryKo(role, action, target, dialogue) {
       if (role === 'pilot') return tQuestion ? `파일럿이 ${tQuestion}에게 공기 변화에 대해 물었다.` : '파일럿이 공기 변화에 대해 물었다.';
       return tQuestion ? `${subj} ${tQuestion}에게 질문했다.` : `${subj} 질문했다.`;
     case 'OBSERVE':
+      if (role === 'captain' && dialogue && dialogue !== CAPTAIN_DIALOGUE_FALLBACK_KO) return `${ROLE_KO.captain}: ${dialogue.slice(0, 60)}${dialogue.length > 60 ? '...' : ''}`;
       if (role === 'captain') return '함장이 브리지를 살폈다.';
       if (role === 'doctor') return '의사가 승무원들의 반응을 관찰했다.';
       if (role === 'engineer') return '엔지니어가 시스템 상태를 점검했다.';
@@ -382,6 +383,7 @@ function makeReadableSummaryKo(role, action, target, dialogue) {
       if (role === 'pilot') return '파일럿이 브리지의 분위기 변화를 살폈다.';
       return `${subj} 상황을 관찰했다.`;
     case 'CHECK_LOG':
+      if (role === 'captain' && dialogue && dialogue !== CAPTAIN_DIALOGUE_FALLBACK_KO) return `${ROLE_KO.captain}: ${dialogue.slice(0, 60)}${dialogue.length > 60 ? '...' : ''}`;
       if (role === 'engineer') return '엔지니어가 시스템 로그를 확인했다.';
       return `${subj} 기록을 확인했다.`;
     case 'REPAIR':
@@ -518,15 +520,33 @@ module.exports = async (req, res) => {
 
   const updatedMatch = await getOrCreateMatch(matchId);
   const pub = await getPublicEvents(matchId);
-  const recentRaw = await getRecentEventsForCurrentTurn(matchId);
-  const recent_events = recentRaw.map((e) => {
+  let recentRaw = await getRecentEventsForCurrentTurn(matchId);
+  if (CREW_ROLES.has(role)) {
+    const hasMe = (recentRaw || []).some((e) => e && (e.role === role || e.actor === payload.actor));
+    if (!hasMe) {
+      const fallbackEv = { ...payload, turn: updatedMatch.turn ?? 1, summary: readableSummary, server_result: { summary: readableSummary } };
+      recentRaw = [...(recentRaw || []), fallbackEv];
+    }
+  }
+  const recent_events = (recentRaw || []).map((e) => {
     const base = formatEventForResponse(e);
-    if (base && !base.summary) base.summary = summaryFallbackKo(e.role, e.action);
+    if (base && !base.summary) base.summary = (e.summary || summaryFallbackKo(e.role, e.action));
     return base;
   }).filter(Boolean);
   const events_count = await getEventsCount(matchId);
 
   const serverResultPayload = { ...serverResult, accepted: true, placeholder: true };
+  if (CREW_ROLES.has(role)) {
+    serverResultPayload.current_event = {
+      role,
+      dialogue: payload.dialogue || null,
+      summary: readableSummary,
+      actor: payload.actor || null
+    };
+  }
+  serverResultPayload.handler_source = 'action.js';
+  serverResultPayload.debug_version = 1;
+
   return res.status(200).json({
     ok: true,
     server_result: serverResultPayload,
