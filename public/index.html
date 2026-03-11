@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -1302,6 +1302,11 @@
       var t = String(line).trim();
       return /^함장이?\s+.*질문|^함장이?\s+.*확인을\s*요청|^함장이?\s+.*기술적\s*질문|^함장이?\s+.*동선을\s*추궁|^함장이?\s+.*공기\s*변화/i.test(t);
     }
+    function isCaptainQuestionRaw(text) {
+      if (!text || typeof text !== 'string') return false;
+      var t = String(text).trim();
+      return /^QUESTION\s+(doctor|engineer|navigator|pilot|의사|엔지니어|네비게이터|파일럿|\S+)\s+/i.test(t) || /^(의사|엔지니어|네비게이터|파일럿),\s*그때\s*어디\s*있었지/i.test(t);
+    }
     function appendNewEventsFromList(events, resultLines, deadCrewArr, opts) {
       const list = Array.isArray(events) ? events : [];
       var skipCaptainQuestion = !!(opts && opts.skipCaptainInResult);
@@ -1314,15 +1319,15 @@
         var _skipCapQ = skipCaptainQuestion || renderedEventKeys.has('captain_question_rendered:' + _evT);
         if (role === 'captain' || actorCaptain) {
           var capRaw = (e.dialogue || e.summary || '').trim();
-          if (_skipCapQ) {
+          var isCapQ = e.action === 'QUESTION' || /^QUESTION\s+/i.test(capRaw) || isCaptainQuestionRaw(capRaw) || isCaptainQuestionSummary(capRaw);
+          if (isCapQ || _skipCapQ) {
             renderedEventKeys.add(eventDedupeKey(e));
-            if (e.action === 'QUESTION' || /^QUESTION\s+/i.test(capRaw)) continue;
-            if (/^(의사|엔지니어|네비게이터|파일럿),\s*그때\s*어디\s*있었지/i.test(capRaw)) continue;
+            if (isCapQ) continue;
             if (isCaptainQuestionSummary(capRaw)) continue;
             continue;
           }
           renderedEventKeys.add(eventDedupeKey(e));
-          if (/^QUESTION\s+(doctor|engineer|navigator|pilot|의사|엔지니어|네비게이터|파일럿|\S+)\s+/i.test(capRaw)) continue;
+          if (isCaptainQuestionRaw(capRaw)) continue;
           if (!(opts && opts.skipCaptainInResult)) {
             var capFormatted = capRaw;
             if (capRaw && typeof formatCaptainDisplay === 'function') {
