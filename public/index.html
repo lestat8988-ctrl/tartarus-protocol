@@ -1078,11 +1078,12 @@
       const lower = s.toLowerCase();
       if (/cctv|check\s+cctv|로그\s*확인/i.test(lower)) return { action: 'CHECK_LOG', target: null, dialogue: s, reason: 'player_input' };
       if (/engine|check\s+engine|엔진/i.test(lower)) return { action: 'CHECK_LOG', target: null, dialogue: s, reason: 'player_input' };
+      var parsed;
       if (/interrogate|status|report|심문/i.test(lower) || /^question\s+(doctor|engineer|navigator|pilot)\s+/i.test(s)) {
-        var parsed = parseEp1Input(s);
+        parsed = parseEp1Input(s);
         return { action: 'QUESTION', target: parsed.target || 'doctor', dialogue: s, reason: 'player_input' };
       }
-      const parsed = parseEp1InputForUserInput(s);
+      parsed = parseEp1InputForUserInput(s);
       return { action: parsed.action, target: parsed.target, dialogue: s, reason: 'player_input' };
     }
     function parseEp1InputForUserInput(raw) {
