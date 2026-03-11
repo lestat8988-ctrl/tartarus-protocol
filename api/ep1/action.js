@@ -100,6 +100,27 @@ function getCrewFallbackByRoleAndAction(role, captainAction, turnNum = 1) {
   return CREW_DIALOGUE_FALLBACK_KO[role] || '상황을 확인하겠습니다.';
 }
 
+/** QUESTION 액션 전용: captain 지목 대상에 첫 초점을 맞춘 role별 fallback. */
+function getQuestionTargetFocusedFallback(role, targetRoleKo) {
+  const t = (targetRoleKo || '대상').toString().trim();
+  const byRole = {
+    doctor: `${t}의 표정과 호흡을 보니 긴장이 보입니다. 그 시간대에 무슨 일이 있었는지 말해 주세요.`,
+    engineer: `${t} 관련 기록과 로그를 확인 중입니다. 불일치가 있으면 짚겠습니다.`,
+    navigator: `${t}, 그 시간대 동선부터 다시 말해봐. 알리바이가 비어 있어.`,
+    pilot: `${t} 쪽 공기가 달라졌어. 뭘 숨기고 있는 것 같아.`
+  };
+  return byRole[role] || `${t}에 대한 반응을 확인 중입니다.`;
+}
+
+/** dialogue 첫 절(약 50자)에 targetRoleKo가 포함되어 있는지. QUESTION 초점 검사용. */
+function doesDialogueFocusOnTarget(dialogue, targetRoleKo) {
+  if (!dialogue || typeof dialogue !== 'string') return false;
+  if (!targetRoleKo || typeof targetRoleKo !== 'string') return true;
+  const head = String(dialogue).trim().slice(0, 55);
+  const t = String(targetRoleKo).trim();
+  return head.indexOf(t) >= 0;
+}
+
 const GENERIC_PLACEHOLDER_PATTERNS = [
   /^반응을\s*살펴보겠습니다\.?$/,
   /^로그\s*(를\s*)?확인\s*중입니다\.?$/,
@@ -239,7 +260,7 @@ async function generateCrewDialogueLLM(matchId, role, observation) {
   const capActionType = (capAct.action || 'OBSERVE').toUpperCase();
   const ACTION_CONTEXT_HINTS = {
     CHECK_LOG: '함장이 로그 확인을 지시함. doctor: 로그가 의미하는 "누가 불안정한가·반응이 왜 어색한가"에 연결. engineer: 로그·기록·불일치·오류를 가장 직접적으로 해석. navigator: 로그의 빈 시간대·위치 공백·동선 누락을 물고 늘어짐. pilot: 로그 확인 중 드러나는 이상한 조짐·기류 변화·불길함.',
-    QUESTION: '함장이 특정 승무원을 심문함. doctor: 대상 표정·떨림·호흡·긴장을 구체적으로 짚고 확인 요청. engineer: 기록·불일치·장비 로그를 근거로 의심. navigator: 시간·위치·동선·알리바이 빈틈을 직접 추궁(가장 압박감 있게). pilot: 분위기·침묵·시선·공기 변화·직감적 불안으로 압박.',
+    QUESTION: '함장이 특정 승무원을 심문함. [필수] 첫 문장은 captain이 지목한 대상(current_question_target)에 대한 반응으로 시작. doctor: 그 대상의 표정·떨림·호흡·긴장을 구체적으로 짚고 확인 요청. engineer: 그 대상 관련 기록·불일치·장비 로그를 근거로 의심. navigator: 그 대상의 시간·위치·동선·알리바이 빈틈을 직접 추궁. pilot: 그 대상 쪽 분위기·침묵·시선·공기 변화·직감적 불안으로 압박. 제3자로 초점 튀면 안 됨.',
     OBSERVE: '함장이 관찰·자유 입력. captain_action.dialogue가 있으면 그 맥락을 각 role 관점으로 해석. 똑같은 질문을 role만 바꿔 말하는 느낌 금지. doctor는 생체·표정, engineer는 로그·기록, navigator는 동선·시간, pilot는 분위기·감각으로 다르게 답하라.',
     REPAIR: '함장이 수리·점검 지시. 각 role이 자기 관점에서 장비·상태·동선·분위기를 언급.',
     WAIT: '대기 상황. 각 role이 자기 관점에서 관찰·확인할 것을 짧게.',
@@ -250,7 +271,11 @@ async function generateCrewDialogueLLM(matchId, role, observation) {
   const targetDiversifyNote = observation.target_diversification_hint
     ? `\n\n[질문 대상 다양화] ${observation.target_diversification_hint}`
     : '';
-  const systemContent = `${LLM_SYSTEM_BASE}\n\n${ROLE_PROMPTS[role] || ''}\n\n[태도 규칙] observation의 am_i_hidden_host, behavior_rules, suspicion_style, first_turn_hint를 반드시 따른다. am_i_hidden_host가 true면 redirect_deflect_evade(회피·유도·방어·시선 분산). false면 direct_observation(직선·관찰·정보 제공). target이 있으면 am_i_hidden_host일 때 자신(your_role)이 아닌 다른 role을 지목한다.\n\n[액션 맥락] 현재 함장 행동: ${capActionType}. ${actionContextHint}${targetDiversifyNote}\n\n[금지] "반응을 살펴보겠습니다", "로그 확인 중입니다", "동선을 짚어보겠습니다", "분위기가 이상합니다", "기류가 불안정합니다", "이상 징후가 있습니다" 같은 generic 상투문구 금지. 최소한 누구/무엇/왜 중 2개 이상이 들어간 구체적 문장으로. 같은 턴 안에서 같은 표현 연속 반복 금지.`;
+  const questionFocusNote =
+    capActionType === 'QUESTION' && observation.question_focus_rule
+      ? `\n\n[QUESTION 필수] ${observation.question_focus_rule} current_question_target(${observation.current_question_target_role_ko || observation.current_question_target})에 대한 반응으로 첫 문장을 시작하라. 제3자(의사/엔지니어/네비게이터/파일럿 중 captain 지목 대상이 아닌 사람)로 초점이 튀면 안 됨.`
+      : '';
+  const systemContent = `${LLM_SYSTEM_BASE}\n\n${ROLE_PROMPTS[role] || ''}\n\n[태도 규칙] observation의 am_i_hidden_host, behavior_rules, suspicion_style, first_turn_hint를 반드시 따른다. am_i_hidden_host가 true면 redirect_deflect_evade(회피·유도·방어·시선 분산). false면 direct_observation(직선·관찰·정보 제공). target이 있으면 am_i_hidden_host일 때 자신(your_role)이 아닌 다른 role을 지목한다.\n\n[액션 맥락] 현재 함장 행동: ${capActionType}. ${actionContextHint}${targetDiversifyNote}${questionFocusNote}\n\n[금지] "반응을 살펴보겠습니다", "로그 확인 중입니다", "동선을 짚어보겠습니다", "분위기가 이상합니다", "기류가 불안정합니다", "이상 징후가 있습니다" 같은 generic 상투문구 금지. 최소한 누구/무엇/왜 중 2개 이상이 들어간 구체적 문장으로. 같은 턴 안에서 같은 표현 연속 반복 금지.`;
   const obsJson = JSON.stringify(observation).slice(0, 2000);
   const roleActionHint = {
     doctor: 'action: QUESTION 또는 OBSERVE.',
@@ -258,7 +283,11 @@ async function generateCrewDialogueLLM(matchId, role, observation) {
     navigator: 'action: QUESTION 우선.',
     pilot: 'action: OBSERVE 또는 QUESTION.'
   }[role] || '';
-  const userContent = `Observation:\n${obsJson}\n\n한국어만. dialogue 1~2문장·120자 이내. reason 짧고 선명하게. behavior_rules와 first_turn_hint를 강하게 반영. captain_action(${capActionType}) 맥락을 반드시 반영. QUESTION/CHECK_LOG/OBSERVE에 따라 반응 결을 다르게. am_i_hidden_host가 true면 회피적·유도적·방어적·남 탓 유도형. false면 직선적·관찰형·정보 제공형. generic 상투문구("반응을 살펴보겠습니다","로그 확인 중입니다","분위기가 이상합니다" 등) 절대 금지. 누구/무엇/왜 중 2개 이상 포함. target_diversification_hint와 dead_crew 있으면 반드시 따르라.${roleActionHint ? ' ' + roleActionHint : ''}\nJSON: {"action":"...","target":null|"...","reason":"...","dialogue":"..."}`;
+  const questionFocusUser =
+    capActionType === 'QUESTION' && observation.current_question_target_role_ko
+      ? ` 첫 문장은 반드시${observation.current_question_target_role_ko}에 대한 반응으로 시작. 제3자로 초점 튀면 안 됨.`
+      : '';
+  const userContent = `Observation:\n${obsJson}\n\n한국어만. dialogue 1~2문장·120자 이내. reason 짧고 선명하게. behavior_rules와 first_turn_hint를 강하게 반영. captain_action(${capActionType}) 맥락을 반드시 반영. QUESTION/CHECK_LOG/OBSERVE에 따라 반응 결을 다르게. am_i_hidden_host가 true면 회피적·유도적·방어적·남 탓 유도형. false면 직선적·관찰형·정보 제공형. generic 상투문구("반응을 살펴보겠습니다","로그 확인 중입니다","분위기가 이상합니다" 등) 절대 금지. 누구/무엇/왜 중 2개 이상 포함. target_diversification_hint와 dead_crew 있으면 반드시 따르라.${questionFocusUser}${roleActionHint ? ' ' + roleActionHint : ''}\nJSON: {"action":"...","target":null|"...","reason":"...","dialogue":"..."}`;
 
   const url = `${baseUrl}/chat/completions`;
   const controller = new AbortController();
@@ -356,19 +385,30 @@ async function resolveCrewPayloadWithLLM(matchId, body, role) {
   const privateCtx = getPrivateContextForRole(match, role);
   const amIHost = !!(privateCtx && privateCtx.is_hidden_host);
   const deadCrewArr = Array.isArray(body.dead_crew) ? body.dead_crew : [];
+  const isQuestion = (captainAction || '').toUpperCase() === 'QUESTION';
+  const currentQuestionTarget = (captainEv && captainEv.target) ? String(captainEv.target).trim().toLowerCase() : null;
+  const currentQuestionTargetRoleKo = currentQuestionTarget ? (TARGET_KO[currentQuestionTarget] || currentQuestionTarget) : null;
+
+  const targetDiversifyRaw =
+    !isQuestion && (recentQuestionTargets.length > 0 || deadCrewArr.length > 0)
+      ? [
+          recentQuestionTargets.length > 0 && `최근 1~2턴에 이미 ${recentQuestionTargets.join(', ')}에게 질문이 많이 갔음. 가능하면 다른 유력 대상이나 다른 관점으로 다양화하라.`,
+          deadCrewArr.length > 0 && `dead_crew(${deadCrewArr.join(', ')})는 target으로 절대 선택하지 마라.`
+        ].filter(Boolean).join(' ')
+      : null;
 
   const observation = {
     match_id: matchId,
     turn: turnNum,
     captain_action: captainEv ? { action: captainEv.action, target: captainEv.target, dialogue: captainEv.dialogue } : {},
+    current_question_target: isQuestion ? currentQuestionTarget : null,
+    current_question_target_role_ko: isQuestion ? currentQuestionTargetRoleKo : null,
+    question_focus_rule: isQuestion && currentQuestionTargetRoleKo
+      ? `첫 문장 또는 첫 절은 반드시 ${currentQuestionTargetRoleKo}에 대한 반응으로 시작. 제3자로 초점이 튀면 안 됨.`
+      : null,
     recentEvents: (recentRaw || []).map((e) => ({ role: e.role, action: e.action, target: e.target, dialogue: (e.dialogue || '').slice(0, 80) })),
     recent_question_targets: recentQuestionTargets,
-    target_diversification_hint: (recentQuestionTargets.length > 0 || deadCrewArr.length > 0)
-      ? [
-          recentQuestionTargets.length > 0 && `최근 1~2턴에 이미 ${recentQuestionTargets.join(', ')}에게 질문이 많이 갔음. 가능하면 다른 유력 대상이나 다른 관점으로 다양화하라.`,
-          deadCrewArr.length > 0 && `dead_crew(${deadCrewArr.join(', ')})는 target으로 절대 선택하지 마라.`
-        ].filter(Boolean).join(' ')
-      : null,
+    target_diversification_hint: isQuestion ? null : targetDiversifyRaw,
     dead_crew: deadCrewArr.map((d) => String(d || '').toLowerCase()).filter(Boolean),
     your_role: role,
     am_i_hidden_host: amIHost,
@@ -396,7 +436,17 @@ async function resolveCrewPayloadWithLLM(matchId, body, role) {
   if (llmOut.result) {
     let dialogue = llmOut.result.dialogue;
     if (isGenericPlaceholderDialogue(dialogue)) {
-      dialogue = getCrewFallbackByRoleAndAction(role, captainAction, turnNum);
+      dialogue =
+        (captainAction || '').toUpperCase() === 'QUESTION' && currentQuestionTargetRoleKo
+          ? getQuestionTargetFocusedFallback(role, currentQuestionTargetRoleKo)
+          : getCrewFallbackByRoleAndAction(role, captainAction, turnNum);
+    }
+    if (
+      (captainAction || '').toUpperCase() === 'QUESTION' &&
+      currentQuestionTargetRoleKo &&
+      !doesDialogueFocusOnTarget(dialogue, currentQuestionTargetRoleKo)
+    ) {
+      dialogue = getQuestionTargetFocusedFallback(role, currentQuestionTargetRoleKo);
     }
     let target = llmOut.result.target;
     if (target && deadCrewArr.some((d) => String(d || '').toLowerCase() === String(target).toLowerCase())) {
@@ -415,11 +465,15 @@ async function resolveCrewPayloadWithLLM(matchId, body, role) {
   const fallbackReason = llmOut.errorCode || 'unknown';
   const llmErrMsg = llmOut.errorMessage || null;
   const fallbackReasonVal = (body.reason && body.reason !== 'crew') ? body.reason : '상황을 파악 중이다.';
+  let fallbackDialogue = getCrewFallbackByRoleAndAction(role, captainAction, turnNum);
+  if ((captainAction || '').toUpperCase() === 'QUESTION' && currentQuestionTargetRoleKo) {
+    fallbackDialogue = getQuestionTargetFocusedFallback(role, currentQuestionTargetRoleKo);
+  }
   return {
     action: normalizeAction(body.action),
     target: body.target ?? null,
     reason: fallbackReasonVal,
-    dialogue: getCrewFallbackByRoleAndAction(role, captainAction, turnNum),
+    dialogue: fallbackDialogue,
     _debug: buildCrewDebug('fallback', fallbackReason, false, rawReasonPresent, llmErrMsg)
   };
 }
