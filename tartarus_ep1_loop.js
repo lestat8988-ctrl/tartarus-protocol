@@ -422,6 +422,9 @@ async function callCrewDecide(role, observation) {
   const isQuestion = !!(observation.current_question_target && observation.current_question_target_role_ko);
   const isSelfTarget = !!observation.is_self_target;
   const targetRoleKo = observation.current_question_target_role_ko || null;
+  if (isQuestion) {
+    console.log(`[DEBUG B] role=${role} observation.is_self_target=${observation.is_self_target} isSelfTarget=${isSelfTarget}`);
+  }
 
   if (!OPENAI_API_KEY) {
     const base = ROLE_FALLBACKS[role] || ROLE_FALLBACKS.doctor;
@@ -434,6 +437,9 @@ async function callCrewDecide(role, observation) {
 
   let systemContent = `${COMMON_SYSTEM_PROMPT}\n\n${ROLE_PROMPTS[role] || ''}`;
   let questionBlock = '';
+  const currentTurnAction = (observation.current_turn_action || 'OBSERVE').toUpperCase();
+  const isCheckLogTurn = currentTurnAction === 'CHECK_LOG';
+
   if (isQuestion && targetRoleKo) {
     questionBlock = `\n\n[QUESTION 액션 - 현재 턴 ${observation.turn}]\n` +
       `현재 captain이 지목한 질문 대상은 ${targetRoleKo}이다. current_question_target=${observation.current_question_target}, current_question_text="${(observation.current_question_text || '').slice(0, 80)}"\n` +
@@ -454,6 +460,16 @@ async function callCrewDecide(role, observation) {
     questionBlock += `\n[QUESTION generic fallback 금지]\n` +
       `"반응을 살펴보겠습니다.", "로그 확인 중입니다.", "분위기가 이상합니다.", "동선을 짚어보겠습니다." 사용 금지.\n` +
       `현재 질문 대상 이름 + 왜 의심스러운지 근거 1개를 포함하라.\n`;
+  } else {
+    questionBlock = `\n\n[현재 턴은 QUESTION이 아님 - ${currentTurnAction}]\n` +
+      `recentEvents 안의 이전 QUESTION target은 현재 기본 추궁 대상이 아니다.\n` +
+      `이전 질문 기록은 참고만 하고, 현재 턴 액션(${currentTurnAction})을 우선하라.\n` +
+      `직전 QUESTION target을 자동 중심축으로 삼지 마라. 특정 인물 추궁은 새 로그/근거가 있을 때만.\n`;
+    if (isCheckLogTurn) {
+      questionBlock += `\n[CHECK_LOG 턴 전용 규칙]\n` +
+        `doctor: 상태/반응 변화. engineer: 로그/기록/오류. navigator: 시간/위치/동선 공백. pilot: 분위기/공기/이상 징후.\n` +
+        `특정 인물 추궁은 새 로그 근거가 있을 때만 나오게 하라. 아무 근거 없이 직전 QUESTION target을 반복 추궁하지 마라.\n`;
+    }
   }
   systemContent += questionBlock;
 
@@ -463,6 +479,9 @@ async function callCrewDecide(role, observation) {
   if (isQuestion && targetRoleKo) {
     userContent += `\n[QUESTION 필수] 현재 captain 지목 대상은 ${targetRoleKo}이다. 첫 문장은 ${targetRoleKo} 중심으로 시작.` +
       (isSelfTarget ? ' 당신이 질문 대상이므로 자기 추궁 금지. 해명/방어형으로 답하라.' : '') + '\n';
+  } else {
+    userContent += `\n[현재 턴은 QUESTION 아님] recentEvents의 이전 QUESTION target을 현재 기본 추궁 대상으로 삼지 마라. 현재 captain 액션(${currentTurnAction})을 우선하라.` +
+      (isCheckLogTurn ? ' CHECK_LOG 턴: 로그/기록/상황 중심. 특정 인물 추궁은 새 로그 근거 있을 때만.' : '') + '\n';
   }
   userContent += `Respond with JSON only (no markdown): {"action":"QUESTION|OBSERVE|CHECK_LOG|REPAIR|ACCUSE|WAIT","target":"player"|"doctor"|"engineer"|"navigator"|"pilot"|null,"reason":"한국어로 간단한 이유","dialogue":"한국어로 1~3문장 대사"}`;
 
@@ -503,10 +522,13 @@ async function callCrewDecide(role, observation) {
     let decision = parseCrewResponse(content, role);
 
     if (isQuestion && targetRoleKo && decision.dialogue) {
+      const dds = doesDialogueSelfTarget(decision.dialogue, targetRoleKo, role);
+      const ddsw = doesDialogueStartWithSelfRole(decision.dialogue, role);
+      console.log(`[DEBUG C] role=${role} dialogue="${(decision.dialogue || '').slice(0, 60)}" doesDialogueSelfTarget=${dds} doesDialogueStartWithSelfRole=${ddsw}`);
       if (isQuestionGenericFallback(decision.dialogue)) {
         decision = { ...decision, dialogue: isSelfTarget ? getQuestionSelfTargetFallback(role, targetRoleKo) : getQuestionTargetFocusedFallback(role, targetRoleKo) };
       } else if (isSelfTarget) {
-        if (doesDialogueSelfTarget(decision.dialogue, targetRoleKo, role) || doesDialogueStartWithSelfRole(decision.dialogue, role)) {
+        if (dds || ddsw) {
           decision = { ...decision, dialogue: getQuestionSelfTargetFallback(role, targetRoleKo) };
         }
       } else if (!doesDialogueFocusOnTarget(decision.dialogue, targetRoleKo)) {
@@ -597,6 +619,7 @@ async function runEpisode(matchId, maxTurns = 10, logPath, testMode = false) {
     const currentQuestionTarget = isQuestion && captainAction.target ? String(captainAction.target).trim().toLowerCase() : null;
     const currentQuestionTargetRoleKo = currentQuestionTarget ? (TARGET_KO[currentQuestionTarget] || currentQuestionTarget) : null;
     const currentQuestionText = isQuestion ? (captainAction.dialogue || '').trim().slice(0, 120) : null;
+    const currentTurnAction = (captainAction.action || 'OBSERVE').toUpperCase();
 
     for (const role of AI_CREW_ROLES) {
       const latestState = await getState(matchId, turn, role);
@@ -620,6 +643,15 @@ async function runEpisode(matchId, maxTurns = 10, logPath, testMode = false) {
         observationBase.current_question_text = currentQuestionText;
         observationBase.question_focus_rule = `현재 captain이 지목한 질문 대상은 ${currentQuestionTargetRoleKo}이다. 첫 문장 또는 첫 절은 반드시 ${currentQuestionTargetRoleKo}를 중심으로 시작하라. 다른 인물은 보조적으로만 언급하라. 현재 질문 대상이 아닌 제3자를 첫 초점으로 삼지 마라.`;
         observationBase.is_self_target = role === currentQuestionTarget;
+        observationBase.current_turn_is_question = true;
+        console.log(`[DEBUG A] captainAction.action=${captainAction.action} captainAction.target=${captainAction.target} role=${role} currentQuestionTarget=${currentQuestionTarget} role===currentQuestionTarget=${role === currentQuestionTarget} observationBase.is_self_target=${observationBase.is_self_target}`);
+      } else {
+        observationBase.current_question_target = null;
+        observationBase.current_question_target_role_ko = null;
+        observationBase.current_question_text = null;
+        observationBase.current_turn_is_question = false;
+        observationBase.current_turn_action = currentTurnAction;
+        observationBase.turn_context_rule = '현재 턴은 QUESTION이 아니다. recentEvents 안의 이전 QUESTION target은 현재 기본 추궁 대상이 아니다. 이전 질문 기록은 참고만 하고, 현재 턴 액션(CHECK_LOG/OBSERVE/REPAIR 등)을 우선하라. 특정 인물 추궁은 새 로그 근거가 있을 때만 나오게 하라. 아무 근거 없이 직전 QUESTION target을 반복 추궁하지 마라.';
       }
       const obs = observationBase;
 
