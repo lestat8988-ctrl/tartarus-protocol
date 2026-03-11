@@ -24,6 +24,7 @@ const {
   getOrCreateMatch,
   getMatch,
   appendEvent,
+  getRecentEvents,
   getRecentEventsForCurrentTurn,
   getEventsCount,
   getPublicEvents,
@@ -41,56 +42,62 @@ const VALID_TARGETS = new Set(['player', 'doctor', 'engineer', 'navigator', 'pil
 const VALID_ACTIONS = new Set(['QUESTION', 'OBSERVE', 'CHECK_LOG', 'REPAIR', 'ACCUSE', 'WAIT']);
 
 const CREW_DIALOGUE_FALLBACK_KO = {
-  doctor: '반응을 살펴보겠습니다.',
-  engineer: '로그 확인 중입니다.',
-  navigator: '동선을 짚어보겠습니다.',
-  pilot: '분위기가 이상합니다.'
+  doctor: '표정과 호흡을 확인 중입니다. 이상 징후가 있으면 보고하겠습니다.',
+  engineer: '기록 끊김과 접근 로그를 확인 중입니다. 불일치가 있으면 짚겠습니다.',
+  navigator: '그 시간대 동선부터 다시 말해봐. 알리바이가 비어 있다.',
+  pilot: '그때 공기가 달라졌어. 네가 뭘 봤는지 숨기고 있는 것 같아.'
 };
 
-/** role + captain_action별 action-aware fallback. generic placeholder 대신 맥락 있는 1~2문장. */
+/** role + captain_action별 action-aware fallback. generic placeholder 대신 맥락 있는 1~2문장. 누구/무엇/왜 중 2개 이상 포함. */
 const ACTION_AWARE_FALLBACKS = {
   CHECK_LOG: {
-    doctor: '로그보다 승무원들의 이상 반응·상태 변화를 살펴보겠습니다. 누가 불안정해 보이는지 확인해야 합니다.',
-    engineer: 'CCTV·엔진실 로그에 끊긴 구간이나 비정상 기록이 있는지 먼저 확인하겠습니다. 기록이 맞지 않을 수 있습니다.',
-    navigator: '로그에서 동선이 빠진 시간대가 있는지 보겠습니다. 알리바이가 비어 있을 수 있습니다.',
-    pilot: '로그를 보는 동안에도 공기가 이상합니다. 누군가 긴장을 숨기고 있는 느낌입니다.'
+    doctor: ['로그에서 누가 불안정해 보이는지 확인하겠습니다. 반응이 어색한 구간을 짚어보겠습니다.', '기록상 이상 반응·상태 변화를 살펴보겠습니다. 누가 긴장을 숨기는지 봅니다.'],
+    engineer: ['기록이 끊긴 구간이 있는지 먼저 보겠습니다. 누군가 접근 권한을 썼을 수도 있습니다.', 'CCTV·엔진실 로그에 비정상 기록이 있는지 확인합니다. 불일치가 있으면 짚겠습니다.'],
+    navigator: ['로그에서 동선이 빠진 시간대를 찾겠습니다. 알리바이가 비어 있을 수 있습니다.', '위치 공백과 동선 누락을 확인 중입니다. 빈 시간대가 있으면 바로 짚겠습니다.'],
+    pilot: ['로그 확인 중에도 공기가 이상합니다. 누군가 긴장을 숨기고 있는 느낌입니다.', '기록을 보는 동안 불길한 조짐이 느껴집니다. 기류 변화가 수상합니다.']
   },
   QUESTION: {
-    doctor: '대상의 표정과 반응을 확인해보겠습니다. 긴장 상태가 드러나는지 살펴보겠습니다.',
-    engineer: '기록과 불일치하는 부분이 있는지 확인해보겠습니다. 장비 로그로 교차 검증이 필요합니다.',
-    navigator: '그 시간대 동선부터 다시 말해봐. 알리바이가 비어 있다.',
-    pilot: '감정적 압박이 느껴집니다. 분위기가 이상해요. 직감적으로 뭔가 숨기고 있는 것 같습니다.'
+    doctor: ['방금 표정이 굳었습니다. 그 시간대에 무슨 일이 있었는지 말해 주세요.', '호흡과 떨림이 이상합니다. 그때 어디 있었는지 구체적으로 말해봐.', '대상의 반응이 지연됐습니다. 긴장 상태가 드러나고 있어.'],
+    engineer: ['기록과 네 말이 맞지 않아. 그 시간대 접근 로그를 보여줘.', '장비 로그로 교차 검증이 필요합니다. 불일치하는 부분을 짚겠습니다.', '시스템 기록과 네 동선이 어긋납니다. 다시 말해봐.'],
+    navigator: ['그 시간대 동선부터 다시 말해봐. 알리바이가 비어 있다.', '그때 어디 있었어? 위치가 비어 있어. 구체적으로 말해.', '동선에 빈틈이 있어. 그 시간대를 채워봐.'],
+    pilot: ['그때 공기가 달라졌어. 네가 뭘 봤는지 숨기고 있는 것 같아.', '분위기가 이상해. 직감적으로 뭔가 숨기고 있어.', '침묵이 너무 길었어. 시선이 흔들렸어.']
   },
   OBSERVE: {
-    doctor: '승무원들의 반응을 관찰했습니다. 이상한 점이 있으면 말하겠습니다.',
-    engineer: '시스템 상태를 점검했습니다. 비정상 기록이 보이면 보고하겠습니다.',
-    navigator: '동선을 확인했습니다. 빈틈이 보이면 바로 짚겠습니다.',
-    pilot: '브리지 공기가 가라앉아 있습니다. 누군가 긴장을 숨기는 느낌입니다.'
+    doctor: ['승무원들의 표정과 반응을 관찰했습니다. 이상한 점이 있으면 말하겠습니다.', '생체 반응을 확인 중입니다. 누가 긴장하는지 살펴보겠습니다.'],
+    engineer: ['시스템 상태를 점검했습니다. 비정상 기록이 보이면 보고하겠습니다.', '로그와 장비 기록을 확인 중입니다. 끊긴 구간이 있으면 짚겠습니다.'],
+    navigator: ['동선을 확인했습니다. 빈틈이 보이면 바로 짚겠습니다.', '시간대와 위치를 짚어보겠습니다. 알리바이 공백이 있으면 말하겠습니다.'],
+    pilot: ['브리지 공기가 가라앉아 있습니다. 누군가 긴장을 숨기는 느낌입니다.', '분위기 변화를 감지했습니다. 이상 징후가 있으면 말하겠습니다.']
   },
   REPAIR: {
-    doctor: '장비 점검 중 승무원 상태도 함께 확인하겠습니다.',
-    engineer: '장비를 점검 중입니다. 오류나 변조 흔적이 있는지 확인하겠습니다.',
-    navigator: '수리 진행 중 동선과 시간대를 짚어보겠습니다.',
-    pilot: '점검하는 동안 분위기 변화를 살펴보겠습니다.'
+    doctor: ['장비 점검 중 승무원 상태도 함께 확인하겠습니다.', '수리 진행 중 반응과 표정을 살펴보겠습니다.'],
+    engineer: ['장비를 점검 중입니다. 오류나 변조 흔적이 있는지 확인하겠습니다.', '점검 중 로그와 기록을 교차 확인합니다.'],
+    navigator: ['수리 진행 중 동선과 시간대를 짚어보겠습니다.', '점검하는 동안 동선 빈틈을 확인하겠습니다.'],
+    pilot: ['점검하는 동안 분위기 변화를 살펴보겠습니다.', '수리 중 공기와 기류를 감지하겠습니다.']
   },
   WAIT: {
-    doctor: '대기하며 승무원들의 미세한 반응을 관찰하겠습니다.',
-    engineer: '대기하며 로그와 기록을 재확인하겠습니다.',
-    navigator: '대기하며 동선과 알리바이를 다시 짚어보겠습니다.',
-    pilot: '대기하며 공기와 분위기 변화를 감지하겠습니다.'
+    doctor: ['대기하며 승무원들의 미세한 반응을 관찰하겠습니다.', '대기 중 표정과 호흡을 확인하겠습니다.'],
+    engineer: ['대기하며 로그와 기록을 재확인하겠습니다.', '대기 중 끊긴 구간을 다시 확인합니다.'],
+    navigator: ['대기하며 동선과 알리바이를 다시 짚어보겠습니다.', '대기 중 빈 시간대를 확인하겠습니다.'],
+    pilot: ['대기하며 공기와 분위기 변화를 감지하겠습니다.', '대기 중 이상 징후를 살펴보겠습니다.']
   },
   ACCUSE: {
-    doctor: '처형 결정에 앞서 대상의 반응과 상태를 마지막으로 확인하겠습니다.',
-    engineer: '처형 전 기록과 로그를 한 번 더 확인하겠습니다.',
-    navigator: '처형 결정에 동의합니다. 동선상 빈틈이 있었습니다.',
-    pilot: '공기가 더욱 무거워졌습니다. 처형이 맞는지 직감이 말합니다.'
+    doctor: ['처형 결정에 앞서 대상의 반응과 상태를 마지막으로 확인하겠습니다.', '대상의 표정을 마지막으로 확인합니다.'],
+    engineer: ['처형 전 기록과 로그를 한 번 더 확인하겠습니다.', '마지막으로 불일치를 확인합니다.'],
+    navigator: ['처형 결정에 동의합니다. 동선상 빈틈이 있었습니다.', '동선상 의심스러운 부분이 있었어.'],
+    pilot: ['공기가 더욱 무거워졌습니다. 처형이 맞는지 직감이 말합니다.', '분위기가 처형을 요구하고 있어.']
   }
 };
 
-function getCrewFallbackByRoleAndAction(role, captainAction) {
+function getCrewFallbackByRoleAndAction(role, captainAction, turnNum = 1) {
   const act = (captainAction || 'OBSERVE').toUpperCase();
   const map = ACTION_AWARE_FALLBACKS[act] || ACTION_AWARE_FALLBACKS.OBSERVE;
-  return map[role] || CREW_DIALOGUE_FALLBACK_KO[role] || '상황을 확인하겠습니다.';
+  const arr = map[role];
+  if (Array.isArray(arr) && arr.length > 0) {
+    const idx = (turnNum + (role || '').length) % arr.length;
+    return arr[idx];
+  }
+  if (typeof map[role] === 'string') return map[role];
+  return CREW_DIALOGUE_FALLBACK_KO[role] || '상황을 확인하겠습니다.';
 }
 
 const GENERIC_PLACEHOLDER_PATTERNS = [
@@ -98,9 +105,13 @@ const GENERIC_PLACEHOLDER_PATTERNS = [
   /^로그\s*(를\s*)?확인\s*중입니다\.?$/,
   /^동선을\s*짚어보겠습니다\.?$/,
   /^분위기가\s*이상합니다\.?$/,
+  /^기류가\s*불안정합니다\.?$/,
+  /^이상\s*징후가\s*있습니다\.?$/,
   /^상황을\s*확인하겠습니다\.?$/,
   /^상황을\s*파악\s*중입니다\.?$/,
-  /^로그\s*확인\s*중\.?$/
+  /^로그\s*확인\s*중\.?$/,
+  /^기록\s*확인\s*중\.?$/,
+  /^동선\s*확인\s*중\.?$/
 ];
 
 function isGenericPlaceholderDialogue(s) {
@@ -119,14 +130,10 @@ Output JSON: {"action":"QUESTION|OBSERVE|CHECK_LOG|REPAIR|ACCUSE|WAIT","target":
 규칙: dialogue는 1~2문장, 120자 안쪽. 장황한 설명·긴 문장 금지. reason도 짧고 선명하게.`;
 
 const ROLE_PROMPTS = {
-  doctor: `Role: Doctor. 차분하고 짧게 말한다. 생체반응·떨림·표정·지연·상태 관찰에 집중. 장황한 설명 금지.
-action: QUESTION 또는 OBSERVE 위주. dialogue: 1~2문장, 120자 이내.`,
-  engineer: `Role: Engineer. 건조하고 직설적으로 말한다. 로그·시스템·오류·기록·장비 중심.
-action: CHECK_LOG 우선, OBSERVE 보조. dialogue: 1~2문장, 120자 이내.`,
-  navigator: `Role: Navigator. 날카롭고 공격적으로 말한다. 동선·시간·위치·알리바이·추궁 중심.
-action: QUESTION 우선. dialogue: 1~2문장, 120자 이내.`,
-  pilot: `Role: Pilot. 분위기·기류·직감·불안·감각적 이상 징후 중심. 짧고 감각적으로 말한다.
-action: OBSERVE 또는 QUESTION. dialogue: 1~2문장, 120자 이내.`
+  doctor: `Role: Doctor. 차분하고 짧게 말한다. QUESTION일 때: 대상의 표정·떨림·호흡·긴장 상태를 구체적으로 짚고 확인 요청. "상태가 이상하다"보다 "방금 표정이 굳었어", "호흡이 빨라졌어" 식으로. CHECK_LOG일 때: 로그가 의미하는 "누가 불안정한가·반응이 왜 어색한가"에 연결. dialogue: 1~2문장, 120자 이내.`,
+  engineer: `Role: Engineer. 건조하고 직설적으로 말한다. QUESTION일 때: 시간 기록·시스템 로그·접근 기록·장비 상태를 근거로 의심. 기록 불일치·로그 근거를 들게. CHECK_LOG일 때: 로그·기록·불일치·오류를 가장 직접적으로 해석. dialogue: 1~2문장, 120자 이내.`,
+  navigator: `Role: Navigator. 날카롭고 공격적으로 말한다. QUESTION일 때: 시간·위치·동선·알리바이 빈틈을 직접 추궁. 가장 압박감 있는 질문 담당. CHECK_LOG일 때: 로그의 빈 시간대·위치 공백·동선 누락을 물고 늘어짐. dialogue: 1~2문장, 120자 이내.`,
+  pilot: `Role: Pilot. 분위기·침묵·시선·공기 변화·직감적 불안 중심. QUESTION일 때: 증거보다 감각·정서적 이상 징후로 압박. CHECK_LOG일 때: 로그 확인 중 드러나는 이상한 조짐·기류 변화·불길함. dialogue: 1~2문장, 120자 이내.`
 };
 
 /** impostor일 때 role별 행동 규칙 (자백 금지, target은 자기 제외, 시선 돌리기·역공·흐리기) */
@@ -231,16 +238,19 @@ async function generateCrewDialogueLLM(matchId, role, observation) {
   const capAct = observation.captain_action || {};
   const capActionType = (capAct.action || 'OBSERVE').toUpperCase();
   const ACTION_CONTEXT_HINTS = {
-    CHECK_LOG: '함장이 로그 확인을 지시함. doctor는 이상 반응·상태 변화·누가 불안정해 보이는지. engineer는 로그·기록·시스템·오류를 직접적으로. navigator는 동선·시간 공백·알리바이 빈틈. pilot는 공기·기류·불길한 징후를 감각적으로.',
-    QUESTION: '함장이 특정 승무원을 심문함. doctor는 대상 표정·반응·긴장 상태 확인. engineer는 기록·불일치·장비 관점. navigator는 직접 추궁·시간·위치·동선 확인. pilot는 감정적 압박·분위기 이상·직감적 의심.',
-    OBSERVE: '함장이 관찰·자유 입력. captain_action.dialogue가 있으면 그 맥락을 각 role 관점으로 해석해 답하라.',
+    CHECK_LOG: '함장이 로그 확인을 지시함. doctor: 로그가 의미하는 "누가 불안정한가·반응이 왜 어색한가"에 연결. engineer: 로그·기록·불일치·오류를 가장 직접적으로 해석. navigator: 로그의 빈 시간대·위치 공백·동선 누락을 물고 늘어짐. pilot: 로그 확인 중 드러나는 이상한 조짐·기류 변화·불길함.',
+    QUESTION: '함장이 특정 승무원을 심문함. doctor: 대상 표정·떨림·호흡·긴장을 구체적으로 짚고 확인 요청. engineer: 기록·불일치·장비 로그를 근거로 의심. navigator: 시간·위치·동선·알리바이 빈틈을 직접 추궁(가장 압박감 있게). pilot: 분위기·침묵·시선·공기 변화·직감적 불안으로 압박.',
+    OBSERVE: '함장이 관찰·자유 입력. captain_action.dialogue가 있으면 그 맥락을 각 role 관점으로 해석. 똑같은 질문을 role만 바꿔 말하는 느낌 금지. doctor는 생체·표정, engineer는 로그·기록, navigator는 동선·시간, pilot는 분위기·감각으로 다르게 답하라.',
     REPAIR: '함장이 수리·점검 지시. 각 role이 자기 관점에서 장비·상태·동선·분위기를 언급.',
     WAIT: '대기 상황. 각 role이 자기 관점에서 관찰·확인할 것을 짧게.',
     ACCUSE: '함장이 처형을 지시함. 각 role이 자기 관점에서 마지막 확인·동의·직감을 짧게.'
   };
   const actionContextHint = ACTION_CONTEXT_HINTS[capActionType] || ACTION_CONTEXT_HINTS.OBSERVE;
 
-  const systemContent = `${LLM_SYSTEM_BASE}\n\n${ROLE_PROMPTS[role] || ''}\n\n[태도 규칙] observation의 am_i_hidden_host, behavior_rules, suspicion_style, first_turn_hint를 반드시 따른다. am_i_hidden_host가 true면 redirect_deflect_evade(회피·유도·방어·시선 분산). false면 direct_observation(직선·관찰·정보 제공). target이 있으면 am_i_hidden_host일 때 자신(your_role)이 아닌 다른 role을 지목한다.\n\n[액션 맥락] 현재 함장 행동: ${capActionType}. ${actionContextHint}\n\n[금지] "반응을 살펴보겠습니다", "로그 확인 중입니다", "동선을 짚어보겠습니다", "분위기가 이상합니다" 같은 generic 상투문구 금지. 최소한 누구/무엇/왜가 들어간 구체적 문장으로.`;
+  const targetDiversifyNote = observation.target_diversification_hint
+    ? `\n\n[질문 대상 다양화] ${observation.target_diversification_hint}`
+    : '';
+  const systemContent = `${LLM_SYSTEM_BASE}\n\n${ROLE_PROMPTS[role] || ''}\n\n[태도 규칙] observation의 am_i_hidden_host, behavior_rules, suspicion_style, first_turn_hint를 반드시 따른다. am_i_hidden_host가 true면 redirect_deflect_evade(회피·유도·방어·시선 분산). false면 direct_observation(직선·관찰·정보 제공). target이 있으면 am_i_hidden_host일 때 자신(your_role)이 아닌 다른 role을 지목한다.\n\n[액션 맥락] 현재 함장 행동: ${capActionType}. ${actionContextHint}${targetDiversifyNote}\n\n[금지] "반응을 살펴보겠습니다", "로그 확인 중입니다", "동선을 짚어보겠습니다", "분위기가 이상합니다", "기류가 불안정합니다", "이상 징후가 있습니다" 같은 generic 상투문구 금지. 최소한 누구/무엇/왜 중 2개 이상이 들어간 구체적 문장으로. 같은 턴 안에서 같은 표현 연속 반복 금지.`;
   const obsJson = JSON.stringify(observation).slice(0, 2000);
   const roleActionHint = {
     doctor: 'action: QUESTION 또는 OBSERVE.',
@@ -248,7 +258,7 @@ async function generateCrewDialogueLLM(matchId, role, observation) {
     navigator: 'action: QUESTION 우선.',
     pilot: 'action: OBSERVE 또는 QUESTION.'
   }[role] || '';
-  const userContent = `Observation:\n${obsJson}\n\n한국어만. dialogue 1~2문장·120자 이내. reason 짧고 선명하게. behavior_rules와 first_turn_hint를 강하게 반영. captain_action(${capActionType}) 맥락을 반드시 반영. am_i_hidden_host가 true면 회피적·유도적·방어적·남 탓 유도형. false면 직선적·관찰형·정보 제공형. generic 상투문구 금지. 구체적·맥락 있는 대사로.${roleActionHint ? ' ' + roleActionHint : ''}\nJSON: {"action":"...","target":null|"...","reason":"...","dialogue":"..."}`;
+  const userContent = `Observation:\n${obsJson}\n\n한국어만. dialogue 1~2문장·120자 이내. reason 짧고 선명하게. behavior_rules와 first_turn_hint를 강하게 반영. captain_action(${capActionType}) 맥락을 반드시 반영. QUESTION/CHECK_LOG/OBSERVE에 따라 반응 결을 다르게. am_i_hidden_host가 true면 회피적·유도적·방어적·남 탓 유도형. false면 직선적·관찰형·정보 제공형. generic 상투문구("반응을 살펴보겠습니다","로그 확인 중입니다","분위기가 이상합니다" 등) 절대 금지. 누구/무엇/왜 중 2개 이상 포함. target_diversification_hint와 dead_crew 있으면 반드시 따르라.${roleActionHint ? ' ' + roleActionHint : ''}\nJSON: {"action":"...","target":null|"...","reason":"...","dialogue":"..."}`;
 
   const url = `${baseUrl}/chat/completions`;
   const controller = new AbortController();
@@ -323,13 +333,21 @@ async function resolveCrewPayloadWithLLM(matchId, body, role) {
   const captainEv = (recentRaw || []).find((e) => e.role === 'captain');
   const captainAction = captainEv ? (captainEv.action || 'OBSERVE') : 'OBSERVE';
 
+  /** 최근 1~2턴 QUESTION target 수집 (같은 role이 매번 같은 대상만 고르지 않게) */
+  let recentQuestionTargets = [];
+  try {
+    const recentMultiTurn = await getRecentEvents(matchId, 20);
+    const questionEvs = (recentMultiTurn || []).filter((e) => (e.action || '').toUpperCase() === 'QUESTION' && e.target);
+    recentQuestionTargets = [...new Set(questionEvs.map((e) => String(e.target).toLowerCase()).filter(Boolean))];
+  } catch (_) {}
+
   if (!match) {
     const fallbackReasonVal = (body.reason && body.reason !== 'crew') ? body.reason : '상황을 파악 중이다.';
     return {
       action: normalizeAction(body.action),
       target: body.target ?? null,
       reason: fallbackReasonVal,
-      dialogue: getCrewFallbackByRoleAndAction(role, captainAction),
+      dialogue: getCrewFallbackByRoleAndAction(role, captainAction, 1),
       _debug: buildCrewDebug('fallback', 'match_not_found', false, rawReasonPresent, null)
     };
   }
@@ -337,12 +355,21 @@ async function resolveCrewPayloadWithLLM(matchId, body, role) {
   const turnNum = match.turn ?? 1;
   const privateCtx = getPrivateContextForRole(match, role);
   const amIHost = !!(privateCtx && privateCtx.is_hidden_host);
+  const deadCrewArr = Array.isArray(body.dead_crew) ? body.dead_crew : [];
 
   const observation = {
     match_id: matchId,
     turn: turnNum,
     captain_action: captainEv ? { action: captainEv.action, target: captainEv.target, dialogue: captainEv.dialogue } : {},
-    recentEvents: (recentRaw || []).map((e) => ({ role: e.role, action: e.action, dialogue: (e.dialogue || '').slice(0, 80) })),
+    recentEvents: (recentRaw || []).map((e) => ({ role: e.role, action: e.action, target: e.target, dialogue: (e.dialogue || '').slice(0, 80) })),
+    recent_question_targets: recentQuestionTargets,
+    target_diversification_hint: (recentQuestionTargets.length > 0 || deadCrewArr.length > 0)
+      ? [
+          recentQuestionTargets.length > 0 && `최근 1~2턴에 이미 ${recentQuestionTargets.join(', ')}에게 질문이 많이 갔음. 가능하면 다른 유력 대상이나 다른 관점으로 다양화하라.`,
+          deadCrewArr.length > 0 && `dead_crew(${deadCrewArr.join(', ')})는 target으로 절대 선택하지 마라.`
+        ].filter(Boolean).join(' ')
+      : null,
+    dead_crew: deadCrewArr.map((d) => String(d || '').toLowerCase()).filter(Boolean),
     your_role: role,
     am_i_hidden_host: amIHost,
     suspicion_style: amIHost ? 'redirect_deflect_evade' : 'direct_observation',
@@ -369,11 +396,15 @@ async function resolveCrewPayloadWithLLM(matchId, body, role) {
   if (llmOut.result) {
     let dialogue = llmOut.result.dialogue;
     if (isGenericPlaceholderDialogue(dialogue)) {
-      dialogue = getCrewFallbackByRoleAndAction(role, captainAction);
+      dialogue = getCrewFallbackByRoleAndAction(role, captainAction, turnNum);
+    }
+    let target = llmOut.result.target;
+    if (target && deadCrewArr.some((d) => String(d || '').toLowerCase() === String(target).toLowerCase())) {
+      target = null;
     }
     return {
       action: llmOut.result.action,
-      target: llmOut.result.target,
+      target,
       reason: llmOut.result.reason,
       dialogue,
       _debug: buildCrewDebug('llm', null, false, rawReasonPresent, null)
@@ -388,7 +419,7 @@ async function resolveCrewPayloadWithLLM(matchId, body, role) {
     action: normalizeAction(body.action),
     target: body.target ?? null,
     reason: fallbackReasonVal,
-    dialogue: getCrewFallbackByRoleAndAction(role, captainAction),
+    dialogue: getCrewFallbackByRoleAndAction(role, captainAction, turnNum),
     _debug: buildCrewDebug('fallback', fallbackReason, false, rawReasonPresent, llmErrMsg)
   };
 }
@@ -402,7 +433,7 @@ async function resolvePayloadForCrew(matchId, body, role) {
     action: normalizeAction(body.action),
     target: body.target ?? null,
     reason: fallbackReasonVal,
-    dialogue: getCrewFallbackByRoleAndAction(role, 'OBSERVE'),
+    dialogue: getCrewFallbackByRoleAndAction(role, 'OBSERVE', 1),
     _debug: buildCrewDebug('fallback', 'unknown', false, rawReasonPresent, null)
   };
 }
