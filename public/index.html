@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -1034,6 +1034,11 @@
       return { action, target: action === 'QUESTION' ? target : null, dialogue: dialogue || (defaults[action] || '') };
     }
 
+    function isRoleDead(role, deadCrewArr) {
+      if (!role || !Array.isArray(deadCrewArr)) return false;
+      var r = String(role).toLowerCase();
+      return deadCrewArr.some(function(d) { return String(d).toLowerCase() === r; });
+    }
     function getInterrogateMessage() {
       var crewList = ['Navigator', 'Engineer', 'Doctor', 'Pilot'];
       var alive = crewList.filter(function(c) { return !deadCrew.includes(c); });
@@ -1159,11 +1164,11 @@
     }
 
     // captain payload 생성: dialogue는 raw 원문 보존. match_id, turn, actor, role, action, target, reason
-    function buildCaptainActionBody(captainPayload, rawInput) {
+    function buildCaptainActionBody(captainPayload, rawInput, deadCrewArr) {
       var matchId = MATCH_ID || newMatchId();
       if (!MATCH_ID) MATCH_ID = matchId;
       var dialogueVal = (rawInput != null && String(rawInput).trim() !== '') ? String(rawInput).trim() : (captainPayload.dialogue != null && captainPayload.dialogue !== '') ? String(captainPayload.dialogue) : null;
-      return {
+      var body = {
         match_id: matchId,
         turn: currentTurn,
         actor: 'captain',
@@ -1173,13 +1178,15 @@
         reason: captainPayload.reason || 'player_input',
         dialogue: dialogueVal
       };
+      if (Array.isArray(deadCrewArr)) body.dead_crew = deadCrewArr;
+      return body;
     }
     // crew payload 생성: dialogue는 항상 crew 대사 문자열. match_id 절대 넣지 않음.
-    function buildCrewActionBody(crewPayload, role) {
+    function buildCrewActionBody(crewPayload, role, deadCrewArr) {
       var matchId = MATCH_ID || newMatchId();
       if (!MATCH_ID) MATCH_ID = matchId;
       var dialogueVal = (crewPayload.dialogue != null && typeof crewPayload.dialogue === 'string') ? crewPayload.dialogue : '';
-      return {
+      var body = {
         match_id: matchId,
         turn: currentTurn,
         actor: 'agent_' + role,
@@ -1189,14 +1196,17 @@
         reason: crewPayload.reason || 'crew',
         dialogue: dialogueVal
       };
+      if (Array.isArray(deadCrewArr)) body.dead_crew = deadCrewArr;
+      return body;
     }
     async function ep1CallAction(payload, opts) {
       if (!MATCH_ID) { MATCH_ID = newMatchId(); }
       var body;
+      var deadArr = opts && opts.deadCrew;
       if (opts && opts.role && opts.role !== 'captain') {
-        body = buildCrewActionBody(payload, opts.role);
+        body = buildCrewActionBody(payload, opts.role, deadArr);
       } else {
-        body = buildCaptainActionBody(payload, opts && opts.rawInput);
+        body = buildCaptainActionBody(payload, opts && opts.rawInput, deadArr);
       }
       const res = await fetch('/api/ep1/action', {
         method: 'POST',
@@ -1243,7 +1253,7 @@
       return e.summary || (e.role && e.action ? `${e.role} ${e.action}` : '') || '';
     }
 
-    function appendNewEventsFromList(events, resultLines) {
+    function appendNewEventsFromList(events, resultLines, deadCrewArr) {
       const list = Array.isArray(events) ? events : [];
       for (const e of list) {
         var role = (e.role || 'system').toLowerCase();
@@ -1256,6 +1266,7 @@
         }
         if ((!e.role || role === 'system') && /^함장이?\s|^함장\s*:/.test(summ)) continue;
         if (['doctor', 'engineer', 'navigator', 'pilot'].indexOf(role) >= 0) {
+          if (isRoleDead(role, deadCrewArr)) continue;
           var crewMain = getMainTextFromEvent(e);
           var crewSumm = e.summary || null;
           updateCrewPlaceholder(role, crewMain || crewSumm || ((window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN)[role]) || '—', crewSumm, eventDedupeKey(e));
@@ -1288,7 +1299,7 @@
     function getMainTextFromEvent(e) {
       return (e && (e.dialogue || e.summary || e.action)) || '';
     }
-    function syncCrewSlotsFromResult(resData) {
+    function syncCrewSlotsFromResult(resData, deadCrewArr) {
       if (!resData || !logEl) return;
       var recent = resData.recent_events || [];
       var fallbackMap = (window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN);
@@ -1296,6 +1307,7 @@
       var CREW_ROLES_SYNC = ['doctor', 'engineer', 'navigator', 'pilot'];
       for (var i = 0; i < CREW_ROLES_SYNC.length; i++) {
         var role = CREW_ROLES_SYNC[i];
+        if (isRoleDead(role, deadCrewArr)) continue;
         var displayText = '';
         var summ = null;
         var evKey = null;
@@ -1348,12 +1360,13 @@
     var CREW_FALLBACK_KO = { doctor: '반응을 살펴보겠습니다.', engineer: '로그 확인 중입니다.', navigator: '동선을 짚어보겠습니다.', pilot: '분위기가 이상합니다.' };
     var CREW_FALLBACK_EN = { doctor: 'Checking reactions.', engineer: 'Checking logs.', navigator: 'Tracing movements.', pilot: 'Something feels off.' };
     var CREW_ROLES = ['doctor', 'engineer', 'navigator', 'pilot'];
-    function ensureCrewSlotsForBatch(turn, batchId) {
+    function ensureCrewSlotsForBatch(turn, batchId, deadCrewArr) {
       if (!logEl) return;
       if (pendingCrewBatch && pendingCrewBatch.batchId === batchId) return;
       var placeholderMap = window.__LANG === 'ko' ? CREW_PLACEHOLDER_KO : CREW_PLACEHOLDER_EN;
-      for (var i = 0; i < CREW_ROLES.length; i++) {
-        var role = CREW_ROLES[i];
+      var rolesToShow = CREW_ROLES.filter(function(r) { return !isRoleDead(r, deadCrewArr); });
+      for (var i = 0; i < rolesToShow.length; i++) {
+        var role = rolesToShow[i];
         var label = ROLE_LABEL_KO[role] || role;
         var placeholder = (placeholderMap && placeholderMap[role]) || '...';
         var roleClass = getRoleClass(role);
@@ -1435,22 +1448,23 @@
           captainPayload = buildPayloadFromPreset(message);
         }
         setPhase('crew_resolving');
-        var captainData = await ep1CallAction(captainPayload, { rawInput: message });
+        var captainData = await ep1CallAction(captainPayload, { rawInput: message, deadCrew: deadCrew });
         if (captainData.next_state && captainData.next_state.turn != null) currentTurn = captainData.next_state.turn;
         var isGameOver = !!captainData.game_over;
         var outcome = captainData.outcome || captainData.next_state?.outcome || null;
 
         var batchId = 'batch_' + currentTurn + '_' + Date.now();
-        ensureCrewSlotsForBatch(currentTurn, batchId);
+        ensureCrewSlotsForBatch(currentTurn, batchId, deadCrew);
 
-        var crewPromises = CREW_ROLES.map(function(role) {
+        var aliveRoles = CREW_ROLES.filter(function(r) { return !isRoleDead(r, deadCrew); });
+        var crewPromises = aliveRoles.map(function(role) {
           return (async function() {
             if (isGameOver) return { role: role, ok: false };
             try {
               var stateData = await ep1CallState(role);
               var decision = decideCrewAction(role, captainPayload, stateData);
               var crewPayload = { action: decision.action, target: decision.target, reason: decision.reason, dialogue: decision.dialogue || '' };
-              var crewData = await ep1CallAction(crewPayload, { role: role });
+              var crewData = await ep1CallAction(crewPayload, { role: role, deadCrew: deadCrew });
               if (crewData.next_state && crewData.next_state.turn != null) currentTurn = crewData.next_state.turn;
               var ev = findCrewEventInRecent(crewData.next_state && crewData.next_state.recent_events, role);
               var sr = crewData.server_result || {};
@@ -1489,13 +1503,13 @@
         if (resData.game_over) { isGameOver = true; outcome = resData.outcome || outcome; }
         if (resData.turn != null) currentTurn = resData.turn;
 
-        if (typeof syncCrewSlotsFromResult === 'function') syncCrewSlotsFromResult(resData);
+        if (typeof syncCrewSlotsFromResult === 'function') syncCrewSlotsFromResult(resData, deadCrew);
 
         var resultLines = [];
         var resRecent = resData.recent_events || [];
         var resPub = resData.public_events || [];
         var events = resRecent.length > 0 ? resRecent : resPub;
-        appendNewEventsFromList(events, resultLines);
+        appendNewEventsFromList(events, resultLines, deadCrew);
         var resultText = resultLines.join('\n');
         history.push({ role: 'assistant', content: resultText });
 
@@ -1892,9 +1906,9 @@
         
         // Request witness testimony if not already included
         if (!witnessTestimonyFound && aliveCrew.length > 1) {
-          setTimeout(function() { requestWitnessTestimony(victim, aliveCrew.filter(function(c) { return c !== victim; })); }, 2000);
+          setTimeout(function() { requestWitnessTestimony(victim, aliveCrew.filter(function(c) { return c !== victim; })); }, 900);
         }
-        window.__killGlitchTimer = setTimeout(function() { glitchEl.classList.remove('active'); window.__killGlitchTimer = null; }, 800);
+        window.__killGlitchTimer = setTimeout(function() { glitchEl.classList.remove('active'); window.__killGlitchTimer = null; }, 650);
         if (deadCrew.length >= 4) {
           setTimeout(triggerTotalFailure, 2000);
         } else if (witnessTestimonyFound || aliveCrew.length <= 1) {

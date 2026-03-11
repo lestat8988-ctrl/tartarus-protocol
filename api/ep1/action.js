@@ -470,6 +470,38 @@ module.exports = async (req, res) => {
   let dialogue = null;
   let crewGenerationDebug = null;
 
+  const deadCrewRaw = body.dead_crew;
+  const deadCrewArr = Array.isArray(deadCrewRaw) ? deadCrewRaw : [];
+  const isRoleInDeadCrew = (r) => deadCrewArr.some((d) => String(d || '').toLowerCase() === String(r || '').toLowerCase());
+
+  if (CREW_ROLES.has(role) && isRoleInDeadCrew(role)) {
+    const match = await getOrCreateMatch(matchId);
+    if (!match) return errRes(res, 500, 'Failed to get or create match');
+    const pub = await getPublicEvents(matchId);
+    const recentRaw = await getRecentEventsForCurrentTurn(matchId);
+    const events_count = await getEventsCount(matchId);
+    const recent_events = (recentRaw || []).map((e) => {
+      const base = formatEventForResponse(e);
+      if (base && !base.summary) base.summary = (e.summary || summaryFallbackKo(e.role, e.action));
+      return base;
+    }).filter(Boolean);
+    return res.status(200).json({
+      ok: true,
+      server_result: { crew_dead: true, accepted: false },
+      next_state: {
+        match_id: matchId,
+        turn: match.turn ?? 1,
+        phase: match.phase ?? 'playing',
+        location: match.location ?? 'bridge',
+        public_events: Array.isArray(pub) ? pub : [],
+        recent_events,
+        events_count
+      },
+      game_over: match.game_over || false,
+      outcome: match.outcome ?? null
+    });
+  }
+
   const match = await getOrCreateMatch(matchId);
   if (!match) {
     return errRes(res, 500, 'Failed to get or create match');
