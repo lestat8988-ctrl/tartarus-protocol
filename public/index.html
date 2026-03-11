@@ -1049,16 +1049,20 @@
       return 'QUESTION ' + roleLower + ' ' + roleKo + ', 그때 어디 있었지?';
     }
     function sendInterrogateClick(ev) {
-      if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+      if (ev) { ev.preventDefault(); ev.stopPropagation(); if (ev.stopImmediatePropagation) ev.stopImmediatePropagation(); }
       if (gameEnded) return;
+      if (questionInFlight) return;
+      var now = Date.now();
+      if ((now - lastQuestionDispatchAt) < QUESTION_DEBOUNCE_MS) return;
       var msg = (typeof getInterrogateMessage === 'function') ? getInterrogateMessage() : 'QUESTION doctor 의사, 그때 어디 있었지?';
       var m = String(msg).trim().match(/^QUESTION\s+(\S+)/i);
       var key = m ? ('QUESTION:' + (m[1] || '').toLowerCase()) : msg;
-      var now = Date.now();
-      if (lastQuestionKey === key && (now - lastQuestionDispatchAt) < QUESTION_DEBOUNCE_MS) return;
+      questionInFlight = true;
       lastQuestionKey = key;
       lastQuestionDispatchAt = now;
-      sendMessage(msg);
+      var p = sendMessage(msg);
+      if (p && typeof p.finally === 'function') p.finally(function() { questionInFlight = false; });
+      else questionInFlight = false;
     }
     function formatCaptainDisplay(raw, captainPayload) {
       if (!raw || !captainPayload) return raw;
@@ -1288,14 +1292,15 @@
         var line = eventToSummary(e);
         if (role === 'captain') {
           renderedEventKeys.add(eventDedupeKey(e));
+          var capRaw = (e.dialogue || e.summary || '').trim();
+          if (/^QUESTION\s+(doctor|engineer|navigator|pilot|의사|엔지니어|네비게이터|파일럿|\S+)\s+/i.test(capRaw)) continue;
           if (!(opts && opts.skipCaptainInResult)) {
-            var capRaw = (e.dialogue || e.summary || '').trim();
             var capFormatted = capRaw;
             if (capRaw && typeof formatCaptainDisplay === 'function') {
               var capPayload = { action: e.action || 'OBSERVE', target: e.target || null };
               capFormatted = formatCaptainDisplay(capRaw, capPayload);
             }
-            if (capFormatted) resultLines.push(capFormatted);
+            if (capFormatted && !/^QUESTION\s+/i.test(String(capFormatted).trim())) resultLines.push(capFormatted);
           }
           continue;
         }
@@ -1626,9 +1631,10 @@
     let typingSkipped = false;
     let currentTypingResolver = null;
     let isSubmittingCaptainAction = false; // captain 중복 제출 방지
+    let questionInFlight = false; // 승무원 심문 버튼 재진입 차단
     let lastQuestionDispatchAt = 0;
     let lastQuestionKey = '';
-    const QUESTION_DEBOUNCE_MS = 500;
+    const QUESTION_DEBOUNCE_MS = 800;
 
     let gamePhase = 'crew_resolving';
     let currentPhaseActor = null;
