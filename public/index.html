@@ -1855,19 +1855,6 @@
     async function startActualGame() {
       setPhase('captain_input');
       startGameTimer();
-      var lang = (window.__LANG === 'ko') ? 'ko' : 'en';
-      var lines = OPENING_LINES[lang] || OPENING_LINES.ko;
-      for (var i = 0; i < lines.length; i++) {
-        var ln = lines[i];
-        if (ln === " ") {
-          printLine(" ", "line");
-        } else if (/^\[치명적 오류\]|^\[CRITICAL FAILURE\]/.test(ln)) {
-          printLine(ln, "role-alert");
-        } else {
-          printLine(ln, "role-system");
-        }
-      }
-      await ep1EnsureMatch();
       if (!interrogateBtnBound) {
         interrogateBtnBound = true;
         var bar = document.querySelector('.action-bar');
@@ -1882,6 +1869,19 @@
           }, { capture: true, passive: false });
         }
       }
+      var lang = (window.__LANG === 'ko') ? 'ko' : 'en';
+      var lines = OPENING_LINES[lang] || OPENING_LINES.ko;
+      for (var i = 0; i < lines.length; i++) {
+        var ln = lines[i];
+        if (ln === " ") {
+          printLine(" ", "line");
+        } else if (/^\[치명적 오류\]|^\[CRITICAL FAILURE\]/.test(ln)) {
+          printLine(ln, "role-alert");
+        } else {
+          printLine(ln, "role-system");
+        }
+      }
+      await ep1EnsureMatch();
     }
 
     function resumeAudioOnUserGesture() {
