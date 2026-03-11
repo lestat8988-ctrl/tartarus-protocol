@@ -1043,6 +1043,20 @@
       var roleKo = (ROLE_LABEL_KO && ROLE_LABEL_KO[roleLower]) || roleLower;
       return 'QUESTION ' + roleLower + ' ' + roleKo + ', 그때 어디 있었지?';
     }
+    function formatCaptainDisplay(raw, captainPayload) {
+      if (!raw || !captainPayload) return raw;
+      var s = String(raw).trim();
+      if (captainPayload.action === 'QUESTION' && captainPayload.target) {
+        var prefix = 'QUESTION ' + captainPayload.target.toLowerCase() + ' ';
+        if (s.toLowerCase().indexOf(prefix.toLowerCase()) === 0) {
+          var rest = s.slice(prefix.length).trim();
+          return rest || ((ROLE_LABEL_KO && ROLE_LABEL_KO[captainPayload.target]) || captainPayload.target) + ', 그때 어디 있었지?';
+        }
+        var m = s.match(/^QUESTION\s+(doctor|engineer|navigator|pilot)\s+/i);
+        if (m) return s.slice(m[0].length).trim() || s;
+      }
+      return s;
+    }
     // preset 버튼 경로: [ACCUSE], quick button 문구. [AUTO-KILL]/[WITNESS] 사용 안 함.
     function buildPayloadFromPreset(raw) {
       const s = String(raw || '').trim();
@@ -1231,13 +1245,15 @@
     function appendNewEventsFromList(events, resultLines) {
       const list = Array.isArray(events) ? events : [];
       for (const e of list) {
-        var role = e.role || 'system';
+        var role = (e.role || 'system').toLowerCase();
+        var summ = String(e.summary || '').trim();
         if (role === 'captain') {
           renderedEventKeys.add(eventDedupeKey(e));
           const line = eventToSummary(e);
           if (line) resultLines.push(line);
           continue;
         }
+        if ((!e.role || role === 'system') && /^함장이?\s|^함장\s*:/.test(summ)) continue;
         const key = eventDedupeKey(e);
         const mainText = getMainTextFromEvent(e);
         const summary = e.summary || null;
@@ -1378,12 +1394,14 @@
               if (!displayText || (CREW_PLACEHOLDER_KO[role] && displayText === CREW_PLACEHOLDER_KO[role]) || (CREW_PLACEHOLDER_EN[role] && displayText === CREW_PLACEHOLDER_EN[role])) displayText = fallbackVal;
               var summ = (ev && ev.summary) || (currEv && currEv.summary) || sr.summary || null;
               var key = ev ? eventDedupeKey(ev) : (currEv && currEv.role ? role + ':' + (currEv.dialogue || currEv.summary || '').slice(0, 20) : null);
-              var r = role, dt = displayText, s = mainText ? summ : null, k = key;
+              var r = role, dt = displayText, s = displayText ? summ : null, k = key;
               setTimeout(function() { updateCrewPlaceholder(r, dt, s, k); }, 0);
               if (ev) renderedEventKeys.add(key);
               return { role: role, ok: true, game_over: !!crewData.game_over, outcome: crewData.outcome };
             } catch (e) {
-              setTimeout(function() { updateCrewPlaceholder(role, '(오류)', null); }, 0);
+              var fbMap = (window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN);
+              var fb = (fbMap && fbMap[role]) || '—';
+              setTimeout(function() { updateCrewPlaceholder(role, fb, null); }, 0);
               return { role: role, ok: false };
             }
           })();
@@ -2065,7 +2083,8 @@
       }
       if (!captainPayload) { isSubmittingCaptainAction = false; return; }
       setPhase('crew_resolving');
-      printDialogueLine('captain', raw, null);
+      var captainDisplay = (typeof formatCaptainDisplay === 'function') ? formatCaptainDisplay(raw, captainPayload) : raw;
+      printDialogueLine('captain', captainDisplay, null);
       inputEl.value = '';
       history.push({ role: "user", content: raw });
 
