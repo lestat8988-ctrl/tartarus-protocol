@@ -255,11 +255,11 @@
       50% { opacity: 0.7; }
     }
     
-    /* 살해 메시지 글리치 효과 */
+    /* 살해 메시지 글리치 효과 - opacity 낮춰 crew 렌더링이 아래서 보이게 */
     .kill-glitch {
       position: fixed;
       inset: 0;
-      background: rgba(255, 0, 0, 0.3);
+      background: rgba(255, 0, 0, 0.22);
       z-index: 1500;
       display: none;
       justify-content: center;
@@ -1279,27 +1279,30 @@
       if (window.fitShortsScale) window.fitShortsScale();
     }
     function updateCrewPlaceholder(role, mainText, summary, eventKey) {
-      if (!logEl) return;
-      var row = logEl.querySelector('.dialogue-line[data-crew-slot="' + role + '"]');
-      if (!row) return;
-      if (eventKey) row.setAttribute('data-event-key', eventKey);
-      var textEl = row.querySelector('.dialogue-text');
-      if (textEl) {
-        textEl.textContent = mainText || '';
-        textEl.classList.remove('crew-placeholder');
-      }
-      var subEl = row.querySelector('.dialogue-summary');
-      if (summary && mainText) {
-        if (subEl) { subEl.textContent = summary; subEl.style.display = ''; }
-        else {
-          var sub = document.createElement('div');
-          sub.className = 'dialogue-summary';
-          sub.textContent = summary;
-          row.appendChild(sub);
+      var r = role, t = mainText, s = summary, k = eventKey;
+      setTimeout(function() {
+        if (!logEl) return;
+        var row = logEl.querySelector('.dialogue-line[data-crew-slot="' + r + '"]');
+        if (!row) return;
+        if (k) row.setAttribute('data-event-key', k);
+        var textEl = row.querySelector('.dialogue-text');
+        if (textEl) {
+          textEl.textContent = t || '';
+          textEl.classList.remove('crew-placeholder');
         }
-      } else if (subEl) subEl.style.display = 'none';
-      logEl.scrollTop = logEl.scrollHeight;
-      if (window.fitShortsScale) window.fitShortsScale();
+        var subEl = row.querySelector('.dialogue-summary');
+        if (s && t) {
+          if (subEl) { subEl.textContent = s; subEl.style.display = ''; }
+          else {
+            var sub = document.createElement('div');
+            sub.className = 'dialogue-summary';
+            sub.textContent = s;
+            row.appendChild(sub);
+          }
+        } else if (subEl) subEl.style.display = 'none';
+        logEl.scrollTop = logEl.scrollHeight;
+        if (window.fitShortsScale) window.fitShortsScale();
+      }, 0);
     }
 
     async function runEp1Flow(message, deadCrew, opts) {
@@ -1336,11 +1339,10 @@
               var ev = findCrewEventInRecent(crewData.next_state && crewData.next_state.recent_events, role);
               var mainText = getMainTextFromEvent(ev);
               var summ = (ev && ev.summary) || (crewData.server_result && crewData.server_result.summary) || null;
-              if (mainText) {
-                var key = ev ? eventDedupeKey(ev) : null;
-                updateCrewPlaceholder(role, mainText, summ, key);
-                if (ev) renderedEventKeys.add(key);
-              }
+              var displayText = mainText || summ || '—';
+              var key = ev ? eventDedupeKey(ev) : null;
+              updateCrewPlaceholder(role, displayText, mainText ? summ : null, key);
+              if (ev) renderedEventKeys.add(key);
               return { role: role, ok: true, game_over: !!crewData.game_over, outcome: crewData.outcome };
             } catch (e) {
               updateCrewPlaceholder(role, '(오류)', null);
@@ -1440,6 +1442,7 @@
 
     let gamePhase = 'crew_resolving';
     let currentPhaseActor = null;
+    /* 상태 분리: captain 입력 잠금(isSubmittingCaptainAction), crew 진행(gamePhase), crew 슬롯 렌더링(updateCrewPlaceholder), alert(kill-glitch)는 서로 독립. crew 응답은 도착 즉시 setTimeout(0)으로 flush. */
     const PHASE_HINTS = {
       captain_input: '함장 입력 대기',
       crew_resolving: '크루 반응 진행 중...',
@@ -1758,7 +1761,7 @@
         if (!witnessTestimonyFound && aliveCrew.length > 1) {
           setTimeout(function() { requestWitnessTestimony(victim, aliveCrew.filter(function(c) { return c !== victim; })); }, 2000);
         }
-        setTimeout(function() { glitchEl.classList.remove('active'); }, 1400);
+        setTimeout(function() { glitchEl.classList.remove('active'); }, 1000);
         if (deadCrew.length >= 4) {
           setTimeout(triggerTotalFailure, 2000);
         } else if (witnessTestimonyFound || aliveCrew.length <= 1) {
@@ -2057,6 +2060,7 @@
         setPhase('captain_input');
       } finally {
         isSubmittingCaptainAction = false;
+        if (!gameEnded && gamePhase === 'crew_resolving') setPhase('captain_input');
       }
     }
 
