@@ -1248,9 +1248,9 @@
       for (const e of list) {
         var role = (e.role || 'system').toLowerCase();
         var summ = String(e.summary || '').trim();
+        var line = eventToSummary(e);
         if (role === 'captain') {
           renderedEventKeys.add(eventDedupeKey(e));
-          const line = eventToSummary(e);
           if (line) resultLines.push(line);
           continue;
         }
@@ -1260,7 +1260,6 @@
           var crewSumm = e.summary || null;
           updateCrewPlaceholder(role, crewMain || crewSumm || ((window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN)[role]) || '—', crewSumm, eventDedupeKey(e));
           renderedEventKeys.add(eventDedupeKey(e));
-          var line = eventToSummary(e);
           if (line) resultLines.push(line);
           continue;
         }
@@ -1282,7 +1281,6 @@
           printDialogueLine(role, mainText, summary, key);
         }
         renderedEventKeys.add(key);
-        const line = eventToSummary(e);
         if (line) resultLines.push(line);
       }
     }
