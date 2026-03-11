@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -1292,17 +1292,36 @@
       if (!resData || !logEl) return;
       var recent = resData.recent_events || [];
       var fallbackMap = (window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN);
+      var sr = resData.server_result || {};
       var CREW_ROLES_SYNC = ['doctor', 'engineer', 'navigator', 'pilot'];
       for (var i = 0; i < CREW_ROLES_SYNC.length; i++) {
         var role = CREW_ROLES_SYNC[i];
-        var ev = findCrewEventInRecent(recent, role);
         var displayText = '';
-        if (ev && (ev.dialogue || ev.summary || ev.action)) displayText = getMainTextFromEvent(ev);
-        else if (ev && ev.summary) displayText = ev.summary;
-        else displayText = (fallbackMap && fallbackMap[role]) || '—';
+        var summ = null;
+        var evKey = null;
+        var currEv = sr.current_event || null;
+        if (currEv && (currEv.role === role || currEv.actor === 'agent_' + role) && currEv.dialogue && String(currEv.dialogue).trim()) {
+          displayText = String(currEv.dialogue).trim();
+          summ = currEv.summary || null;
+          evKey = currEv.role ? role + ':' + (currEv.dialogue || '').slice(0, 20) : null;
+        }
+        if (!displayText) {
+          var ev = findCrewEventInRecent(recent, role);
+          if (ev && (ev.dialogue || ev.summary || ev.action)) {
+            displayText = getMainTextFromEvent(ev);
+            summ = ev.summary || null;
+            evKey = ev ? eventDedupeKey(ev) : null;
+          } else if (ev && ev.summary) {
+            displayText = ev.summary;
+            summ = ev.summary;
+            evKey = ev ? eventDedupeKey(ev) : null;
+          }
+        }
         var safeText = displayText || (fallbackMap && fallbackMap[role]) || '—';
-        updateCrewPlaceholder(role, safeText, ev ? ev.summary : null, ev ? eventDedupeKey(ev) : null);
+        if ((CREW_PLACEHOLDER_KO[role] && safeText === CREW_PLACEHOLDER_KO[role]) || (CREW_PLACEHOLDER_EN[role] && safeText === CREW_PLACEHOLDER_EN[role])) safeText = (fallbackMap && fallbackMap[role]) || '—';
+        updateCrewPlaceholder(role, safeText, summ, evKey);
       }
+      if (pendingCrewBatch) pendingCrewBatch.resolved = true;
     }
     function findCrewEventInRecent(recentEvents, role) {
       if (!Array.isArray(recentEvents)) return null;
@@ -1328,6 +1347,34 @@
     var CREW_PLACEHOLDER_EN = { doctor: 'Doctor analyzing...', engineer: 'Engineer analyzing...', navigator: 'Navigator reasoning...', pilot: 'Pilot sensing...' };
     var CREW_FALLBACK_KO = { doctor: '반응을 살펴보겠습니다.', engineer: '로그 확인 중입니다.', navigator: '동선을 짚어보겠습니다.', pilot: '분위기가 이상합니다.' };
     var CREW_FALLBACK_EN = { doctor: 'Checking reactions.', engineer: 'Checking logs.', navigator: 'Tracing movements.', pilot: 'Something feels off.' };
+    var CREW_ROLES = ['doctor', 'engineer', 'navigator', 'pilot'];
+    function ensureCrewSlotsForBatch(turn, batchId) {
+      if (!logEl) return;
+      if (pendingCrewBatch && pendingCrewBatch.batchId === batchId) return;
+      var placeholderMap = window.__LANG === 'ko' ? CREW_PLACEHOLDER_KO : CREW_PLACEHOLDER_EN;
+      for (var i = 0; i < CREW_ROLES.length; i++) {
+        var role = CREW_ROLES[i];
+        var label = ROLE_LABEL_KO[role] || role;
+        var placeholder = (placeholderMap && placeholderMap[role]) || '...';
+        var roleClass = getRoleClass(role);
+        var div = document.createElement('div');
+        div.className = 'dialogue-line line';
+        div.setAttribute('data-crew-slot', role);
+        div.setAttribute('data-crew-batch', batchId);
+        var speaker = document.createElement('div');
+        speaker.className = 'dialogue-speaker ' + roleClass;
+        speaker.textContent = '[' + label + ']';
+        var text = document.createElement('div');
+        text.className = 'dialogue-text ' + roleClass + ' crew-placeholder';
+        text.textContent = placeholder;
+        div.appendChild(speaker);
+        div.appendChild(text);
+        logEl.appendChild(div);
+      }
+      pendingCrewBatch = { turn: turn, batchId: batchId };
+      logEl.scrollTop = logEl.scrollHeight;
+      if (window.fitShortsScale) window.fitShortsScale();
+    }
     function printCrewPlaceholder(role) {
       var label = ROLE_LABEL_KO[role] || role;
       var placeholder = (window.__LANG === 'ko' ? CREW_PLACEHOLDER_KO : CREW_PLACEHOLDER_EN)[role] || '...';
@@ -1349,7 +1396,8 @@
     }
     function updateCrewPlaceholder(role, mainText, summary, eventKey) {
       if (!logEl) return;
-      var row = logEl.querySelector('.dialogue-line[data-crew-slot="' + role + '"]');
+      var rows = logEl.querySelectorAll('.dialogue-line[data-crew-slot="' + role + '"]');
+      var row = rows.length > 0 ? rows[rows.length - 1] : null;
       if (!row) return;
       var fallbackMap = (window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN);
       var safeText = (mainText && String(mainText).trim()) ? String(mainText).trim() : ((fallbackMap && fallbackMap[role]) || '—');
@@ -1392,8 +1440,8 @@
         var isGameOver = !!captainData.game_over;
         var outcome = captainData.outcome || captainData.next_state?.outcome || null;
 
-        var CREW_ROLES = ['doctor', 'engineer', 'navigator', 'pilot'];
-        for (var i = 0; i < CREW_ROLES.length; i++) printCrewPlaceholder(CREW_ROLES[i]);
+        var batchId = 'batch_' + currentTurn + '_' + Date.now();
+        ensureCrewSlotsForBatch(currentTurn, batchId);
 
         var crewPromises = CREW_ROLES.map(function(role) {
           return (async function() {
@@ -1525,6 +1573,7 @@
 
     let gamePhase = 'crew_resolving';
     let currentPhaseActor = null;
+    var pendingCrewBatch = null;
     /* 상태 분리: captain 입력 잠금(isSubmittingCaptainAction), crew 진행(gamePhase), crew 슬롯 렌더링(updateCrewPlaceholder), alert(kill-glitch)는 서로 독립. crew 응답은 도착 즉시 setTimeout(0)으로 flush. */
     const PHASE_HINTS = {
       captain_input: '함장 입력 대기',
