@@ -269,6 +269,7 @@
     .kill-glitch.active {
       display: flex;
     }
+    .crew-placeholder { opacity: 0.85; }
     @keyframes glitch {
       0%, 100% { transform: translate(0); }
       20% { transform: translate(-2px, 2px); }
@@ -1256,6 +1257,51 @@
       return { action, target, reason: 'crew', dialogue: '' };
     }
 
+    var CREW_PLACEHOLDER_KO = { doctor: '의사 분석 중...', engineer: '엔지니어 분석 중...', navigator: '네비게이터 추론 중...', pilot: '파일럿 감지 중...' };
+    var CREW_PLACEHOLDER_EN = { doctor: 'Doctor analyzing...', engineer: 'Engineer analyzing...', navigator: 'Navigator reasoning...', pilot: 'Pilot sensing...' };
+    function printCrewPlaceholder(role) {
+      var label = ROLE_LABEL_KO[role] || role;
+      var placeholder = (window.__LANG === 'ko' ? CREW_PLACEHOLDER_KO : CREW_PLACEHOLDER_EN)[role] || '...';
+      var roleClass = getRoleClass(role);
+      var div = document.createElement('div');
+      div.className = 'dialogue-line line';
+      div.setAttribute('data-crew-slot', role);
+      var speaker = document.createElement('div');
+      speaker.className = 'dialogue-speaker ' + roleClass;
+      speaker.textContent = '[' + label + ']';
+      var text = document.createElement('div');
+      text.className = 'dialogue-text ' + roleClass + ' crew-placeholder';
+      text.textContent = placeholder;
+      div.appendChild(speaker);
+      div.appendChild(text);
+      logEl.appendChild(div);
+      logEl.scrollTop = logEl.scrollHeight;
+      if (window.fitShortsScale) window.fitShortsScale();
+    }
+    function updateCrewPlaceholder(role, mainText, summary, eventKey) {
+      if (!logEl) return;
+      var row = logEl.querySelector('.dialogue-line[data-crew-slot="' + role + '"]');
+      if (!row) return;
+      if (eventKey) row.setAttribute('data-event-key', eventKey);
+      var textEl = row.querySelector('.dialogue-text');
+      if (textEl) {
+        textEl.textContent = mainText || '';
+        textEl.classList.remove('crew-placeholder');
+      }
+      var subEl = row.querySelector('.dialogue-summary');
+      if (summary && mainText) {
+        if (subEl) { subEl.textContent = summary; subEl.style.display = ''; }
+        else {
+          var sub = document.createElement('div');
+          sub.className = 'dialogue-summary';
+          sub.textContent = summary;
+          row.appendChild(sub);
+        }
+      } else if (subEl) subEl.style.display = 'none';
+      logEl.scrollTop = logEl.scrollHeight;
+      if (window.fitShortsScale) window.fitShortsScale();
+    }
+
     async function runEp1Flow(message, deadCrew, opts) {
       try {
         if (!MATCH_ID) { MATCH_ID = newMatchId(); }
@@ -1276,24 +1322,36 @@
         var outcome = captainData.outcome || captainData.next_state?.outcome || null;
 
         var CREW_ROLES = ['doctor', 'engineer', 'navigator', 'pilot'];
-        for (var i = 0; i < CREW_ROLES.length; i++) {
-          var role = CREW_ROLES[i];
-          if (isGameOver) break;
-          setPhase('crew_resolving', role);
-          var stateData = await ep1CallState(role);
-          var decision = decideCrewAction(role, captainPayload, stateData);
-          var crewPayload = { action: decision.action, target: decision.target, reason: decision.reason, dialogue: decision.dialogue || '' };
-          var crewData = await ep1CallAction(crewPayload, { role: role });
-          if (crewData.next_state && crewData.next_state.turn != null) currentTurn = crewData.next_state.turn;
-          if (crewData.game_over) { isGameOver = true; outcome = crewData.outcome || outcome; }
-          var ev = findCrewEventInRecent(crewData.next_state && crewData.next_state.recent_events, role);
-          var mainText = getMainTextFromEvent(ev);
-          var summ = (ev && ev.summary) || (crewData.server_result && crewData.server_result.summary) || null;
-          if (mainText) {
-            printDialogueLine(role, mainText, summ, ev ? eventDedupeKey(ev) : null);
-            if (ev) renderedEventKeys.add(eventDedupeKey(ev));
-          }
-          await new Promise(function(r) { setTimeout(r, 150); });
+        for (var i = 0; i < CREW_ROLES.length; i++) printCrewPlaceholder(CREW_ROLES[i]);
+
+        var crewPromises = CREW_ROLES.map(function(role) {
+          return (async function() {
+            if (isGameOver) return { role: role, ok: false };
+            try {
+              var stateData = await ep1CallState(role);
+              var decision = decideCrewAction(role, captainPayload, stateData);
+              var crewPayload = { action: decision.action, target: decision.target, reason: decision.reason, dialogue: decision.dialogue || '' };
+              var crewData = await ep1CallAction(crewPayload, { role: role });
+              if (crewData.next_state && crewData.next_state.turn != null) currentTurn = crewData.next_state.turn;
+              var ev = findCrewEventInRecent(crewData.next_state && crewData.next_state.recent_events, role);
+              var mainText = getMainTextFromEvent(ev);
+              var summ = (ev && ev.summary) || (crewData.server_result && crewData.server_result.summary) || null;
+              if (mainText) {
+                var key = ev ? eventDedupeKey(ev) : null;
+                updateCrewPlaceholder(role, mainText, summ, key);
+                if (ev) renderedEventKeys.add(key);
+              }
+              return { role: role, ok: true, game_over: !!crewData.game_over, outcome: crewData.outcome };
+            } catch (e) {
+              updateCrewPlaceholder(role, '(오류)', null);
+              return { role: role, ok: false };
+            }
+          })();
+        });
+        var crewResults = await Promise.allSettled(crewPromises);
+        for (var r = 0; r < crewResults.length; r++) {
+          var res = crewResults[r];
+          if (res.status === 'fulfilled' && res.value && res.value.game_over) { isGameOver = true; outcome = res.value.outcome || outcome; }
         }
 
         setPhase('server_update');
@@ -1536,23 +1594,54 @@
       }, 650);
     }
 
+    var OPENING_LINES = {
+      ko: [
+        "[시스템 기동…]",
+        "대상 함선: USSC 타르타로스(프로토타입)",
+        "임무: 프로젝트 'HORIZON' — 중력 드라이브 실험",
+        "현 위치: 해왕성 궤도(태양계 외곽)",
+        " ",
+        "[치명적 오류]",
+        "중력 드라이브가 '여기가 아닌 곳'과 연결됐다.",
+        "귀환 신호에… 동승자가 섞였다.",
+        " ",
+        "[주요 목표]",
+        "1. 승무원 얼굴을 한 HOST(숙주)를 찾아라.",
+        "2. 시간이 끝나기 전에 처형하라.",
+        " "
+      ],
+      en: [
+        "[SYSTEM INITIALIZE…]",
+        "Target vessel: USSC Tartarus (Prototype)",
+        "Mission: PROJECT 'HORIZON' — Gravity Drive Test",
+        "Location: Neptune Orbit (Edge of Solar System)",
+        " ",
+        "[CRITICAL FAILURE]",
+        "The Gravity Drive connected to... somewhere else.",
+        "Something came back with the return signal.",
+        " ",
+        "[PRIMARY OBJECTIVE]",
+        "1. Find the HOST (Imposter) hiding in human skin.",
+        "2. Execute the traitor before time runs out.",
+        " "
+      ]
+    };
     async function startActualGame() {
-      setPhase('captain_input'); // captain turn start
+      setPhase('captain_input');
       startGameTimer();
-      printLine(t('opening.boot'), "role-system");
-      printLine(t('opening.target'), "role-system");
-      printLine(t('opening.mission'), "role-system");
-      printLine(t('opening.location'), "role-system");
-      printLine(" ", "line");
-      printLine(t('opening.criticalFailure'), "role-alert");
-      printLine(t('opening.gateway'), "role-system");
-      printLine(t('opening.broughtBack'), "role-system");
-      printLine(" ", "line");
-      printLine(t('opening.primaryObjective'), "role-system");
-      printLine(t('opening.objective1'), "role-system");
-      printLine(t('opening.objective2'), "role-system");
-      printLine(" ", "line");
-      await ep1EnsureMatch(); // 첫 진입 시 match 생성, AXIS intro 1회만 출력
+      var lang = (window.__LANG === 'ko') ? 'ko' : 'en';
+      var lines = OPENING_LINES[lang] || OPENING_LINES.ko;
+      for (var i = 0; i < lines.length; i++) {
+        var ln = lines[i];
+        if (ln === " ") {
+          printLine(" ", "line");
+        } else if (/^\[치명적 오류\]|^\[CRITICAL FAILURE\]/.test(ln)) {
+          printLine(ln, "role-alert");
+        } else {
+          printLine(ln, "role-system");
+        }
+      }
+      await ep1EnsureMatch();
     }
 
     function resumeAudioOnUserGesture() {
@@ -1669,7 +1758,7 @@
         if (!witnessTestimonyFound && aliveCrew.length > 1) {
           setTimeout(function() { requestWitnessTestimony(victim, aliveCrew.filter(function(c) { return c !== victim; })); }, 2000);
         }
-        setTimeout(function() { glitchEl.classList.remove('active'); }, 3000);
+        setTimeout(function() { glitchEl.classList.remove('active'); }, 1400);
         if (deadCrew.length >= 4) {
           setTimeout(triggerTotalFailure, 2000);
         } else if (witnessTestimonyFound || aliveCrew.length <= 1) {

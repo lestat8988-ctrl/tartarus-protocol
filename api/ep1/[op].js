@@ -13,8 +13,73 @@ const SECRET = process.env.TARTARUS_SECRET;
 // TODO: 실운영 durable store 필요
 const STORE = new Map();
 
+const ROLE_LABELS = {
+  captain: 'Captain',
+  doctor: 'Doctor',
+  engineer: 'Engineer',
+  navigator: 'Navigator',
+  pilot: 'Pilot'
+};
+
+const TARGET_LABELS = {
+  player: 'the captain',
+  captain: 'the captain',
+  doctor: 'the doctor',
+  engineer: 'the engineer',
+  navigator: 'the navigator',
+  pilot: 'the pilot'
+};
+
+function roleLabel(role) {
+  if (!role) return 'Unknown';
+  const r = String(role).toLowerCase();
+  return ROLE_LABELS[r] || role;
+}
+
+function targetLabel(target) {
+  if (!target) return null;
+  const t = String(target).toLowerCase();
+  return TARGET_LABELS[t] || target;
+}
+
+/**
+ * action별 사람 읽기 쉬운 summary 생성
+ */
+function makeActionSummary(actor, role, action, target, dialogue) {
+  const r = roleLabel(role);
+  const a = String(action || 'WAIT').toUpperCase();
+  const t = targetLabel(target);
+
+  switch (a) {
+    case 'QUESTION':
+      return t ? `${r} questioned ${t}.` : `${r} asked for clarification.`;
+    case 'OBSERVE':
+      return role === 'captain' ? `${r} observed the bridge.` : `${r} observed the situation.`;
+    case 'CHECK_LOG':
+      return `${r} checked ship logs.`;
+    case 'REPAIR':
+      return `${r} performed repairs.`;
+    case 'ACCUSE':
+      return t ? `${r} accused ${t}.` : `${r} made an accusation.`;
+    case 'WAIT':
+      return `${r} held position.`;
+    default:
+      break;
+  }
+
+  if (t) return `${r} ${a.toLowerCase()} (target: ${t}).`;
+  const d = (dialogue || '').slice(0, 50);
+  return d ? `${r}: ${d}${d.length >= 50 ? '...' : ''}` : `${r} acted.`;
+}
+
+function getEventType(action) {
+  const a = String(action || 'WAIT').toUpperCase();
+  const types = { QUESTION: 'question', OBSERVE: 'observe', CHECK_LOG: 'check_log', REPAIR: 'repair', ACCUSE: 'accuse', WAIT: 'wait' };
+  return types[a] || 'act';
+}
+
 function createDefaultMatchState(matchId) {
-  return {
+  const match = {
     match_id: matchId,
     turn: 1,
     phase: 'playing',
@@ -30,6 +95,8 @@ function createDefaultMatchState(matchId) {
     game_over: false,
     outcome: null
   };
+  match.public_events.push({ turn: 1, summary: 'AXIS emergency briefing initiated.' });
+  return match;
 }
 
 function getOrCreateMatch(matchId) {
@@ -41,16 +108,12 @@ function getOrCreateMatch(matchId) {
   return m;
 }
 
-function actionSummary(actor, role, action, target, dialogue) {
-  const r = role || actor || 'unknown';
-  const a = (action || 'acted').toLowerCase();
-  if (target) return `${r} ${a} (target: ${target})`;
-  const d = (dialogue || '').slice(0, 40);
-  return d ? `${r}: ${d}${d.length >= 40 ? '...' : ''}` : `${r} ${a}`;
-}
+function appendEvent(match, payload, clientTurn) {
+  if (payload.role === 'captain' && clientTurn != null) {
+    match.turn = Math.max(match.turn, clientTurn);
+  }
 
-function appendEvent(match, payload) {
-  match.events.push({
+  const rawEvent = {
     turn: match.turn,
     actor: payload.actor,
     role: payload.role,
@@ -59,8 +122,10 @@ function appendEvent(match, payload) {
     reason: payload.reason ?? null,
     dialogue: payload.dialogue ?? null,
     ts: Date.now()
-  });
-  const summary = actionSummary(
+  };
+  match.events.push(rawEvent);
+
+  const summary = makeActionSummary(
     payload.actor,
     payload.role,
     payload.action,
@@ -68,6 +133,11 @@ function appendEvent(match, payload) {
     payload.dialogue
   );
   match.public_events.push({ turn: match.turn, summary });
+}
+
+function recentEvents(events, n = 5) {
+  const arr = Array.isArray(events) ? events : [];
+  return arr.slice(-n);
 }
 
 // ─── req/res helpers ───────────────────────────────────────────────────────
@@ -103,19 +173,27 @@ function handleState(body, res) {
     return errRes(res, 400, 'match_id required');
   }
   const match = getOrCreateMatch(matchId);
+  const pub = match.public_events || [];
+  const evts = match.events || [];
+
   return res.status(200).json({
     state: match.phase,
     match_id: match.match_id,
     turn: match.turn,
     phase: match.phase,
     location: match.location,
-    public_events: match.public_events || [],
+    current_scene: match.location,
+    current_round: match.turn,
+    public_events: pub,
+    recent_events: recentEvents(pub, 5),
+    events_count: evts.length,
     crew_status: match.crew_status || {},
     game_over: match.game_over || false,
     outcome: match.outcome ?? null
   });
 }
 
+/** action: 단일 요청 처리. 클라이언트가 crew 4명을 병렬로 호출하면 동시 처리됨. */
 function handleAction(body, res) {
   const matchId = body.match_id;
   if (!matchId || typeof matchId !== 'string') {
@@ -130,23 +208,35 @@ function handleAction(body, res) {
     reason: body.reason ?? null,
     dialogue: body.dialogue ?? null
   };
-  appendEvent(match, payload);
-  const summary = match.public_events.length
-    ? match.public_events[match.public_events.length - 1].summary
-    : actionSummary(payload.actor, payload.role, payload.action, payload.target, payload.dialogue);
+
+  appendEvent(match, payload, body.turn);
+
+  const lastPub = match.public_events[match.public_events.length - 1];
+  const summary = lastPub ? lastPub.summary : makeActionSummary(
+    payload.actor,
+    payload.role,
+    payload.action,
+    payload.target,
+    payload.dialogue
+  );
+  const eventType = getEventType(payload.action);
 
   return res.status(200).json({
     ok: true,
     server_result: {
       accepted: true,
       summary,
+      event_type: eventType,
       placeholder: true
     },
     next_state: {
       match_id: match.match_id,
       turn: match.turn,
       phase: match.phase,
-      public_events: match.public_events || []
+      public_events: match.public_events || [],
+      events_count: (match.events || []).length,
+      game_over: match.game_over || false,
+      outcome: match.outcome ?? null
     },
     game_over: match.game_over || false,
     outcome: match.outcome ?? null
@@ -159,14 +249,17 @@ function handleResult(body, res) {
     return errRes(res, 400, 'match_id required');
   }
   const match = getOrCreateMatch(matchId);
+  const pub = match.public_events || [];
+
   return res.status(200).json({
     match_id: match.match_id,
     game_over: match.game_over || false,
     outcome: match.outcome ?? null,
-    phase: match.phase,
     turn: match.turn,
-    public_events: match.public_events || [],
-    events_count: (match.events || []).length
+    phase: match.phase,
+    events_count: (match.events || []).length,
+    recent_events: recentEvents(pub, 5),
+    public_events: pub
   });
 }
 
