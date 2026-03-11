@@ -175,6 +175,15 @@ function doesDialogueSelfTarget(dialogue, targetRoleKo, role) {
   return head.indexOf(targetKo) >= 0;
 }
 
+/** dialogue 첫 단어가 자기 role명(의사/엔지니어/네비게이터/파일럿)으로 시작하는지. self-target 실패 검사. */
+function doesDialogueStartWithSelfRole(dialogue, role) {
+  if (!dialogue || !role) return false;
+  const roleKo = TARGET_KO[role];
+  if (!roleKo) return false;
+  const firstWord = String(dialogue).trim().split(/\s+/)[0] || '';
+  return firstWord.startsWith(roleKo);
+}
+
 const ROLE_ACTION_HINTS = {
   doctor: 'QUESTION과 OBSERVE 균형. OBSERVE만 반복 금지. 이상 반응·지연·불일치가 보이면 QUESTION으로 직접 찌르기.',
   engineer: 'CHECK_LOG 최우선. REPAIR 또는 OBSERVE는 보조. system/log/engine/record/anomaly 언급 시 반드시 CHECK_LOG.',
@@ -431,10 +440,11 @@ async function callCrewDecide(role, observation) {
       `이번 턴의 중심은 captain이 지목한 대상이다. 직전 턴 타깃을 재사용하지 마라.\n`;
     if (isSelfTarget) {
       questionBlock += `\n[자기 자신이 질문 대상일 때 - self-target 금지]\n` +
-        `당신(your_role)이 바로 ${targetRoleKo}이다. 자기 자신 이름을 부르며 추궁하지 마라.\n` +
-        `"${targetRoleKo}, 그때 어디 있었지?" 같은 형식 금지.\n` +
-        `대신: 그 시간대 자신의 위치 설명, 알리바이 해명, 기록 불일치에 대한 설명, 감정적 방어/부인 중 하나로 답하라.\n` +
-        `예: "저는 그 시간에 브리지 근처에 있었습니다.", "그때 저는 혼자가 아니었습니다.", "내 기록이 그렇게 보인다면 설명하겠습니다.", "제가 숨길 이유는 없습니다."\n`;
+        `당신(your_role)이 바로 ${targetRoleKo}이다. target 본인은 반드시 자기 해명/자기 답변/자기 방어형으로만 말하라.\n` +
+        `금지: 자기 이름을 앞에 붙여서 추궁. "${targetRoleKo}, 그때 어디 있었지?" 형식. "${targetRoleKo}의 표정이..."처럼 자기 자신을 제3자처럼 관찰. "${targetRoleKo}로서..." 같은 역할 선언형 메타 문장.\n` +
+        `필수: 그 시간대 자신의 위치 설명, 알리바이 해명, 기록/로그 불일치에 대한 설명, 감정적 방어/부인 중 하나.\n` +
+        `예: "저는 그 시간에 브리지 근처에 있었습니다.", "그때 저는 혼자가 아니었습니다.", "내 기록이 그렇게 보인다면 설명하겠습니다.", "제가 숨길 이유는 없습니다.", "그 시간엔 엔진실 점검을 마치고 돌아오고 있었습니다."\n` +
+        `dialogue 첫 단어가 "${targetRoleKo}"로 시작하면 실패. "저", "그때", "내", "제" 등으로 시작하라.\n`;
     } else {
       questionBlock += `\n[질문 대상이 아닐 때 - non-target 규칙]\n` +
         `첫 문장 또는 첫 절에서 반드시 ${targetRoleKo}를 중심으로 말하라.\n` +
@@ -495,9 +505,11 @@ async function callCrewDecide(role, observation) {
     if (isQuestion && targetRoleKo && decision.dialogue) {
       if (isQuestionGenericFallback(decision.dialogue)) {
         decision = { ...decision, dialogue: isSelfTarget ? getQuestionSelfTargetFallback(role, targetRoleKo) : getQuestionTargetFocusedFallback(role, targetRoleKo) };
-      } else if (isSelfTarget && doesDialogueSelfTarget(decision.dialogue, targetRoleKo, role)) {
-        decision = { ...decision, dialogue: getQuestionSelfTargetFallback(role, targetRoleKo) };
-      } else if (!isSelfTarget && !doesDialogueFocusOnTarget(decision.dialogue, targetRoleKo)) {
+      } else if (isSelfTarget) {
+        if (doesDialogueSelfTarget(decision.dialogue, targetRoleKo, role) || doesDialogueStartWithSelfRole(decision.dialogue, role)) {
+          decision = { ...decision, dialogue: getQuestionSelfTargetFallback(role, targetRoleKo) };
+        }
+      } else if (!doesDialogueFocusOnTarget(decision.dialogue, targetRoleKo)) {
         decision = { ...decision, dialogue: getQuestionTargetFocusedFallback(role, targetRoleKo) };
       }
     }
@@ -549,10 +561,9 @@ async function runEpisode(matchId, maxTurns = 10, logPath, testMode = false) {
     let captainAction;
     if (testMode) {
       captainAction = getCaptainTestAction(turn, state);
-      console.log(`[ep1] captain (test): ${captainAction.action} ${captainAction.target || ''} - ${captainAction.dialogue?.slice(0, 40) || ''}`);
+      console.log(`[ep1] captain: ${captainAction.action} ${captainAction.target || ''} - ${(captainAction.dialogue || '').slice(0, 50)}`);
     } else {
       captainAction = await getCaptainPlayerInput(matchId, turn);
-      console.log(`[ep1] captain (player): ${captainAction.action} ${captainAction.target || ''} - ${captainAction.dialogue?.slice(0, 40) || ''}`);
     }
     const captainResult = await submitAction(matchId, turn, 'captain', 'captain', captainAction);
     recentEvents.push({
