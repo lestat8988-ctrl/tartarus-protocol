@@ -1071,10 +1071,17 @@
       return { action: 'OBSERVE', target: null, dialogue: witness + ' witnessed the murder of ' + victim, reason: 'witness' };
     }
 
-    // 일반 SEND 입력 경로: raw 원문을 dialogue로 보존. action/target 파싱만 별도.
+    // 일반 SEND 입력 경로: raw 원문을 dialogue로 보존. action/target 파싱만 별도. cctv/engine 등 preset과 동일 매핑.
     function buildPayloadFromUserInput(raw) {
       const s = String(raw || '').trim();
       if (!s) return null;
+      const lower = s.toLowerCase();
+      if (/cctv|check\s+cctv|로그\s*확인/i.test(lower)) return { action: 'CHECK_LOG', target: null, dialogue: s, reason: 'player_input' };
+      if (/engine|check\s+engine|엔진/i.test(lower)) return { action: 'CHECK_LOG', target: null, dialogue: s, reason: 'player_input' };
+      if (/interrogate|status|report|심문/i.test(lower) || /^question\s+(doctor|engineer|navigator|pilot)\s+/i.test(s)) {
+        var parsed = parseEp1Input(s);
+        return { action: 'QUESTION', target: parsed.target || 'doctor', dialogue: s, reason: 'player_input' };
+      }
       const parsed = parseEp1InputForUserInput(s);
       return { action: parsed.action, target: parsed.target, dialogue: s, reason: 'player_input' };
     }
@@ -1223,9 +1230,15 @@
     function appendNewEventsFromList(events, resultLines) {
       const list = Array.isArray(events) ? events : [];
       for (const e of list) {
+        var role = e.role || 'system';
+        if (role === 'captain') {
+          renderedEventKeys.add(eventDedupeKey(e));
+          const line = eventToSummary(e);
+          if (line) resultLines.push(line);
+          continue;
+        }
         const key = eventDedupeKey(e);
         const mainText = getMainTextFromEvent(e);
-        const role = e.role || 'system';
         const summary = e.summary || null;
         var existingRow = false;
         if (logEl) {
@@ -1272,6 +1285,8 @@
 
     var CREW_PLACEHOLDER_KO = { doctor: '의사 분석 중...', engineer: '엔지니어 분석 중...', navigator: '네비게이터 추론 중...', pilot: '파일럿 감지 중...' };
     var CREW_PLACEHOLDER_EN = { doctor: 'Doctor analyzing...', engineer: 'Engineer analyzing...', navigator: 'Navigator reasoning...', pilot: 'Pilot sensing...' };
+    var CREW_FALLBACK_KO = { doctor: '반응을 살펴보겠습니다.', engineer: '로그 확인 중입니다.', navigator: '동선을 짚어보겠습니다.', pilot: '분위기가 이상합니다.' };
+    var CREW_FALLBACK_EN = { doctor: 'Checking reactions.', engineer: 'Checking logs.', navigator: 'Tracing movements.', pilot: 'Something feels off.' };
     function printCrewPlaceholder(role) {
       var label = ROLE_LABEL_KO[role] || role;
       var placeholder = (window.__LANG === 'ko' ? CREW_PLACEHOLDER_KO : CREW_PLACEHOLDER_EN)[role] || '...';
@@ -1349,13 +1364,15 @@
               var ev = findCrewEventInRecent(crewData.next_state && crewData.next_state.recent_events, role);
               var mainText = getMainTextFromEvent(ev);
               var summ = (ev && ev.summary) || (crewData.server_result && crewData.server_result.summary) || null;
-              var displayText = mainText || summ || '—';
+              var fallbackMap = (window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN);
+              var displayText = mainText || summ || (fallbackMap && fallbackMap[role]) || '—';
               var key = ev ? eventDedupeKey(ev) : null;
-              updateCrewPlaceholder(role, displayText, mainText ? summ : null, key);
+              var r = role, dt = displayText, s = mainText ? summ : null, k = key;
+              setTimeout(function() { updateCrewPlaceholder(r, dt, s, k); }, 0);
               if (ev) renderedEventKeys.add(key);
               return { role: role, ok: true, game_over: !!crewData.game_over, outcome: crewData.outcome };
             } catch (e) {
-              updateCrewPlaceholder(role, '(오류)', null);
+              setTimeout(function() { updateCrewPlaceholder(role, '(오류)', null); }, 0);
               return { role: role, ok: false };
             }
           })();
@@ -1739,9 +1756,10 @@
       const victim = aliveCrew[Math.floor(Math.random() * aliveCrew.length)];
       deadCrew.push(victim);
       
-      // Show glitch effect
+      // Show glitch effect (0.8s overlay, clear previous timer)
       const glitchEl = document.getElementById('kill-glitch');
       const messageEl = document.getElementById('kill-message-text');
+      if (window.__killGlitchTimer) { clearTimeout(window.__killGlitchTimer); window.__killGlitchTimer = null; }
       var killMsg = window.isKo ? tLine('[EMERGENCY ALERT] ' + victim + ' terminated') : `[EMERGENCY ALERT]\n${victim.toUpperCase()} TERMINATED`; // PATCH
       messageEl.textContent = killMsg; // PATCH
       glitchEl.classList.add('active');
@@ -1771,7 +1789,7 @@
         if (!witnessTestimonyFound && aliveCrew.length > 1) {
           setTimeout(function() { requestWitnessTestimony(victim, aliveCrew.filter(function(c) { return c !== victim; })); }, 2000);
         }
-        setTimeout(function() { glitchEl.classList.remove('active'); }, 900);
+        window.__killGlitchTimer = setTimeout(function() { glitchEl.classList.remove('active'); window.__killGlitchTimer = null; }, 800);
         if (deadCrew.length >= 4) {
           setTimeout(triggerTotalFailure, 2000);
         } else if (witnessTestimonyFound || aliveCrew.length <= 1) {

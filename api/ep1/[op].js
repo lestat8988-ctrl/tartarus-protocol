@@ -140,6 +140,23 @@ function recentEvents(events, n = 5) {
   return arr.slice(-n);
 }
 
+/** recent_events 형식: client가 findCrewEventInRecent/getMainTextFromEvent로 사용. role, dialogue, summary 필수 */
+function buildRecentEventsForResponse(match) {
+  const evts = match.events || [];
+  const lastN = evts.slice(-10);
+  return lastN.map((e) => ({
+    turn: e.turn ?? null,
+    actor: e.actor ?? null,
+    role: e.role ?? null,
+    action: e.action ?? null,
+    target: e.target ?? null,
+    reason: e.reason ?? null,
+    dialogue: e.dialogue ?? null,
+    summary: makeActionSummary(e.actor, e.role, e.action, e.target, e.dialogue),
+    created_at: e.ts ?? null
+  }));
+}
+
 // ─── req/res helpers ───────────────────────────────────────────────────────
 
 function parseBody(req) {
@@ -221,6 +238,7 @@ function handleAction(body, res) {
   );
   const eventType = getEventType(payload.action);
 
+  const recent_events = buildRecentEventsForResponse(match);
   return res.status(200).json({
     ok: true,
     server_result: {
@@ -234,6 +252,7 @@ function handleAction(body, res) {
       turn: match.turn,
       phase: match.phase,
       public_events: match.public_events || [],
+      recent_events,
       events_count: (match.events || []).length,
       game_over: match.game_over || false,
       outcome: match.outcome ?? null
