@@ -784,9 +784,9 @@
 
       <div class="action-bar">
         <!-- quick button: getInterrogateMessage()로 생존 승무원 기반 질문 생성 -->
-        <button class="action-btn" data-msg="interrogate" onclick="sendMessage(typeof getInterrogateMessage==='function'?getInterrogateMessage():'QUESTION doctor 의사, 그때 어디 있었지?')">승무원 심문</button>
-        <button class="action-btn" data-msg="cctv" data-ep1="CHECK_LOG CCTV 로그를 확인한다." onclick="sendMessage(this.getAttribute('data-ep1'))">CCTV 로그 확인</button>
-        <button class="action-btn" data-msg="engine" data-ep1="CHECK_LOG 엔진실 로그를 확인한다." onclick="sendMessage(this.getAttribute('data-ep1'))">엔진실 확인</button>
+        <button type="button" class="action-btn" data-msg="interrogate" onclick="sendInterrogateClick(event)">승무원 심문</button>
+        <button type="button" class="action-btn" data-msg="cctv" data-ep1="CHECK_LOG CCTV 로그를 확인한다." onclick="sendMessage(this.getAttribute('data-ep1'))">CCTV 로그 확인</button>
+        <button type="button" class="action-btn" data-msg="engine" data-ep1="CHECK_LOG 엔진실 로그를 확인한다." onclick="sendMessage(this.getAttribute('data-ep1'))">엔진실 확인</button>
       </div>
 
       <div id="phase-status" style="border-bottom:1px solid rgba(57,255,20,0.3);padding-bottom:6px;"></div>
@@ -1047,6 +1047,18 @@
       var roleLower = target.toLowerCase();
       var roleKo = (ROLE_LABEL_KO && ROLE_LABEL_KO[roleLower]) || roleLower;
       return 'QUESTION ' + roleLower + ' ' + roleKo + ', 그때 어디 있었지?';
+    }
+    function sendInterrogateClick(ev) {
+      if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+      if (gameEnded) return;
+      var msg = (typeof getInterrogateMessage === 'function') ? getInterrogateMessage() : 'QUESTION doctor 의사, 그때 어디 있었지?';
+      var m = String(msg).trim().match(/^QUESTION\s+(\S+)/i);
+      var key = m ? ('QUESTION:' + (m[1] || '').toLowerCase()) : msg;
+      var now = Date.now();
+      if (lastQuestionKey === key && (now - lastQuestionDispatchAt) < QUESTION_DEBOUNCE_MS) return;
+      lastQuestionKey = key;
+      lastQuestionDispatchAt = now;
+      sendMessage(msg);
     }
     function formatCaptainDisplay(raw, captainPayload) {
       if (!raw || !captainPayload) return raw;
@@ -1614,6 +1626,9 @@
     let typingSkipped = false;
     let currentTypingResolver = null;
     let isSubmittingCaptainAction = false; // captain 중복 제출 방지
+    let lastQuestionDispatchAt = 0;
+    let lastQuestionKey = '';
+    const QUESTION_DEBOUNCE_MS = 500;
 
     let gamePhase = 'crew_resolving';
     let currentPhaseActor = null;
@@ -2368,6 +2383,7 @@
 
     // ===== expose UI handlers to window (no logic changes) =====
     window.sendMessage = sendMessage;
+    window.sendInterrogateClick = sendInterrogateClick;
     window.openAccuseModal = openAccuseModal;
     window.triggerAccuse = triggerAccuse;
     window.closeAccuseModal = closeAccuseModal;
