@@ -1889,6 +1889,7 @@
         var content = data.resultText || data.result || '';
         var lines = String(content).split('\n');
         var witnessTestimonyFound = false;
+        var witnessLinePrinted = false;
         for (var i = 0; i < lines.length; i++) {
           var line = lines[i];
           if (line.trim()) {
@@ -1896,9 +1897,10 @@
               witnessTestimonyFound = true;
               typingSkipped = false;
               await printLine('[WITNESS TESTIMONY INCOMING]', "witness-alert", { typewriter: true });
-            } else if (witnessTestimonyFound && line.indexOf(':') >= 0) {
+            } else if (witnessTestimonyFound && !witnessLinePrinted && line.indexOf(':') >= 0 && (line.indexOf('Navigator:') === 0 || line.indexOf('Engineer:') === 0 || line.indexOf('Doctor:') === 0 || line.indexOf('Pilot:') === 0)) {
               typingSkipped = false;
               await printLine(line, "witness-testimony", { typewriter: true });
+              witnessLinePrinted = true;
             }
           }
         }
@@ -1924,32 +1926,31 @@
     async function requestWitnessTestimony(victim, aliveCrew) {
       if (gameEnded || aliveCrew.length === 0) return;
 
-      // deadCrew 제외한 살아있는 인물만 목격자 후보 (죽은 사람이 목격자로 나오지 않게)
       const crewList = (window.GAME_DATA && window.GAME_DATA.crew) ? window.GAME_DATA.crew : ['Navigator', 'Engineer', 'Doctor', 'Pilot'];
       const witnessCandidates = crewList.filter(function (c) { return !deadCrew.includes(c) && c !== victim; });
       if (witnessCandidates.length === 0) return;
 
       const witness = witnessCandidates[Math.floor(Math.random() * witnessCandidates.length)];
-      
-      printLine(`[WITNESS TESTIMONY INCOMING]`, "witness-alert");
-      
-      try {
-        var data = await runEp1Flow(null, deadCrew, { witnessVictim: victim, witnessName: witness, lastWitnessLine: window.__lastWitnessLine || '' });
-        var content = data.resultText || data.result || '';
-        var lines = String(content).split('\n');
-        for (var i = 0; i < lines.length; i++) {
-          var line = lines[i];
-          if (line.trim() && line.indexOf(':') >= 0 && (line.indexOf('Navigator:') === 0 || line.indexOf('Engineer:') === 0 || line.indexOf('Doctor:') === 0 || line.indexOf('Pilot:') === 0)) {
-            typingSkipped = false;
-            await printLine(line, "witness-testimony", { typewriter: true });
-          }
-        }
-        history.push({ role: "assistant", content: content });
-        setPhase('captain_input');
-      } catch (err) {
-        printLine('[ERROR] ' + err.message, "role-alert");
-        setPhase('captain_input');
+      printLine('[WITNESS TESTIMONY INCOMING]', "witness-alert");
+
+      var witnessLine = null;
+      var testimonies = (window.GAME_DATA && window.GAME_DATA.witnessTestimonies && window.GAME_DATA.witnessTestimonies[witness]) || [];
+      if (Array.isArray(testimonies) && testimonies.length > 0) {
+        var ok = testimonies.filter(function (l) {
+          var s = String(l || '').trim();
+          if (!s || s.indexOf(':') < 0) return false;
+          var speaker = s.split(':')[0].trim();
+          return !deadCrew.some(function (d) { return String(d).toLowerCase() === String(speaker).toLowerCase(); });
+        });
+        var pool = ok.length > 0 ? ok : testimonies;
+        witnessLine = pool[Math.floor(Math.random() * pool.length)];
       }
+      if (witnessLine) {
+        typingSkipped = false;
+        await printLine(witnessLine, "witness-testimony", { typewriter: true });
+      }
+      history.push({ role: "assistant", content: witnessLine ? ('[WITNESS TESTIMONY INCOMING]\n' + witnessLine) : '[WITNESS TESTIMONY INCOMING]' });
+      setPhase('captain_input');
     }
 
     function triggerTotalFailure() {
