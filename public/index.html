@@ -1046,6 +1046,7 @@
     // preset 버튼 경로: [ACCUSE], quick button 문구. [AUTO-KILL]/[WITNESS] 사용 안 함.
     function buildPayloadFromPreset(raw) {
       const s = String(raw || '').trim();
+      var parsed;
       if (/^\[ACCUSE\]/i.test(s)) {
         const t = s.replace(/^\[ACCUSE\]/i, '').trim().toLowerCase();
         const roleMap = { navigator: 'navigator', engineer: 'engineer', doctor: 'doctor', pilot: 'pilot' };
@@ -1055,11 +1056,11 @@
       const lower = s.toLowerCase();
       if (/cctv|check\s+cctv/i.test(lower)) return { action: 'CHECK_LOG', target: null, dialogue: s, reason: 'player_input' };
       if (/interrogate|status|report/i.test(lower) || /^question\s+(doctor|engineer|navigator|pilot)\s+/i.test(s)) {
-        var parsed = parseEp1Input(s);
+        parsed = parseEp1Input(s);
         return { action: 'QUESTION', target: parsed.target || 'doctor', dialogue: s, reason: 'player_input' };
       }
       if (/engine|check\s+engine/i.test(lower)) return { action: 'CHECK_LOG', target: null, dialogue: s, reason: 'player_input' };
-      const parsed = parseEp1Input(s);
+      parsed = parseEp1Input(s);
       return { action: parsed.action, target: parsed.target, dialogue: s, reason: 'player_input' };
     }
     // auto_kill payload 생성: 전용 경로. 일반 SEND/quick button과 절대 섞이지 않음.
