@@ -1,7 +1,8 @@
 /**
  * api/ep1/result.js - 1편 전용 결과 조회 API (Supabase)
  * POST body: { match_id }
- * returns: { match_id, game_over, outcome, turn, phase, location, public_events, recent_events, events_count, culprit, hidden_host, impostor, actual_imposter, true_impostor }
+ * returns: { match_id, game_over, outcome, turn, phase, location, public_events, recent_events, events_count }
+ * 정답 필드(culprit, hidden_host, impostor, actual_imposter, true_impostor)는 클라이언트 응답에서 제외.
  *
  * tartarus_ep1_loop.js getResult()가 호출.
  *
@@ -41,6 +42,20 @@ function resolveImpostorFromMatch(match) {
   if (!match) return null;
   const raw = match.hidden_host_role ?? match.private_state?.hidden_host_role ?? null;
   return toPascalImpostor(raw);
+}
+
+/** 정답 필드 제거. game_over=false 응답에 절대 노출되지 않도록 최종 응답에서 제거. */
+const ANSWER_KEYS = ['culprit', 'hidden_host', 'impostor', 'actual_imposter', 'true_impostor'];
+
+function removeAnswerFields(obj) {
+  if (obj == null || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(removeAnswerFields);
+  const out = {};
+  for (const k of Object.keys(obj)) {
+    if (ANSWER_KEYS.includes(k)) continue;
+    out[k] = removeAnswerFields(obj[k]);
+  }
+  return out;
 }
 
 module.exports = async (req, res) => {
@@ -87,23 +102,20 @@ module.exports = async (req, res) => {
     return full;
   }).filter(Boolean);
   const events_count = await getEventsCount(matchId);
-  const impostorVal = resolveImpostorFromMatch(match);
 
-  return res.status(200).json({
+  const safeResult = {
     debug_version: 'ep1-result-full-events-v2',
     match_id: match.match_id,
-    game_over: match.game_over || false,
+    game_over: !!match.game_over,
     outcome: match.outcome ?? null,
     turn: match.turn ?? 1,
     phase: match.phase ?? 'playing',
     location: match.location ?? 'bridge',
     public_events: Array.isArray(pub) ? pub : [],
     recent_events,
-    events_count,
-    culprit: impostorVal ?? null,
-    hidden_host: impostorVal ?? null,
-    impostor: impostorVal ?? null,
-    actual_imposter: impostorVal ?? null,
-    true_impostor: impostorVal ?? null
-  });
+    events_count
+  };
+
+  const sanitized = removeAnswerFields(safeResult);
+  return res.status(200).json(sanitized);
 };
