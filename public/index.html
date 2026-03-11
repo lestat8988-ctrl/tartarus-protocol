@@ -784,7 +784,7 @@
 
       <div class="action-bar">
         <!-- quick button: getInterrogateMessage()로 생존 승무원 기반 질문 생성 -->
-        <button type="button" class="action-btn" data-msg="interrogate" onclick="sendInterrogateClick(event)">승무원 심문</button>
+        <button type="button" class="action-btn" data-msg="interrogate" id="interrogate-btn">승무원 심문</button>
         <button type="button" class="action-btn" data-msg="cctv" data-ep1="CHECK_LOG CCTV 로그를 확인한다." onclick="sendMessage(this.getAttribute('data-ep1'))">CCTV 로그 확인</button>
         <button type="button" class="action-btn" data-msg="engine" data-ep1="CHECK_LOG 엔진실 로그를 확인한다." onclick="sendMessage(this.getAttribute('data-ep1'))">엔진실 확인</button>
       </div>
@@ -1050,19 +1050,28 @@
     }
     function sendInterrogateClick(ev) {
       if (ev) { ev.preventDefault(); ev.stopPropagation(); if (ev.stopImmediatePropagation) ev.stopImmediatePropagation(); }
-      if (gameEnded) return;
       if (questionInFlight) return;
+      questionInFlight = true;
+      if (gameEnded) { questionInFlight = false; return; }
       var now = Date.now();
-      if ((now - lastQuestionDispatchAt) < QUESTION_DEBOUNCE_MS) return;
+      if ((now - lastQuestionDispatchAt) < QUESTION_DEBOUNCE_MS) { questionInFlight = false; return; }
       var msg = (typeof getInterrogateMessage === 'function') ? getInterrogateMessage() : 'QUESTION doctor 의사, 그때 어디 있었지?';
       var m = String(msg).trim().match(/^QUESTION\s+(\S+)/i);
       var key = m ? ('QUESTION:' + (m[1] || '').toLowerCase()) : msg;
-      questionInFlight = true;
       lastQuestionKey = key;
       lastQuestionDispatchAt = now;
+      var btn = ev && ev.currentTarget ? ev.currentTarget : document.querySelector('.action-btn[data-msg="interrogate"]');
+      if (btn) btn.disabled = true;
       var p = sendMessage(msg);
-      if (p && typeof p.finally === 'function') p.finally(function() { questionInFlight = false; });
-      else questionInFlight = false;
+      if (p && typeof p.finally === 'function') {
+        p.finally(function() {
+          questionInFlight = false;
+          if (btn && !gameEnded && gamePhase === 'captain_input') btn.disabled = false;
+        });
+      } else {
+        questionInFlight = false;
+        if (btn && !gameEnded) btn.disabled = false;
+      }
     }
     function formatCaptainDisplay(raw, captainPayload) {
       if (!raw || !captainPayload) return raw;
@@ -1323,6 +1332,7 @@
         if (mainText && /^(QUESTION|CHECK_LOG|OBSERVE|REPAIR|WAIT)\s/i.test(String(mainText).trim()) && typeof formatCaptainDisplay === 'function') {
           mainText = formatCaptainDisplay(mainText, { action: e.action || 'OBSERVE', target: e.target || null });
         }
+        if (mainText && /^QUESTION\s+/i.test(String(mainText).trim())) continue;
         var existingRow = false;
         if (logEl) {
           var rows = logEl.querySelectorAll('.dialogue-line[data-event-key]');
@@ -2390,6 +2400,16 @@
     // ===== expose UI handlers to window (no logic changes) =====
     window.sendMessage = sendMessage;
     window.sendInterrogateClick = sendInterrogateClick;
+    (function bindInterrogateButton() {
+      var btn = document.getElementById('interrogate-btn');
+      if (!btn) return;
+      btn.addEventListener('click', function(ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
+        sendInterrogateClick(ev);
+      }, { capture: true, passive: false });
+    })();
     window.openAccuseModal = openAccuseModal;
     window.triggerAccuse = triggerAccuse;
     window.closeAccuseModal = closeAccuseModal;
