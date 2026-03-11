@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -1051,15 +1051,28 @@
     function formatCaptainDisplay(raw, captainPayload) {
       if (!raw || !captainPayload) return raw;
       var s = String(raw).trim();
+      var roleKo = function(r) { return (ROLE_LABEL_KO && r && ROLE_LABEL_KO[r.toLowerCase()]) || r || ''; };
+      if (captainPayload.action === 'ACCUSE' && captainPayload.target) {
+        var t = captainPayload.target;
+        return roleKo(t) + ' 처형';
+      }
+      if (/^\[ACCUSE\]\s*/i.test(s)) {
+        var accTarget = s.replace(/^\[ACCUSE\]\s*/i, '').trim().toLowerCase();
+        return (roleKo(accTarget) || accTarget) + ' 처형';
+      }
       if (captainPayload.action === 'QUESTION' && captainPayload.target) {
         var prefix = 'QUESTION ' + captainPayload.target.toLowerCase() + ' ';
         if (s.toLowerCase().indexOf(prefix.toLowerCase()) === 0) {
           var rest = s.slice(prefix.length).trim();
-          return rest || ((ROLE_LABEL_KO && ROLE_LABEL_KO[captainPayload.target]) || captainPayload.target) + ', 그때 어디 있었지?';
+          return rest || roleKo(captainPayload.target) + ', 그때 어디 있었지?';
         }
         var m = s.match(/^QUESTION\s+(doctor|engineer|navigator|pilot)\s+/i);
-        if (m) return s.slice(m[0].length).trim() || s;
+        if (m) return s.slice(m[0].length).trim() || roleKo(m[1]) + ', 그때 어디 있었지?';
       }
+      var stripped = s.replace(/^(CHECK_LOG|OBSERVE|REPAIR|WAIT)\s+/i, '').trim();
+      if (stripped !== s) return stripped;
+      var qm = s.match(/^QUESTION\s+(doctor|engineer|navigator|pilot)\s+(.+)$/i);
+      if (qm) return qm[2].trim() || roleKo(qm[1]) + ', 그때 어디 있었지?';
       return s;
     }
     // preset 버튼 경로: [ACCUSE], quick button 문구. [AUTO-KILL]/[WITNESS] 사용 안 함.
@@ -1414,6 +1427,7 @@
       if (!row) return;
       var fallbackMap = (window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN);
       var safeText = (mainText && String(mainText).trim()) ? String(mainText).trim() : ((fallbackMap && fallbackMap[role]) || '—');
+      if (typeof toRoleLabelKo === 'function') safeText = toRoleLabelKo(safeText);
       if (eventKey) row.setAttribute('data-event-key', eventKey);
       var textEl = row.querySelector('.dialogue-text');
       if (textEl) {
@@ -1600,6 +1614,17 @@
       game_over: '게임 종료'
     };
     const ROLE_LABEL_KO = { captain: '함장', doctor: '의사', engineer: '엔지니어', navigator: '네비게이터', pilot: '파일럿', system: '시스템' };
+    function toRoleLabelKo(text) {
+      if (!text || typeof text !== 'string') return text;
+      if (window.__LANG !== 'ko') return text;
+      var s = text;
+      var map = { doctor: '의사', engineer: '엔지니어', navigator: '네비게이터', pilot: '파일럿' };
+      for (var key in map) {
+        var re = new RegExp('\\b' + key + '\\b', 'gi');
+        s = s.replace(re, map[key]);
+      }
+      return s;
+    }
     function setPhase(phase, actor) {
       gamePhase = phase;
       currentPhaseActor = actor || null;
@@ -2005,6 +2030,7 @@
       var main = dialogue || summary || '';
       if (!main) return Promise.resolve();
       var label = ROLE_LABEL_KO[role] || role || '?';
+      if (typeof toRoleLabelKo === 'function') { main = toRoleLabelKo(main); if (summary) summary = toRoleLabelKo(summary); }
       var roleClass = getRoleClass(role);
       var div = document.createElement('div');
       div.className = 'dialogue-line line';
@@ -2038,14 +2064,17 @@
       if (!row) return;
       var textEl = row.querySelector('.dialogue-text');
       var subEl = row.querySelector('.dialogue-summary');
-      if (textEl) textEl.textContent = mainText || '';
+      var dispMain = mainText;
+      var dispSumm = summary;
+      if (typeof toRoleLabelKo === 'function') { dispMain = toRoleLabelKo(dispMain || ''); if (dispSumm) dispSumm = toRoleLabelKo(dispSumm); }
+      if (textEl) textEl.textContent = dispMain || '';
       if (subEl) {
-        if (summary && mainText) { subEl.textContent = summary; subEl.style.display = ''; }
+        if (dispSumm && dispMain) { subEl.textContent = dispSumm; subEl.style.display = ''; }
         else subEl.style.display = 'none';
-      } else if (summary && mainText) {
+      } else if (dispSumm && dispMain) {
         var sub = document.createElement('div');
         sub.className = 'dialogue-summary';
-        sub.textContent = summary;
+        sub.textContent = dispSumm;
         row.appendChild(sub);
       }
       logEl.scrollTop = logEl.scrollHeight;
@@ -2076,7 +2105,7 @@
         let __displayRole = role; // PATCH
         let __displayMsg = msg; // PATCH
         if (__isKo) { // PATCH
-          const ROLE_KO = { Navigator:'네비게이터', Engineer:'엔지니어', Doctor:'닥터', Pilot:'파일럿' }; // PATCH
+          const ROLE_KO = { Navigator:'네비게이터', Engineer:'엔지니어', Doctor:'의사', Pilot:'파일럿' }; // PATCH
           __displayRole = ROLE_KO[role] || role; // PATCH
           if (window.__KO_TRANSLATE) { // PATCH
             const whole = role + ': ' + msg; // PATCH
@@ -2088,6 +2117,7 @@
             const idx = wholeKo.indexOf(':'); // PATCH
             if (idx >= 0) __displayMsg = wholeKo.slice(idx + 1).trim(); // PATCH
           } // PATCH
+          if (typeof toRoleLabelKo === 'function') __displayMsg = toRoleLabelKo(__displayMsg); // PATCH
         } // PATCH
         text = __displayRole + ': ' + __displayMsg; // PATCH
       } else if (!(className === 'role-user' && /^>\s/.test(text))) { // PATCH
@@ -2097,6 +2127,7 @@
           if (window.__KO_TRANSLATE_FRAGMENTS && /\[EMERGENCY ALERT\]|\[긴급 경보\]/i.test(text)) { // PATCH: 긴급 경보 조각 한 번 더 적용
             text = window.__KO_TRANSLATE_FRAGMENTS(text) || text; // PATCH
           } // PATCH
+          if (typeof toRoleLabelKo === 'function') text = toRoleLabelKo(text); // PATCH
         } // PATCH
       } // PATCH
       const useTypewriter = options.typewriter === true;
