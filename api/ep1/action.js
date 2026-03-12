@@ -24,6 +24,7 @@ const {
   getOrCreateMatch,
   getMatch,
   appendEvent,
+  updateMatch,
   getRecentEvents,
   getRecentEventsForCurrentTurn,
   getEventsCount,
@@ -40,6 +41,21 @@ const ROLE_SUBJECT_KO = { captain: '함장이', doctor: '의사가', engineer: '
 
 const VALID_TARGETS = new Set(['player', 'doctor', 'engineer', 'navigator', 'pilot', 'captain']);
 const VALID_ACTIONS = new Set(['QUESTION', 'OBSERVE', 'CHECK_LOG', 'REPAIR', 'ACCUSE', 'WAIT']);
+
+/** 게임 규칙 엔진용 액션 (뼈대). result.js에서 판정 연결 예정. */
+const GAME_ACTIONS = new Set(['ACCUSE', 'TAKE_CLUE', 'FIND_CLUE', 'TAKE_PISTOL', 'USE_PISTOL', 'SHOOT', 'KILL', 'DEATH']);
+
+/** match/state 레벨 게임 상태 기본값. 없으면 안전 초기화. */
+const DEFAULT_GAME_STATE = {
+  clues: [],
+  pistol_holder: null,
+  dead_roles: [],
+  accuse_history: [],
+  game_over: false,
+  outcome: null,
+  winner: null,
+  loser_reason: null
+};
 
 const CREW_DIALOGUE_FALLBACK_KO = {
   doctor: '표정과 호흡을 확인 중입니다. 이상 징후가 있으면 보고하겠습니다.',
@@ -655,12 +671,86 @@ function checkAuth(req) {
 
 function getEventType(action) {
   const a = String(action || 'WAIT').toUpperCase();
-  const types = { QUESTION: 'question', OBSERVE: 'observe', CHECK_LOG: 'check_log', REPAIR: 'repair', ACCUSE: 'accuse', WAIT: 'wait' };
+  const types = {
+    QUESTION: 'question', OBSERVE: 'observe', CHECK_LOG: 'check_log', REPAIR: 'repair', ACCUSE: 'accuse', WAIT: 'wait',
+    TAKE_CLUE: 'take_clue', FIND_CLUE: 'find_clue', TAKE_PISTOL: 'take_pistol', USE_PISTOL: 'use_pistol',
+    SHOOT: 'shoot', KILL: 'kill', DEATH: 'death'
+  };
   return types[a] || 'act';
 }
 
 function errRes(res, status, message) {
   return res.status(status).json({ ok: false, error: { message } });
+}
+
+/** match에서 게임 상태 병합. 없으면 기본값. */
+function getGameState(match) {
+  if (!match || typeof match !== 'object') return { ...DEFAULT_GAME_STATE };
+  const gs = match.game_state;
+  if (!gs || typeof gs !== 'object') return { ...DEFAULT_GAME_STATE };
+  return {
+    clues: Array.isArray(gs.clues) ? gs.clues : DEFAULT_GAME_STATE.clues,
+    pistol_holder: gs.pistol_holder ?? DEFAULT_GAME_STATE.pistol_holder,
+    dead_roles: Array.isArray(gs.dead_roles) ? gs.dead_roles : DEFAULT_GAME_STATE.dead_roles,
+    accuse_history: Array.isArray(gs.accuse_history) ? gs.accuse_history : DEFAULT_GAME_STATE.accuse_history,
+    game_over: !!gs.game_over,
+    outcome: gs.outcome ?? match.outcome ?? null,
+    winner: gs.winner ?? null,
+    loser_reason: gs.loser_reason ?? null
+  };
+}
+
+/**
+ * accuse / clue / pistol / death / win-loss 액션 뼈대.
+ * 실제 판정은 result.js에서 연결. 여기선 상태 변경 구조만 준비.
+ * 종료 조건: accuse 성공/실패, 총 사용 사망, impostor/captain/전원 사망 → outcome/winner/loser_reason 저장 가능.
+ */
+function processGameAction(match, action, role, target, gameState) {
+  const a = String(action || '').toUpperCase();
+  const patch = {};
+  const serverResult = { game_action: a };
+  const hiddenHost = match?.hidden_host_role || null;
+
+  if (a === 'ACCUSE' && target) {
+    const entry = { turn: match.turn ?? 1, accuser: role, accused: target };
+    patch.accuse_history = [...(gameState.accuse_history || []), entry];
+    serverResult.accuse_recorded = true;
+    serverResult.accused = target;
+    if (hiddenHost) {
+      const correct = String(target).toLowerCase() === String(hiddenHost).toLowerCase();
+      if (correct) {
+        patch.game_over = true;
+        patch.outcome = 'crew_win';
+        patch.winner = 'crew';
+        patch.loser_reason = 'impostor_accused';
+      } else {
+        patch.game_over = true;
+        patch.outcome = 'impostor_win';
+        patch.winner = 'impostor';
+        patch.loser_reason = 'accuse_failed';
+      }
+    }
+  } else if (GAME_ACTIONS.has(a) && (a === 'TAKE_CLUE' || a === 'FIND_CLUE')) {
+    const clue = { role, turn: match.turn ?? 1 };
+    patch.clues = [...(gameState.clues || []), clue];
+    serverResult.clue_recorded = true;
+  } else if (GAME_ACTIONS.has(a) && (a === 'TAKE_PISTOL' || a === 'USE_PISTOL')) {
+    patch.pistol_holder = role;
+    serverResult.pistol_holder = role;
+  } else if (GAME_ACTIONS.has(a) && (a === 'SHOOT' || a === 'KILL' || a === 'DEATH') && target) {
+    const dead = [...new Set([...(gameState.dead_roles || []), target])];
+    patch.dead_roles = dead;
+    serverResult.death_recorded = true;
+    serverResult.dead_role = target;
+    if (hiddenHost && dead.some((r) => String(r).toLowerCase() === String(hiddenHost).toLowerCase())) {
+      patch.game_over = true;
+      patch.outcome = 'crew_win';
+      patch.winner = 'crew';
+      patch.loser_reason = 'impostor_killed';
+    }
+  }
+
+  return { serverResult, statePatch: patch };
 }
 
 module.exports = async (req, res) => {
@@ -715,6 +805,7 @@ module.exports = async (req, res) => {
       if (base && !base.summary) base.summary = (e.summary || summaryFallbackKo(e.role, e.action));
       return base;
     }).filter(Boolean);
+    const gs = getGameState(match);
     return res.status(200).json({
       ok: true,
       server_result: { crew_dead: true, accepted: false },
@@ -725,7 +816,8 @@ module.exports = async (req, res) => {
         location: match.location ?? 'bridge',
         public_events: Array.isArray(pub) ? pub : [],
         recent_events,
-        events_count
+        events_count,
+        game_state: gs
       },
       game_over: match.game_over || false,
       outcome: match.outcome ?? null
@@ -756,6 +848,9 @@ module.exports = async (req, res) => {
     dialogue = resolveDialogueForPayload(body, role) || '상황을 확인하겠습니다.';
   }
 
+  const rawAction = (body.action || '').toString().trim().toUpperCase();
+  if (GAME_ACTIONS.has(rawAction)) action = rawAction;
+
   const payload = {
     actor: body.actor ?? null,
     role,
@@ -780,7 +875,24 @@ module.exports = async (req, res) => {
     return errRes(res, 500, 'Failed to append event');
   }
 
-  const updatedMatch = await getOrCreateMatch(matchId);
+  let updatedMatch = await getOrCreateMatch(matchId);
+  let gameState = getGameState(updatedMatch);
+
+  if (action === 'ACCUSE' || GAME_ACTIONS.has(action)) {
+    const { serverResult: gameResult, statePatch } = processGameAction(updatedMatch, action, role, target, gameState);
+    Object.assign(serverResult, gameResult);
+    gameState = { ...gameState, ...statePatch };
+    if (statePatch.game_over != null || statePatch.outcome != null) {
+      const persistPatch = {};
+      if (statePatch.game_over != null) persistPatch.game_over = statePatch.game_over;
+      if (statePatch.outcome != null) persistPatch.outcome = statePatch.outcome;
+      if (Object.keys(persistPatch).length > 0) {
+        await updateMatch(matchId, persistPatch);
+        updatedMatch = await getOrCreateMatch(matchId);
+      }
+    }
+  }
+
   const pub = await getPublicEvents(matchId);
   let recentRaw = await getRecentEventsForCurrentTurn(matchId);
   if (CREW_ROLES.has(role)) {
@@ -809,6 +921,9 @@ module.exports = async (req, res) => {
   serverResultPayload.handler_source = 'action.js';
   serverResultPayload.debug_version = 1;
 
+  const finalGameOver = gameState.game_over || updatedMatch.game_over || false;
+  const finalOutcome = gameState.outcome ?? updatedMatch.outcome ?? null;
+
   return res.status(200).json({
     ok: true,
     server_result: serverResultPayload,
@@ -819,9 +934,19 @@ module.exports = async (req, res) => {
       location: updatedMatch.location ?? 'bridge',
       public_events: Array.isArray(pub) ? pub : [],
       recent_events,
-      events_count
+      events_count,
+      game_state: {
+        clues: gameState.clues,
+        pistol_holder: gameState.pistol_holder,
+        dead_roles: gameState.dead_roles,
+        accuse_history: gameState.accuse_history,
+        game_over: finalGameOver,
+        outcome: finalOutcome,
+        winner: gameState.winner,
+        loser_reason: gameState.loser_reason
+      }
     },
-    game_over: updatedMatch.game_over || false,
-    outcome: updatedMatch.outcome ?? null
+    game_over: finalGameOver,
+    outcome: finalOutcome
   });
 };
