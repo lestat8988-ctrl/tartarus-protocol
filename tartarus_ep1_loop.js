@@ -282,20 +282,16 @@ function applyActionBias(action, dialogue, role, target, isSelfTarget) {
   const d = (dialogue || '').trim();
   if (!d) return action;
 
-  // 1. isSelfTarget 또는 1인칭 해명형 dialogue → QUESTION 유지 (최우선)
-  // 2. target null + 관찰형 dialogue → OBSERVE ([BIAS] 로그)
-  // 3. target null + !isSelfTarget → OBSERVE (target 없는 QUESTION 무효)
-  // 4. target 있음 → QUESTION 유지
-  const isSelfDefenseDialogue = /^저는\b/.test(d) || /^제가\b/.test(d) || /^그때\s*저는/.test(d) || /^내가\b/.test(d);
-  if (action === 'QUESTION' && (isSelfTarget || isSelfDefenseDialogue)) return action;
-
-  if (action === 'QUESTION' && (target == null || target === '') && isObserveOrConfirmDialogue(d)) {
-    console.log(`[BIAS] ${role}: QUESTION->OBSERVE/CHECK_LOG | dialogue="${d.slice(0, 40)}"`);
-    if (role === 'engineer' && isLogOrSystemDialogue(d)) return 'CHECK_LOG';
-    return 'OBSERVE';
+  if (action === 'QUESTION') {
+    if (isSelfTarget) return action;
+    if (isObserveOrConfirmDialogue(d)) {
+      console.log(`[BIAS] ${role}: QUESTION->OBSERVE/CHECK_LOG | dialogue="${d.slice(0, 40)}"`);
+      if (role === 'engineer' && isLogOrSystemDialogue(d)) return 'CHECK_LOG';
+      return 'OBSERVE';
+    }
+    if (target == null || target === '') return 'OBSERVE';
+    return action;
   }
-  if (action === 'QUESTION' && (target == null || target === '') && !isSelfTarget) return 'OBSERVE';
-  if (action === 'QUESTION') return action;
   if (action !== 'OBSERVE') return action;
 
   if (role === 'navigator' && isQuestionLikeDialogue(d)) return 'QUESTION';
