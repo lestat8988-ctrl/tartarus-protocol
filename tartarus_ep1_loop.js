@@ -285,7 +285,6 @@ function applyActionBias(action, dialogue, role, target, isSelfTarget) {
   if (action === 'QUESTION') {
     if (isSelfTarget) return 'QUESTION';
     if (isObserveOrConfirmDialogue(d)) {
-      console.log(`[BIAS] ${role}: QUESTION->OBSERVE | dialogue="${d.slice(0, 40)}"`);
       return 'OBSERVE';
     }
     if (target == null || target === '') return 'OBSERVE';
@@ -444,12 +443,7 @@ async function getResult(matchId) {
 async function callCrewDecide(role, observation) {
   const isQuestion = !!(observation.current_question_target && observation.current_question_target_role_ko);
   const isSelfTarget = !!observation.is_self_target;
-  console.log(`[DEBUG X] role=${role} observation.is_self_target=${observation.is_self_target} isQuestion=${!!(observation.current_question_target)}`);
   const targetRoleKo = observation.current_question_target_role_ko || null;
-  if (isQuestion) {
-    console.log(`[DEBUG B] role=${role} observation.is_self_target=${observation.is_self_target} isSelfTarget=${isSelfTarget}`);
-  }
-
   if (!OPENAI_API_KEY) {
     const base = ROLE_FALLBACKS[role] || ROLE_FALLBACKS.doctor;
     if (isQuestion && targetRoleKo) {
@@ -548,7 +542,6 @@ async function callCrewDecide(role, observation) {
     if (isQuestion && targetRoleKo && decision.dialogue) {
       const dds = doesDialogueSelfTarget(decision.dialogue, targetRoleKo, role);
       const ddsw = doesDialogueStartWithSelfRole(decision.dialogue, role);
-      console.log(`[DEBUG C] role=${role} dialogue="${(decision.dialogue || '').slice(0, 60)}" doesDialogueSelfTarget=${dds} doesDialogueStartWithSelfRole=${ddsw}`);
       if (isQuestionGenericFallback(decision.dialogue)) {
         decision = { ...decision, dialogue: isSelfTarget ? getQuestionSelfTargetFallback(role, targetRoleKo) : getQuestionTargetFocusedFallback(role, targetRoleKo) };
       } else if (isSelfTarget) {
@@ -668,7 +661,6 @@ async function runEpisode(matchId, maxTurns = 10, logPath, testMode = false) {
         observationBase.question_focus_rule = `현재 captain이 지목한 질문 대상은 ${currentQuestionTargetRoleKo}이다. 첫 문장 또는 첫 절은 반드시 ${currentQuestionTargetRoleKo}를 중심으로 시작하라. 다른 인물은 보조적으로만 언급하라. 현재 질문 대상이 아닌 제3자를 첫 초점으로 삼지 마라.`;
         observationBase.is_self_target = role === currentQuestionTarget;
         observationBase.current_turn_is_question = true;
-        console.log(`[DEBUG A] captainAction.action=${captainAction.action} captainAction.target=${captainAction.target} role=${role} currentQuestionTarget=${currentQuestionTarget} role===currentQuestionTarget=${role === currentQuestionTarget} observationBase.is_self_target=${observationBase.is_self_target}`);
       } else {
         observationBase.current_question_target = null;
         observationBase.current_question_target_role_ko = null;
