@@ -118,6 +118,17 @@ const ROLE_FALLBACKS = {
   pilot: { action: 'WAIT', target: null, reason: 'fallback', dialogue: '대기 중입니다.' }
 };
 
+/** OBSERVE 턴 전용 fallback. 사람 심문 금지. role별 환경/상태/로그/분위기 해석. 구체 정보 2개 이상. */
+function getObserveFallbackByRole(role) {
+  const byRole = {
+    doctor: '브리지 내 생체 반응과 호흡 패턴을 확인 중이다. 이상 징후가 있으면 보고하겠다.',
+    engineer: '시스템 로그와 장비 기록을 점검 중이다. 끊긴 구간이 있으면 짚겠다.',
+    navigator: '현재 시간대와 위치 기록을 확인 중이다. 동선 공백이 있으면 보고하겠다.',
+    pilot: '브리지 공기와 침묵 패턴이 이상하다. 이상 징후가 있으면 말하겠다.'
+  };
+  return byRole[role] || '상황을 확인 중이다.';
+}
+
 const QUESTION_GENERIC_PATTERNS = [
   /^반응을\s*살펴보겠습니다\.?$/,
   /^로그\s*(를\s*)?확인\s*중입니다\.?$/,
@@ -175,6 +186,16 @@ function doesDialogueSelfTarget(dialogue, targetRoleKo, role) {
   return head.indexOf(targetKo) >= 0;
 }
 
+/** dialogue가 특정 인물 심문형으로 시작하는지. OBSERVE 턴에서 금지. */
+function doesDialogueStartWithInterrogation(dialogue) {
+  if (!dialogue || typeof dialogue !== 'string') return false;
+  const t = String(dialogue).trim().slice(0, 60);
+  return /^(의사님?|엔지니어님?|네비게이터님?|파일럿님?)[\s,.]/.test(t) ||
+    /^(의사|엔지니어|네비게이터|파일럿)[\s,.]/.test(t) ||
+    /^(파일럿,?\s*너는?|의사,?\s*당신|엔지니어,?\s*당신)/.test(t) ||
+    /어디\s*있었(나|지|죠|어)/.test(t.slice(0, 35));
+}
+
 /** dialogue 첫 단어가 자기 role명(의사/엔지니어/네비게이터/파일럿)으로 시작하는지. self-target 실패 검사. */
 function doesDialogueStartWithSelfRole(dialogue, role) {
   if (!dialogue || !role) return false;
@@ -189,6 +210,14 @@ const ROLE_ACTION_HINTS = {
   engineer: 'CHECK_LOG 최우선. REPAIR 또는 OBSERVE는 보조. system/log/engine/record/anomaly 언급 시 반드시 CHECK_LOG.',
   navigator: 'QUESTION을 우선 선택. 추궁형 질문을 말하라. OBSERVE는 피하라.',
   pilot: 'OBSERVE 또는 QUESTION. 감각형 표현 후 질문을 섞어라.'
+};
+
+/** OBSERVE 턴일 때 role별 액션 힌트. 사람 심문 금지, 환경/상태 해석 우선. */
+const ROLE_OBSERVE_HINTS = {
+  doctor: 'OBSERVE. 상태·호흡·표정·생체반응 관찰. 사람 직접 추궁 금지. 구체 정보 2개 이상.',
+  engineer: 'OBSERVE 또는 CHECK_LOG. 시스템·로그·장비·기록 점검. 사람 직접 추궁 금지.',
+  navigator: 'OBSERVE. 위치·시간·항로·공간 상태 확인. 사람 직접 추궁 금지. 동선 추궁은 QUESTION 턴에만.',
+  pilot: 'OBSERVE. 공기·침묵·불안감·이상 징후. 구체적으로 말하라. generic "분위기가 이상합니다" 금지.'
 };
 
 function newMatchId() {
@@ -450,6 +479,10 @@ async function callCrewDecide(role, observation) {
       const dialogue = isSelfTarget ? getQuestionSelfTargetFallback(role, targetRoleKo) : getQuestionTargetFocusedFallback(role, targetRoleKo);
       return { ...base, action: 'QUESTION', target: isSelfTarget ? null : observation.current_question_target, dialogue, reason: 'llm_key_missing' };
     }
+    const currentTurnAction = (observation.current_turn_action || 'OBSERVE').toUpperCase();
+    if (currentTurnAction === 'OBSERVE') {
+      return { ...base, action: 'OBSERVE', target: null, dialogue: getObserveFallbackByRole(role), reason: 'llm_key_missing' };
+    }
     return { ...base, reason: 'llm_key_missing' };
   }
 
@@ -483,7 +516,14 @@ async function callCrewDecide(role, observation) {
       `recentEvents 안의 이전 QUESTION target은 현재 기본 추궁 대상이 아니다.\n` +
       `이전 질문 기록은 참고만 하고, 현재 턴 액션(${currentTurnAction})을 우선하라.\n` +
       `직전 QUESTION target을 자동 중심축으로 삼지 마라. 특정 인물 추궁은 새 로그/근거가 있을 때만.\n`;
-    if (isCheckLogTurn) {
+    if (currentTurnAction === 'OBSERVE') {
+      questionBlock += `\n[OBSERVE 턴 - 사람 직접 추궁 금지]\n` +
+        `현재 captain이 지목한 질문 대상이 없다. 특정 인물을 심문하지 마라.\n` +
+        `금지: "의사님...", "엔지니어님...", "파일럿, 너는...", "어디 있었나", "그때 어디 있었지" 같은 심문형 시작.\n` +
+        `필수: 먼저 자기 role 관점으로 브리지/상황/로그/분위기를 해석하라. 1문장 안에 구체 정보 2개 이상 포함.\n` +
+        `금지: "반응을 살펴보겠습니다", "동선을 짚어보겠습니다", "분위기가 이상합니다", "로그 확인 중입니다" 같은 generic 문장만.\n` +
+        `role별 방향: doctor→상태/호흡/표정/생체반응. engineer→시스템/로그/장비/기록. navigator→위치/시간/항로/공간. pilot→공기/침묵/불안감/이상 징후.\n`;
+    } else if (isCheckLogTurn) {
       questionBlock += `\n[CHECK_LOG 턴 전용 규칙]\n` +
         `doctor: 상태/반응 변화. engineer: 로그/기록/오류. navigator: 시간/위치/동선 공백. pilot: 분위기/공기/이상 징후.\n` +
         `특정 인물 추궁은 새 로그 근거가 있을 때만 나오게 하라. 아무 근거 없이 직전 QUESTION target을 반복 추궁하지 마라.\n`;
@@ -492,14 +532,20 @@ async function callCrewDecide(role, observation) {
   systemContent += questionBlock;
 
   const obsJson = JSON.stringify(observation).slice(0, 1600);
-  const actionHint = ROLE_ACTION_HINTS[role] || '';
+  const isObserveTurn = currentTurnAction === 'OBSERVE' && !isQuestion;
+  const actionHint = isObserveTurn ? (ROLE_OBSERVE_HINTS[role] || ROLE_ACTION_HINTS[role] || '') : (ROLE_ACTION_HINTS[role] || '');
   let userContent = `Observation:\n${obsJson}\n\n반드시 한국어로만 답하라. dialogue와 reason은 한국어 필수.\n${actionHint ? `ACTION 선택: ${actionHint}\n` : ''}`;
   if (isQuestion && targetRoleKo) {
     userContent += `\n[QUESTION 필수] 현재 captain 지목 대상은 ${targetRoleKo}이다. 첫 문장은 ${targetRoleKo} 중심으로 시작.` +
       (isSelfTarget ? ' 당신이 질문 대상이므로 자기 추궁 금지. 해명/방어형으로 답하라.' : '') + '\n';
   } else {
-    userContent += `\n[현재 턴은 QUESTION 아님] recentEvents의 이전 QUESTION target을 현재 기본 추궁 대상으로 삼지 마라. 현재 captain 액션(${currentTurnAction})을 우선하라.` +
-      (isCheckLogTurn ? ' CHECK_LOG 턴: 로그/기록/상황 중심. 특정 인물 추궁은 새 로그 근거 있을 때만.' : '') + '\n';
+    userContent += `\n[현재 턴은 QUESTION 아님] recentEvents의 이전 QUESTION target을 현재 기본 추궁 대상으로 삼지 마라. 현재 captain 액션(${currentTurnAction})을 우선하라.`;
+    if (isObserveTurn) {
+      userContent += ` OBSERVE 턴: 사람 직접 추궁 금지. "의사님", "엔지니어님", "파일럿, 너는", "어디 있었나" 같은 심문형 시작 금지. 먼저 자기 role 관점으로 환경/상태/로그/분위기 해석. 구체 정보 2개 이상.`;
+    } else if (isCheckLogTurn) {
+      userContent += ` CHECK_LOG 턴: 로그/기록/상황 중심. 특정 인물 추궁은 새 로그 근거 있을 때만.`;
+    }
+    userContent += '\n';
   }
   userContent += `Respond with JSON only (no markdown): {"action":"QUESTION|OBSERVE|CHECK_LOG|REPAIR|ACCUSE|WAIT","target":"player"|"doctor"|"engineer"|"navigator"|"pilot"|null,"reason":"한국어로 간단한 이유","dialogue":"한국어로 1~3문장 대사"}`;
 
@@ -550,6 +596,12 @@ async function callCrewDecide(role, observation) {
         }
       } else if (!doesDialogueFocusOnTarget(decision.dialogue, targetRoleKo)) {
         decision = { ...decision, dialogue: getQuestionTargetFocusedFallback(role, targetRoleKo) };
+      }
+    }
+
+    if (isObserveTurn && decision.dialogue) {
+      if (doesDialogueStartWithInterrogation(decision.dialogue) || isQuestionGenericFallback(decision.dialogue)) {
+        decision = { ...decision, action: 'OBSERVE', target: null, dialogue: getObserveFallbackByRole(role) };
       }
     }
 
@@ -671,6 +723,9 @@ async function runEpisode(matchId, maxTurns = 10, logPath, testMode = false) {
       }
       const obs = observationBase;
 
+      console.log(
+        `[OBS] turn=${obs.turn} cap=${JSON.stringify(obs.captain_action)} currentQuestionTarget=${obs.current_question_target}`
+      );
       const decision = await callCrewDecide(role, obs);
       const serverResult = await submitAction(matchId, turn, `agent_${role}`, role, decision);
 
