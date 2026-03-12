@@ -529,13 +529,22 @@ function getValidQuestionTargetKo(role, target) {
 /** dialogue가 1인칭 해명/방어형인지. QUESTION self-target summary 판단용. */
 function isSelfDefenseDialogue(dialogue) {
   if (!dialogue || typeof dialogue !== 'string') return false;
-  const t = String(dialogue).trim().slice(0, 80);
+  const t = String(dialogue).trim().slice(0, 120);
   const patterns = [
-    /^저는\s/, /^제가\s/, /^내\s/, /^제\s/, /그때\s*저는/, /저는\s*그때/,
-    /설명하겠습니다/, /해명했/, /설명했/, /제\s*위치/, /내\s*기록/,
+    /^저는\s/, /^제가\s/, /^나는\s/, /^내가\s/, /^내\s/, /^제\s/,
+    /그때\s*저는/, /저는\s*그때/, /제\s*위치/, /제\s*기록/, /내\s*기록/,
+    /설명하겠습니다/, /해명했/, /설명했/, /설명할\s*수\s*있습니다/,
     /저\s*때문은\s*아닙니다/, /숨길\s*이유가\s*없/, /혼자가\s*아니었/
   ];
   return patterns.some((re) => re.test(t));
+}
+
+/** dialogue가 관찰/분위기/반응형인지. 관찰형 summary 판단용. */
+function isObserveTypeDialogue(dialogue) {
+  if (!dialogue || typeof dialogue !== 'string') return false;
+  const t = String(dialogue).trim();
+  const observeMarkers = /(살펴보겠습니다|관찰|분위기|반응을|지켜보|표정|긴장감|확인하겠습니다|확인\s*중|지켜보겠습니다|주의\s*깊게|상황을\s*(확인|파악|살펴)|보이네요|보입니다|보인다)/;
+  return observeMarkers.test(t);
 }
 
 function makeReadableSummaryKo(role, action, target, dialogue) {
@@ -548,19 +557,38 @@ function makeReadableSummaryKo(role, action, target, dialogue) {
   switch (a) {
     case 'QUESTION': {
       const rawTarget = (target ?? '').toString().trim().toLowerCase();
-      const isSelfTarget = rawTarget === role || (tQuestion === null && isSelfDefenseDialogue(dialogue));
-      if (isSelfTarget) {
-        if (role === 'doctor') return '의사가 자신의 위치를 해명했다.';
-        if (role === 'engineer') return '엔지니어가 자신의 알리바이를 설명했다.';
-        if (role === 'navigator') return '네비게이터가 자신의 동선을 해명했다.';
-        if (role === 'pilot') return '파일럿이 자신의 위치를 설명했다.';
-        return `${subj} 자신의 입장을 해명했다.`;
+      const targetIsNullOrSelf = !rawTarget || rawTarget === role;
+      const hasDialogue = dialogue && typeof dialogue === 'string' && String(dialogue).trim().length > 0;
+
+      if (hasDialogue && targetIsNullOrSelf) {
+        if (isSelfDefenseDialogue(dialogue)) {
+          if (role === 'doctor') return '의사가 자신의 위치를 해명했다.';
+          if (role === 'engineer') return '엔지니어가 자신의 알리바이를 설명했다.';
+          if (role === 'navigator') return '네비게이터가 자신의 동선을 해명했다.';
+          if (role === 'pilot') return '파일럿이 자신의 위치를 설명했다.';
+          return `${subj} 자신의 입장을 해명했다.`;
+        }
+        if (isObserveTypeDialogue(dialogue)) {
+          if (role === 'doctor') return '의사가 승무원들의 반응을 관찰했다.';
+          if (role === 'engineer') return '엔지니어가 시스템 상태를 점검했다.';
+          if (role === 'navigator') return '네비게이터가 상황을 살폈다.';
+          if (role === 'pilot') return '파일럿이 브리지의 분위기 변화를 살폈다.';
+          return `${subj} 상황을 관찰했다.`;
+        }
       }
-      if (role === 'navigator') return tQuestion ? `네비게이터가 ${tQuestion}에게 동선을 추궁했다.` : '네비게이터가 동선을 추궁했다.';
-      if (role === 'doctor') return tQuestion ? `의사가 ${tQuestion}에게 확인을 요청했다.` : '의사가 확인을 요청했다.';
-      if (role === 'engineer') return tQuestion ? `엔지니어가 ${tQuestion}에게 기술적 질문을 했다.` : '엔지니어가 질문했다.';
-      if (role === 'pilot') return tQuestion ? `파일럿이 ${tQuestion}에게 공기 변화에 대해 물었다.` : '파일럿이 공기 변화에 대해 물었다.';
-      return tQuestion ? `${subj} ${tQuestion}에게 질문했다.` : `${subj} 질문했다.`;
+
+      if (tQuestion) {
+        if (role === 'navigator') return `네비게이터가 ${tQuestion}에게 동선을 추궁했다.`;
+        if (role === 'doctor') return `의사가 ${tQuestion}에게 확인을 요청했다.`;
+        if (role === 'engineer') return `엔지니어가 ${tQuestion}에게 기술적 질문을 했다.`;
+        if (role === 'pilot') return `파일럿이 ${tQuestion}에게 공기 변화에 대해 물었다.`;
+        return `${subj} ${tQuestion}에게 질문했다.`;
+      }
+      if (role === 'navigator') return '네비게이터가 동선을 추궁했다.';
+      if (role === 'doctor') return '의사가 확인을 요청했다.';
+      if (role === 'engineer') return '엔지니어가 질문했다.';
+      if (role === 'pilot') return '파일럿이 공기 변화에 대해 물었다.';
+      return `${subj} 질문했다.`;
     }
     case 'OBSERVE':
       if (role === 'captain' && dialogue && dialogue !== CAPTAIN_DIALOGUE_FALLBACK_KO) return `${ROLE_KO.captain}: ${dialogue.slice(0, 60)}${dialogue.length > 60 ? '...' : ''}`;
