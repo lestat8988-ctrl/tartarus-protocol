@@ -444,6 +444,7 @@ async function getResult(matchId) {
 async function callCrewDecide(role, observation) {
   const isQuestion = !!(observation.current_question_target && observation.current_question_target_role_ko);
   const isSelfTarget = !!observation.is_self_target;
+  console.log(`[DEBUG X] role=${role} observation.is_self_target=${observation.is_self_target} isQuestion=${!!(observation.current_question_target)}`);
   const targetRoleKo = observation.current_question_target_role_ko || null;
   if (isQuestion) {
     console.log(`[DEBUG B] role=${role} observation.is_self_target=${observation.is_self_target} isSelfTarget=${isSelfTarget}`);
