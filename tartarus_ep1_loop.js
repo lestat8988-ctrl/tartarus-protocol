@@ -278,9 +278,15 @@ function doesDialogueExplicitlyMentionTarget(dialogue, target) {
   return pattern.test(dialogue.trim());
 }
 
-function applyActionBias(action, dialogue, role) {
+function applyActionBias(action, dialogue, role, target, isSelfTarget) {
   const d = (dialogue || '').trim();
   if (!d) return action;
+
+  // QUESTION + target null => 게임 로직상 무효. OBSERVE로 강제 보정 (self-target 해명형은 예외)
+  if (action === 'QUESTION' && (target == null || target === '') && !isSelfTarget) {
+    return 'OBSERVE';
+  }
+  if (action === 'QUESTION') return action;
 
   if (action === 'QUESTION' && isObserveOrConfirmDialogue(d)) {
     if (role === 'engineer' && isLogOrSystemDialogue(d)) return 'CHECK_LOG';
@@ -303,6 +309,7 @@ function normalizeCrewOutput(raw, role) {
 
   let target = raw.target != null ? String(raw.target).trim().toLowerCase() || null : null;
   if (target && !VALID_TARGETS.has(target)) target = null;
+  const isSelfTarget = !!(target && target === role);
   if (target && target === role) target = null;
   let reason = raw.reason != null ? String(raw.reason).slice(0, 120) : fallback.reason;
   let dialogue = raw.dialogue != null ? String(raw.dialogue).trim() : '';
@@ -317,7 +324,7 @@ function normalizeCrewOutput(raw, role) {
   if (target && action === 'QUESTION' && role === 'doctor' && !doesDialogueExplicitlyMentionTarget(dialogue, target)) target = null;
 
   const prevAction = action;
-  action = applyActionBias(action, dialogue, role);
+  action = applyActionBias(action, dialogue, role, target, isSelfTarget);
   if (prevAction === 'QUESTION' && (action === 'OBSERVE' || action === 'CHECK_LOG')) target = null;
 
   return { action, target, reason, dialogue };
