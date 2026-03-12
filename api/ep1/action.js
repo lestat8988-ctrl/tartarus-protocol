@@ -526,6 +526,13 @@ function getValidQuestionTargetKo(role, target) {
   return TARGET_KO[raw] || null;
 }
 
+/** dialogue가 "저는", "제가", "그때 저는", "내가"로 시작하는지. 해명형 summary 우선 판단용. */
+function doesDialogueStartWithSelfDefense(dialogue) {
+  if (!dialogue || typeof dialogue !== 'string') return false;
+  const t = String(dialogue).trim();
+  return /^저는\b/.test(t) || /^제가\b/.test(t) || /^그때\s*저는/.test(t) || /^내가\b/.test(t);
+}
+
 /** dialogue가 1인칭 해명/방어형인지. QUESTION self-target summary 판단용. */
 function isSelfDefenseDialogue(dialogue) {
   if (!dialogue || typeof dialogue !== 'string') return false;
@@ -557,6 +564,13 @@ function makeReadableSummaryKo(role, action, target, dialogue) {
   switch (a) {
     case 'QUESTION': {
       const rawTarget = (target ?? '').toString().trim().toLowerCase();
+      const isSelfTarget = rawTarget === role;
+      const startsWithSelfDefense = doesDialogueStartWithSelfDefense(dialogue);
+
+      if (isSelfTarget || startsWithSelfDefense) {
+        return `${subj} 자신의 위치를 해명했다.`;
+      }
+
       const targetIsNullOrSelf = !rawTarget || rawTarget === role;
       const hasDialogue = dialogue && typeof dialogue === 'string' && String(dialogue).trim().length > 0;
 
