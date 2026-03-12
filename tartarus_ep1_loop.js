@@ -251,12 +251,12 @@ function isLogOrSystemDialogue(text) {
   return /(로그|시스템|기록|엔진|센서|데이터|점검|확인|이상|불일치|anomaly|record|engine)/.test(t);
 }
 
-/** 관찰/확인형 대사. 질문·추궁이 아닌 상황 파악·반응 확인형. QUESTION→OBSERVE 보정용. */
+/** 관찰/확인형 대사. 질문·추궁이 아닌 상황 파악·반응 확인형. QUESTION→OBSERVE 보정용. 어근 중심으로 다양한 어미 변형 포착. */
 function isObserveOrConfirmDialogue(text) {
   if (!text || typeof text !== 'string') return false;
   const t = text.trim();
   if (t.endsWith('?')) return false;
-  const observeMarkers = /(관찰|살펴보겠습니다|확인하겠습니다|확인\s*중|지켜보겠습니다|주의\s*깊게|분위기|반응을\s*(살펴|확인)|상황을\s*(확인|파악|살펴)|긴장감|감돌고|표정이?|보이네요|보입니다|보인다|걱정하고|걱정하는|것\s*같습니다|것\s*같다|어두워)/;
+  const observeMarkers = /(살펴|관찰|확인|지켜보|분위기|반응|표정|긴장감|파악|주의\s*깊게|감돌고|보이네요|보입니다|보인다|걱정하고|걱정하는|것\s*같습니다|것\s*같다|어두워)/;
   const questionMarkers = /(어디|언제|왜|누구|무엇|뭐|어떻게|이유|설명해|말해|물어)/;
   return observeMarkers.test(t) && !questionMarkers.test(t);
 }
