@@ -299,7 +299,7 @@ function applyActionBias(action, dialogue, role, target, isSelfTarget) {
   return action;
 }
 
-function normalizeCrewOutput(raw, role) {
+function normalizeCrewOutput(raw, role, observationIsSelfTarget = false) {
   const fallback = ROLE_FALLBACKS[role] || ROLE_FALLBACKS.doctor;
   if (!raw || typeof raw !== 'object') return { ...fallback };
 
@@ -308,7 +308,7 @@ function normalizeCrewOutput(raw, role) {
 
   let target = raw.target != null ? String(raw.target).trim().toLowerCase() || null : null;
   if (target && !VALID_TARGETS.has(target)) target = null;
-  const isSelfTarget = !!(target && target === role);
+  const isSelfTarget = observationIsSelfTarget || !!(target && target === role);
   if (target && target === role) target = null;
   let reason = raw.reason != null ? String(raw.reason).slice(0, 120) : fallback.reason;
   let dialogue = raw.dialogue != null ? String(raw.dialogue).trim() : '';
@@ -329,13 +329,13 @@ function normalizeCrewOutput(raw, role) {
   return { action, target, reason, dialogue };
 }
 
-function parseCrewResponse(content, role) {
+function parseCrewResponse(content, role, isSelfTarget = false) {
   const fallback = ROLE_FALLBACKS[role] || ROLE_FALLBACKS.doctor;
   if (!content || typeof content !== 'string') return { ...fallback };
   try {
     const cleaned = content.replace(/^[\s\S]*?(\{[\s\S]*\})[\s\S]*$/, '$1').trim();
     const parsed = JSON.parse(cleaned);
-    return normalizeCrewOutput(parsed, role);
+    return normalizeCrewOutput(parsed, role, isSelfTarget);
   } catch (e) {
     return { ...fallback };
   }
@@ -542,7 +542,7 @@ async function callCrewDecide(role, observation) {
     const content = data?.choices?.[0]?.message?.content || '';
     if (!content) throw new Error('empty response');
 
-    let decision = parseCrewResponse(content, role);
+    let decision = parseCrewResponse(content, role, isSelfTarget);
 
     if (isQuestion && targetRoleKo && decision.dialogue) {
       const dds = doesDialogueSelfTarget(decision.dialogue, targetRoleKo, role);
