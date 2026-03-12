@@ -671,7 +671,6 @@ async function runEpisode(matchId, maxTurns = 10, logPath, testMode = false) {
       }
       const obs = observationBase;
 
-      console.log(`[QT] captainAction=`, JSON.stringify(captainAction));
       const decision = await callCrewDecide(role, obs);
       const serverResult = await submitAction(matchId, turn, `agent_${role}`, role, decision);
 
