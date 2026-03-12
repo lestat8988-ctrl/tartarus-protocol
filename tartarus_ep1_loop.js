@@ -289,6 +289,7 @@ function applyActionBias(action, dialogue, role, target, isSelfTarget) {
   if (action === 'QUESTION') return action;
 
   if (action === 'QUESTION' && isObserveOrConfirmDialogue(d)) {
+    console.log(`[BIAS] ${role}: QUESTION->OBSERVE/CHECK_LOG | dialogue="${d.slice(0, 40)}"`);
     if (role === 'engineer' && isLogOrSystemDialogue(d)) return 'CHECK_LOG';
     return 'OBSERVE';
   }
