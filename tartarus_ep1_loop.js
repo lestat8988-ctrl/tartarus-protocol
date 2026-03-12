@@ -256,7 +256,7 @@ function isObserveOrConfirmDialogue(text) {
   if (!text || typeof text !== 'string') return false;
   const t = text.trim();
   if (t.endsWith('?')) return false;
-  const observeMarkers = /(살펴|관찰|확인|지켜보|분위기|반응|표정|긴장감|파악|주의\s*깊게|감돌|보이네요|보입니다|보인다|걱정하고|걱정하는|것\s*같습니다|것\s*같다|어두워)/;
+  const observeMarkers = /(살펴|관찰|확인|지켜보|분위기|반응|표정|긴장감|파악|주의\s*깊게|감돌|보이네요|보입니다|보인다|걱정하고|걱정하는|것\s*같습니다|것\s*같다|어두워|경직)/;
   const questionMarkers = /(어디|언제|왜|누구|무엇|뭐|어떻게|이유|설명해|말해|물어)/;
   return observeMarkers.test(t) && !questionMarkers.test(t);
 }
@@ -283,17 +283,16 @@ function applyActionBias(action, dialogue, role, target, isSelfTarget) {
   if (!d) return action;
 
   if (action === 'QUESTION') {
-    if (isSelfTarget) return action;
+    if (isSelfTarget) return 'QUESTION';
     if (isObserveOrConfirmDialogue(d)) {
-      console.log(`[BIAS] ${role}: QUESTION->OBSERVE/CHECK_LOG | dialogue="${d.slice(0, 40)}"`);
-      if (role === 'engineer' && isLogOrSystemDialogue(d)) return 'CHECK_LOG';
+      console.log(`[BIAS] ${role}: QUESTION->OBSERVE | dialogue="${d.slice(0, 40)}"`);
       return 'OBSERVE';
     }
     if (target == null || target === '') return 'OBSERVE';
-    return action;
+    return 'QUESTION';
   }
-  if (action !== 'OBSERVE') return action;
 
+  if (action !== 'OBSERVE') return action;
   if (role === 'navigator' && isQuestionLikeDialogue(d)) return 'QUESTION';
   if (role === 'doctor' && isDoctorQuestionLikeDialogue(d)) return 'QUESTION';
   if (role === 'engineer' && isLogOrSystemDialogue(d)) return 'CHECK_LOG';
