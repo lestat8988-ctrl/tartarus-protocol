@@ -406,8 +406,7 @@ async function getState(matchId, turn, viewerRole = null) {
  * body: { match_id, turn, actor, role, action, target?, dialogue? }
  * returns: { ok, server_result, next_state?, ... }
  */
-async function submitAction(matchId, turn, actor, role, payload) {
-  // TODO: 실제 API 호출
+async function submitAction(matchId, turn, actor, role, payload, deadCrew = []) {
   const url = `${BASE_URL}/api/ep1/action`;
   try {
     const res = await fetch(url, {
@@ -424,7 +423,8 @@ async function submitAction(matchId, turn, actor, role, payload) {
         action: payload.action,
         target: payload.target ?? null,
         reason: payload.reason ?? null,
-        dialogue: payload.dialogue ?? null
+        dialogue: payload.dialogue ?? null,
+        dead_crew: Array.isArray(deadCrew) ? deadCrew : []
       })
     });
     const data = await res.json().catch(() => ({}));
@@ -647,9 +647,16 @@ function appendLog(logPath, entry) {
 
 // ─── 메인 루프 ───────────────────────────────────────────────────────────────
 
-async function runEpisode(matchId, maxTurns = 10, logPath, testMode = false) {
+function mergeDeadRoles(current, fromServer) {
+  const arr = Array.isArray(fromServer) ? fromServer : [];
+  const normalized = arr.map((r) => String(r).trim().toLowerCase()).filter(Boolean);
+  return [...new Set([...(current || []), ...normalized])];
+}
+
+async function runEpisode(matchId, maxTurns = 10, logPath, testMode = false, testRulesMode = false) {
   let turn = 1;
   let gameOver = false;
+  let deadRoles = [];
 
   while (turn <= maxTurns && !gameOver) {
     const state = await getState(matchId, turn);
@@ -666,13 +673,27 @@ async function runEpisode(matchId, maxTurns = 10, logPath, testMode = false) {
 
     // 1. Captain 행동: test 모드 = 자동 시나리오, player 모드 = 플레이어 입력 대기
     let captainAction;
-    if (testMode) {
+    if (testRulesMode) {
+      captainAction = getCaptainTestRulesAction(turn);
+      console.log(`[ep1] captain: ${captainAction.action} ${captainAction.target || ''} - ${(captainAction.dialogue || '').slice(0, 50)}`);
+    } else if (testMode) {
       captainAction = getCaptainTestAction(turn, state);
       console.log(`[ep1] captain: ${captainAction.action} ${captainAction.target || ''} - ${(captainAction.dialogue || '').slice(0, 50)}`);
     } else {
       captainAction = await getCaptainPlayerInput(matchId, turn);
     }
-    const captainResult = await submitAction(matchId, turn, 'captain', 'captain', captainAction);
+    const captainResult = await submitAction(matchId, turn, 'captain', 'captain', captainAction, deadRoles);
+    deadRoles = mergeDeadRoles(deadRoles, captainResult?.next_state?.game_state?.dead_roles);
+
+    if (testRulesMode) {
+      const gs = captainResult?.next_state?.game_state || {};
+      const winner = gs.winner || null;
+      const loserSide = winner === 'crew' ? 'impostor' : winner === 'impostor' ? 'crew' : null;
+      console.log(
+        `[RULE] pistol_holder=${gs.pistol_holder ?? 'null'} dead_roles=${JSON.stringify(gs.dead_roles || [])} game_over=${!!gs.game_over} outcome=${gs.outcome ?? 'null'} outcome_reason=${gs.loser_reason ?? 'null'} winner_side=${winner ?? 'null'} loser_side=${loserSide ?? 'null'}`
+      );
+    }
+
     recentEvents.push({
       actor: 'captain',
       role: 'captain',
@@ -707,6 +728,10 @@ async function runEpisode(matchId, maxTurns = 10, logPath, testMode = false) {
     const currentTurnAction = (captainAction.action || 'OBSERVE').toUpperCase();
 
     for (const role of AI_CREW_ROLES) {
+      if (deadRoles.includes(role)) {
+        console.log(`[ep1] ${role}: skipped (dead)`);
+        continue;
+      }
       const latestState = await getState(matchId, turn, role);
       const publicState = { ...latestState };
       delete publicState.private_context;
@@ -740,7 +765,8 @@ async function runEpisode(matchId, maxTurns = 10, logPath, testMode = false) {
       const obs = observationBase;
 
       const decision = await callCrewDecide(role, obs);
-      const serverResult = await submitAction(matchId, turn, `agent_${role}`, role, decision);
+      const serverResult = await submitAction(matchId, turn, `agent_${role}`, role, decision, deadRoles);
+      deadRoles = mergeDeadRoles(deadRoles, serverResult?.next_state?.game_state?.dead_roles);
 
       recentEvents.push({
         actor: `agent_${role}`,
@@ -780,6 +806,11 @@ async function runEpisode(matchId, maxTurns = 10, logPath, testMode = false) {
 
   const result = await getResult(matchId);
   console.log('\n[ep1] Episode ended:', result);
+  if (testRulesMode && result) {
+    console.log(
+      `[RULE] pistol_holder=${result.pistol_holder ?? 'null'} dead_roles=${JSON.stringify(result.dead_roles || [])} game_over=${!!result.game_over} outcome=${result.outcome ?? 'null'} outcome_reason=${result.outcome_reason ?? 'null'} winner_side=${result.winner_side ?? 'null'} loser_side=${result.loser_side ?? 'null'}`
+    );
+  }
   return { match_id: matchId, turns: turn - 1, result };
 }
 
@@ -787,14 +818,17 @@ function parseArgs() {
   const args = process.argv.slice(2);
   let maxTurns = 3;
   let testMode = false;
+  let testRulesMode = false;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--max-turns' && args[i + 1]) {
       maxTurns = Math.max(1, parseInt(args[++i], 10) || 3);
     } else if (args[i] === '--test') {
       testMode = true;
+    } else if (args[i] === '--test-rules') {
+      testRulesMode = true;
     }
   }
-  return { maxTurns, testMode };
+  return { maxTurns, testMode, testRulesMode };
 }
 
 /**
@@ -810,6 +844,21 @@ function getCaptainTestAction(turn, state) {
     { action: 'CHECK_LOG', target: null, reason: 'test_turn3', dialogue: '기록부터 본다. 로그 확인해.' },
     { action: 'QUESTION', target: 'navigator', reason: 'test_turn4', dialogue: '네비게이터, 동선 다시 말해.' },
     { action: 'QUESTION', target: 'pilot', reason: 'test_turn5', dialogue: '파일럿, 방금 뭐 느꼈지?' }
+  ];
+  const idx = (turn - 1) % scenario.length;
+  return { ...scenario[idx] };
+}
+
+/**
+ * 규칙 엔진 검증용: TAKE_PISTOL / SHOOT 시나리오 (action.js GAME_ACTIONS와 동일 액션명)
+ * Turn 1 OBSERVE, 2 TAKE_PISTOL (captain이 권총 획득), 3 SHOOT doctor
+ * pistol_holder, dead_roles, game_over 변화 검증용.
+ */
+function getCaptainTestRulesAction(turn) {
+  const scenario = [
+    { action: 'OBSERVE', target: null, reason: 'test_rules_turn1', dialogue: '브리지부터 확인한다.' },
+    { action: 'TAKE_PISTOL', target: null, reason: 'test_rules_turn2', dialogue: '권총을 집는다.' },
+    { action: 'SHOOT', target: 'doctor', reason: 'test_rules_turn3', dialogue: '의사를 사격한다.' }
   ];
   const idx = (turn - 1) % scenario.length;
   return { ...scenario[idx] };
@@ -872,14 +921,14 @@ async function getCaptainPlayerInput(matchId, turn) {
 }
 
 async function main() {
-  const { maxTurns, testMode } = parseArgs();
+  const { maxTurns, testMode, testRulesMode } = parseArgs();
   const matchId = newMatchId();
   const logsDir = path.join(process.cwd(), 'logs');
   fs.mkdirSync(logsDir, { recursive: true });
   const logPath = path.join(logsDir, `ep1_${matchId.replace(/[^a-z0-9_]/gi, '_')}.jsonl`);
 
   console.log('[ep1] Tartarus Episode 1 loop (skeleton)');
-  console.log('[ep1] mode=', testMode ? 'test' : 'player');
+  console.log('[ep1] mode=', testRulesMode ? 'test-rules' : testMode ? 'test' : 'player');
   console.log('[ep1] BASE_URL=', BASE_URL);
   console.log('[ep1] match_id=', matchId);
   console.log('[ep1] max_turns=', maxTurns);
@@ -890,7 +939,7 @@ async function main() {
     console.log('[ep1] LLM=', OPENAI_MODEL, '(direct call)');
   }
 
-  const summary = await runEpisode(matchId, maxTurns, logPath, testMode);
+  const summary = await runEpisode(matchId, maxTurns, logPath, testMode, testRulesMode);
 
   console.log('\n[ep1] Done. Summary:', summary);
 }
