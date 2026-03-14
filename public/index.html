@@ -448,6 +448,7 @@
     .result-title { font-size: 36px; font-weight: bold; margin-bottom: 16px; text-shadow: 0 0 8px currentColor, 0 0 4px currentColor; }
     .result-desc { font-size: 20px; line-height: 1.6; margin-bottom: 20px; text-align: center; }
     .result-imposter { font-size: 28px; font-weight: bold; margin: 24px 0 30px; text-shadow: 0 0 12px currentColor, 0 0 6px currentColor; }
+    .result-outcome-detail { font-size: 14px; line-height: 1.5; margin: 12px 0 16px; opacity: 0.9; }
     .result-key-evidence { font-size: 14px; line-height: 1.5; margin: 12px 0 20px; padding: 12px; background: rgba(0,0,0,0.3); border: 1px solid currentColor; white-space: pre-wrap; text-align: left; max-width: 100%; } /* PATCH */
     .restart-btn { 
       margin-top: auto; padding: 14px 36px; font-size: 18px;
@@ -467,6 +468,7 @@
     #result-modal.modal-victory .result-title,
     #result-modal.modal-victory .result-desc,
     #result-modal.modal-victory .result-imposter,
+    #result-modal.modal-victory .result-outcome-detail,
     #result-modal.modal-victory .result-key-evidence { /* PATCH */
       color: #39ff14;
     }
@@ -488,6 +490,7 @@
     #result-modal.modal-defeat .result-title,
     #result-modal.modal-defeat .result-desc,
     #result-modal.modal-defeat .result-imposter,
+    #result-modal.modal-defeat .result-outcome-detail,
     #result-modal.modal-defeat .result-key-evidence { /* PATCH */
       color: #ff0000;
     }
@@ -817,6 +820,7 @@
           <div class="result-title" id="result-title"></div>
           <div id="result-desc" class="result-desc"></div>
           <div id="result-imposter" class="result-imposter"></div>
+          <div id="result-outcome-detail" class="result-outcome-detail" style="display:none;"></div>
           <div id="result-key-evidence" class="result-key-evidence" style="display:none;"></div><!-- PATCH -->
           <button class="restart-btn" onclick="location.reload()" data-i18n="game.restart">REBOOT SYSTEM</button>
           <div class="support-message" data-i18n="result.support">Did you enjoy the horror? Please support the dev via the [Support This Game] button below!</div>
@@ -1631,13 +1635,19 @@
         var impostorVal = resData.true_impostor || resData.actual_imposter || resData.impostor || resData.hidden_host || resData.culprit || null;
         if (impostorVal && typeof impostorVal === 'string' && impostorVal.trim() === '') impostorVal = null;
 
+        var normalizedOutcome = (outcome === 'crew_win' ? 'victory' : outcome === 'impostor_win' ? 'defeat' : outcome);
+        var stateVal = (normalizedOutcome === 'victory' || normalizedOutcome === 'defeat') ? normalizedOutcome : 'playing';
+
         return {
           result: resultText,
           resultText: resultText,
-          state: (outcome === 'victory' || outcome === 'defeat') ? outcome : 'playing',
+          state: stateVal,
           actualImposter: impostorVal,
           isGameOver: isGameOver,
           outcome: outcome,
+          outcome_reason: resData.outcome_reason || null,
+          winner_side: resData.winner_side || null,
+          loser_side: resData.loser_side || null,
           deadCrew: deadCrew
         };
       } catch (err) {
@@ -2346,14 +2356,16 @@
 
         if (data.isGameOver === true) {
           gameEnded = true;
-          var isVictory = data.state === 'victory' || data.outcome === 'victory';
-          setTimeout(function() { showResult(isVictory ? 'victory' : 'defeat', displayText, data.actualImposter); }, 800);
+          var isVictory = data.state === 'victory' || data.outcome === 'victory' || data.outcome === 'crew_win';
+          var extra = { outcome_reason: data.outcome_reason, winner_side: data.winner_side, loser_side: data.loser_side };
+          setTimeout(function() { showResult(isVictory ? 'victory' : 'defeat', displayText, data.actualImposter, extra); }, 800);
         } else if (data.state === 'victory' || data.state === 'defeat') {
           if (raw.indexOf('[ACCUSE]') === 0) {
             var accused = raw.replace(/^\[ACCUSE\]/i, '').trim();
             if (accused && deadCrew.indexOf(accused) < 0) deadCrew.push(accused);
           }
-          setTimeout(function() { showResult(data.state, displayText || '', data.actualImposter); }, 1000);
+          var extra2 = { outcome_reason: data.outcome_reason, winner_side: data.winner_side, loser_side: data.loser_side };
+          setTimeout(function() { showResult(data.state, displayText || '', data.actualImposter, extra2); }, 1000);
         } else {
           setPhase('captain_input');
         }
@@ -2405,7 +2417,7 @@
       sendMessage(`[ACCUSE] ${target}`);
     }
 
-    function showResult(state, message, actualImposter) {
+    function showResult(state, message, actualImposter, extra) {
       gameEnded = true;
       setPhase('game_over'); // game over lock
       if (gameTimer) clearInterval(gameTimer);
@@ -2429,6 +2441,7 @@
       const title = document.getElementById('result-title');
       const desc = document.getElementById('result-desc');
       const imposterEl = document.getElementById('result-imposter');
+      const outcomeDetailEl = document.getElementById('result-outcome-detail');
       const keyEvidenceEl = document.getElementById('result-key-evidence'); // PATCH
       
       var traitorName = (actualImposter && String(actualImposter).trim() !== '') ? String(actualImposter).trim() : null;
@@ -2471,6 +2484,17 @@
         desc.innerText = t('result.defeat.desc');
         imposterEl.innerHTML = t('result.defeat.imposterPrefix') + `<strong>${tLine(traitorName)}</strong>`; // PATCH
         imposterEl.style.display = "block";
+      }
+
+      if (outcomeDetailEl && extra && (extra.outcome_reason || extra.winner_side || extra.loser_side)) {
+        var parts = [];
+        if (extra.outcome_reason) parts.push((window.__LANG === 'ko' ? '사유: ' : 'Reason: ') + extra.outcome_reason);
+        if (extra.winner_side) parts.push((window.__LANG === 'ko' ? '승리: ' : 'Winner: ') + extra.winner_side);
+        if (extra.loser_side) parts.push((window.__LANG === 'ko' ? '패배: ' : 'Loser: ') + extra.loser_side);
+        outcomeDetailEl.textContent = parts.join('  |  ');
+        outcomeDetailEl.style.display = 'block';
+      } else if (outcomeDetailEl) {
+        outcomeDetailEl.style.display = 'none';
       }
     }
 
