@@ -882,10 +882,23 @@ module.exports = async (req, res) => {
     const { serverResult: gameResult, statePatch } = processGameAction(updatedMatch, action, role, target, gameState);
     Object.assign(serverResult, gameResult);
     gameState = { ...gameState, ...statePatch };
-    if (statePatch.game_over != null || statePatch.outcome != null) {
+    const hasStateChanges = Object.keys(statePatch).length > 0;
+    if (statePatch.game_over != null || statePatch.outcome != null || hasStateChanges) {
       const persistPatch = {};
       if (statePatch.game_over != null) persistPatch.game_over = statePatch.game_over;
       if (statePatch.outcome != null) persistPatch.outcome = statePatch.outcome;
+      if (hasStateChanges) {
+        persistPatch.game_state = {
+          clues: gameState.clues,
+          pistol_holder: gameState.pistol_holder,
+          dead_roles: gameState.dead_roles,
+          accuse_history: gameState.accuse_history,
+          game_over: gameState.game_over || statePatch.game_over || false,
+          outcome: gameState.outcome ?? statePatch.outcome ?? null,
+          winner: gameState.winner ?? statePatch.winner ?? null,
+          loser_reason: gameState.loser_reason ?? statePatch.loser_reason ?? null
+        };
+      }
       if (Object.keys(persistPatch).length > 0) {
         await updateMatch(matchId, persistPatch);
         updatedMatch = await getOrCreateMatch(matchId);
