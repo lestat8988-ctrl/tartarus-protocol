@@ -739,13 +739,7 @@ async function runEpisode(matchId, maxTurns = 10, logPath, testMode = false) {
       }
       const obs = observationBase;
 
-      console.log(
-        `[OBS] turn=${obs.turn} cap=${JSON.stringify(obs.captain_action)} currentQuestionTarget=${obs.current_question_target}`
-      );
       const decision = await callCrewDecide(role, obs);
-      console.log(
-        `[DECISION] turn=${turn} role=${role} action=${decision?.action} target=${decision?.target} dialogue=${JSON.stringify((decision?.dialogue || '').slice(0, 40))}`
-      );
       const serverResult = await submitAction(matchId, turn, `agent_${role}`, role, decision);
 
       recentEvents.push({
