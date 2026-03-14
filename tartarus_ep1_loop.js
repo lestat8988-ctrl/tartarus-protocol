@@ -605,6 +605,22 @@ async function callCrewDecide(role, observation) {
       }
     }
 
+    // Safety net: QUESTION + target null (non-self-target) → 강제 보정. self-target QUESTION은 유지.
+    const hasTarget = decision.target != null && String(decision.target).trim() !== '';
+    if (!isSelfTarget && (decision.action || '').toUpperCase() === 'QUESTION' && !hasTarget) {
+      if (currentTurnAction === 'CHECK_LOG') {
+        if (role === 'engineer' || role === 'navigator') {
+          decision = { ...decision, action: 'CHECK_LOG', target: null, dialogue: role === 'engineer' ? '로그 확인 중입니다.' : '시간대와 위치 기록을 확인 중이다.' };
+        } else {
+          decision = { ...decision, action: 'OBSERVE', target: null, dialogue: getObserveFallbackByRole(role) };
+        }
+      } else if (currentTurnAction === 'OBSERVE') {
+        decision = { ...decision, action: 'OBSERVE', target: null, dialogue: getObserveFallbackByRole(role) };
+      } else {
+        decision = { ...decision, action: 'OBSERVE', target: null, dialogue: getObserveFallbackByRole(role) };
+      }
+    }
+
     return decision;
   } catch (e) {
     clearTimeout(timeoutId);
@@ -727,6 +743,9 @@ async function runEpisode(matchId, maxTurns = 10, logPath, testMode = false) {
         `[OBS] turn=${obs.turn} cap=${JSON.stringify(obs.captain_action)} currentQuestionTarget=${obs.current_question_target}`
       );
       const decision = await callCrewDecide(role, obs);
+      console.log(
+        `[DECISION] turn=${turn} role=${role} action=${decision?.action} target=${decision?.target} dialogue=${JSON.stringify((decision?.dialogue || '').slice(0, 40))}`
+      );
       const serverResult = await submitAction(matchId, turn, `agent_${role}`, role, decision);
 
       recentEvents.push({
