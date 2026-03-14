@@ -260,5 +260,8 @@ module.exports = async (req, res) => {
   if (resolved.loser_side != null) safeResult.loser_side = resolved.loser_side;
 
   const sanitized = removeAnswerFields(safeResult);
+  if (safeResult.game_over === true) {
+    sanitized.actual_imposter = resolveImpostorFromMatch(match);
+  }
   return res.status(200).json(sanitized);
 };
