@@ -787,7 +787,7 @@
 
       <div class="action-bar">
         <!-- quick button: getInterrogateMessage()로 생존 승무원 기반 질문 생성 -->
-        <button type="button" class="action-btn" data-msg="interrogate" id="interrogate-btn" onclick="if(typeof sendInterrogateClick==='function'){sendInterrogateClick(event,this);}return false;">승무원 심문</button>
+        <button type="button" class="action-btn" data-msg="interrogate" id="interrogate-btn">승무원 심문</button>
         <button type="button" class="action-btn" data-msg="cctv" data-ep1="CHECK_LOG CCTV 로그를 확인한다." onclick="sendMessage(this.getAttribute('data-ep1'))">CCTV 로그 확인</button>
         <button type="button" class="action-btn" data-msg="engine" data-ep1="CHECK_LOG 엔진실 로그를 확인한다." onclick="sendMessage(this.getAttribute('data-ep1'))">엔진실 확인</button>
       </div>
@@ -1918,7 +1918,18 @@
     async function startActualGame() {
       setPhase('captain_input');
       startGameTimer();
-      /* interrogate: single binding via onclick only. no delegation to avoid first-click double fire. */
+      if (!window.__interrogateBound) {
+        window.__interrogateBound = true;
+        var ib = document.getElementById('interrogate-btn');
+        if (ib) {
+          ib.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
+            sendInterrogateClick(ev, ib);
+          }, { capture: true, passive: false });
+        }
+      }
       var lang = (window.__LANG === 'ko') ? 'ko' : 'en';
       var lines = OPENING_LINES[lang] || OPENING_LINES.ko;
       for (var i = 0; i < lines.length; i++) {
