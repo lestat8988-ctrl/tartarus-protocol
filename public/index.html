@@ -1496,18 +1496,23 @@
         }
         if (!displayText) {
           var ev = findCrewEventInRecent(recent, role);
-          if (ev && (ev.dialogue || ev.summary || ev.action)) {
+          if (ev && ev.dialogue && String(ev.dialogue).trim()) {
+            displayText = String(ev.dialogue).trim();
+            summ = ev.summary || null;
+            evKey = ev ? eventDedupeKey(ev) : null;
+          } else if (ev && ev.summary && String(ev.summary).trim()) {
+            displayText = String(ev.summary).trim();
+            summ = ev.summary || null;
+            evKey = ev ? eventDedupeKey(ev) : null;
+          } else if (ev && (ev.dialogue || ev.summary || ev.action)) {
             displayText = getMainTextFromEvent(ev);
             summ = ev.summary || null;
             evKey = ev ? eventDedupeKey(ev) : null;
-          } else if (ev && ev.summary) {
-            displayText = ev.summary;
-            summ = ev.summary;
-            evKey = ev ? eventDedupeKey(ev) : null;
           }
         }
+        if (!displayText && sr.summary && String(sr.summary).trim()) displayText = String(sr.summary).trim();
         var safeText = displayText || (fallbackMap && fallbackMap[role]) || '—';
-        if ((CREW_PLACEHOLDER_KO[role] && safeText === CREW_PLACEHOLDER_KO[role]) || (CREW_PLACEHOLDER_EN[role] && safeText === CREW_PLACEHOLDER_EN[role])) safeText = (fallbackMap && fallbackMap[role]) || '—';
+        if (typeof isGenericOrPlaceholderText === 'function' && isGenericOrPlaceholderText(role, safeText)) safeText = (fallbackMap && fallbackMap[role]) || '—';
         updateCrewPlaceholder(role, safeText, summ, evKey);
       }
       if (pendingCrewBatch) pendingCrewBatch.resolved = true;
@@ -1539,8 +1544,15 @@
 
     var CREW_PLACEHOLDER_KO = { doctor: '의사 분석 중...', engineer: '엔지니어 분석 중...', navigator: '네비게이터 추론 중...', pilot: '파일럿 감지 중...' };
     var CREW_PLACEHOLDER_EN = { doctor: 'Doctor analyzing...', engineer: 'Engineer analyzing...', navigator: 'Navigator reasoning...', pilot: 'Pilot sensing...' };
-    var CREW_FALLBACK_KO = { doctor: '반응을 살펴보겠습니다.', engineer: '로그 확인 중입니다.', navigator: '동선을 짚어보겠습니다.', pilot: '분위기가 이상합니다.' };
-    var CREW_FALLBACK_EN = { doctor: 'Checking reactions.', engineer: 'Checking logs.', navigator: 'Tracing movements.', pilot: 'Something feels off.' };
+    var CREW_FALLBACK_KO = { doctor: '표정과 호흡을 확인 중이다. 이상 징후가 있으면 보고하겠다.', engineer: '기록 끊김과 접근 로그를 확인 중이다. 불일치가 있으면 짚겠다.', navigator: '그 시간대 동선부터 다시 말해봐. 알리바이가 비어 있다.', pilot: '공기가 달라졌어. 누군가 뭔가를 숨기고 있는 것 같아.' };
+    var CREW_FALLBACK_EN = { doctor: 'Checking expression and breathing. Will report any anomalies.', engineer: 'Checking logs for gaps and access records. Will flag discrepancies.', navigator: 'Tell me your movements for that time again. Your alibi has gaps.', pilot: 'The air shifted. Someone seems to be hiding something.' };
+    var CREW_GENERIC_OLD_KO = { doctor: '반응을 살펴보겠습니다.', engineer: '로그 확인 중입니다.', navigator: '동선을 짚어보겠습니다.', pilot: '분위기가 이상합니다.' };
+    var CREW_GENERIC_OLD_EN = { doctor: 'Checking reactions.', engineer: 'Checking logs.', navigator: 'Tracing movements.', pilot: 'Something feels off.' };
+    function isGenericOrPlaceholderText(role, text) {
+      if (!text || !String(text).trim()) return true;
+      var t = String(text).trim();
+      return (CREW_PLACEHOLDER_KO[role] && t === CREW_PLACEHOLDER_KO[role]) || (CREW_PLACEHOLDER_EN[role] && t === CREW_PLACEHOLDER_EN[role]) || (CREW_GENERIC_OLD_KO[role] && t === CREW_GENERIC_OLD_KO[role]) || (CREW_GENERIC_OLD_EN[role] && t === CREW_GENERIC_OLD_EN[role]);
+    }
     var CREW_ROLES = ['doctor', 'engineer', 'navigator', 'pilot'];
     function ensureCrewSlotsForBatch(turn, batchId, deadCrewArr) {
       if (!logEl) return;
@@ -1596,6 +1608,7 @@
       if (!row) return;
       var fallbackMap = (window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN);
       var safeText = (mainText && String(mainText).trim()) ? String(mainText).trim() : ((fallbackMap && fallbackMap[role]) || '—');
+      if (typeof isGenericOrPlaceholderText === 'function' && isGenericOrPlaceholderText(role, safeText)) safeText = (fallbackMap && fallbackMap[role]) || '—';
       if (typeof toRoleLabelKo === 'function') safeText = toRoleLabelKo(safeText);
       if (eventKey) row.setAttribute('data-event-key', eventKey);
       var textEl = row.querySelector('.dialogue-text');
@@ -1656,11 +1669,13 @@
               var fallbackVal = (fallbackMap && fallbackMap[role]) || '—';
               var displayText = '';
               if (currEv && currEv.dialogue && String(currEv.dialogue).trim()) displayText = String(currEv.dialogue).trim();
-              else if (ev && (ev.dialogue || ev.summary || ev.action)) displayText = getMainTextFromEvent(ev);
               else if (currEv && currEv.summary && String(currEv.summary).trim()) displayText = String(currEv.summary).trim();
+              else if (ev && ev.dialogue && String(ev.dialogue).trim()) displayText = String(ev.dialogue).trim();
+              else if (ev && ev.summary && String(ev.summary).trim()) displayText = String(ev.summary).trim();
+              else if (ev && (ev.dialogue || ev.summary || ev.action)) displayText = getMainTextFromEvent(ev);
               else if (sr.summary && String(sr.summary).trim()) displayText = String(sr.summary).trim();
               else displayText = fallbackVal;
-              if (!displayText || (CREW_PLACEHOLDER_KO[role] && displayText === CREW_PLACEHOLDER_KO[role]) || (CREW_PLACEHOLDER_EN[role] && displayText === CREW_PLACEHOLDER_EN[role])) displayText = fallbackVal;
+              if (!displayText || (typeof isGenericOrPlaceholderText === 'function' && isGenericOrPlaceholderText(role, displayText))) displayText = fallbackVal;
               var summ = (ev && ev.summary) || (currEv && currEv.summary) || sr.summary || null;
               var key = ev ? eventDedupeKey(ev) : (currEv && currEv.role ? role + ':' + (currEv.dialogue || currEv.summary || '').slice(0, 20) : null);
               var r = role, dt = displayText, s = displayText ? summ : null, k = key;
