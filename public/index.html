@@ -1297,11 +1297,13 @@
       }
       return data;
     }
-    async function ep1CallResult() {
+    async function ep1CallResult(opts) {
+      var body = { match_id: MATCH_ID };
+      if (opts && opts.client_ended) body.client_ended = true;
       const res = await fetch('/api/ep1/result', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ match_id: MATCH_ID })
+        body: JSON.stringify(body)
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -2115,14 +2117,20 @@
       
       setTimeout(async function() {
         var impostorVal = null;
+        var extra = null;
         if (MATCH_ID) {
           try {
-            var resData = await ep1CallResult();
+            var resData = await ep1CallResult({ client_ended: true });
             impostorVal = resData.true_impostor || resData.actual_imposter || resData.impostor || resData.hidden_host || resData.culprit || null;
             if (impostorVal && typeof impostorVal === 'string' && impostorVal.trim() === '') impostorVal = null;
+            extra = {
+              outcome_reason: resData.outcome_reason || null,
+              winner_side: resData.winner_side || null,
+              loser_side: resData.loser_side || null
+            };
           } catch (e) {}
         }
-        showResult('defeat', 'TOTAL SYSTEM FAILURE. All crew members terminated.', impostorVal);
+        showResult('defeat', 'TOTAL SYSTEM FAILURE. All crew members terminated.', impostorVal, extra);
       }, 2000);
     }
 

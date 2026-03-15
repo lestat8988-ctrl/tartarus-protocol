@@ -218,6 +218,7 @@ module.exports = async (req, res) => {
   }
 
   const matchId = body.match_id ?? null;
+  const clientEnded = !!body.client_ended;
   if (!matchId || typeof matchId !== 'string') {
     return errRes(res, 400, 'match_id required');
   }
@@ -246,11 +247,12 @@ module.exports = async (req, res) => {
   const deadRoles = (gameState.dead_roles?.length > 0 ? gameState.dead_roles : derived?.dead_roles) ?? [];
   const pistolHolder = gameState.pistol_holder ?? null;
 
+  const effectiveGameOver = resolved.game_over || !!match.game_over || clientEnded;
   const safeResult = {
     debug_version: 'ep1-result-game-state-v3',
     match_id: match.match_id,
-    game_over: resolved.game_over || !!match.game_over,
-    outcome: resolved.outcome ?? match.outcome ?? null,
+    game_over: effectiveGameOver,
+    outcome: resolved.outcome ?? match.outcome ?? (clientEnded ? 'impostor_win' : null),
     turn: match.turn ?? 1,
     phase: match.phase ?? 'playing',
     location: match.location ?? 'bridge',
@@ -261,11 +263,14 @@ module.exports = async (req, res) => {
     pistol_holder: pistolHolder
   };
   if (resolved.outcome_reason != null) safeResult.outcome_reason = resolved.outcome_reason;
+  else if (clientEnded) safeResult.outcome_reason = deadRoles.length >= 4 ? 'all_crew_dead' : 'timeout';
   if (resolved.winner_side != null) safeResult.winner_side = resolved.winner_side;
+  else if (clientEnded) safeResult.winner_side = 'impostor';
   if (resolved.loser_side != null) safeResult.loser_side = resolved.loser_side;
+  else if (clientEnded) safeResult.loser_side = 'crew';
 
   const sanitized = removeAnswerFields(safeResult);
-  if (safeResult.game_over === true) {
+  if (effectiveGameOver === true) {
     sanitized.actual_imposter = resolveImpostorFromMatch(match);
   }
   return res.status(200).json(sanitized);
