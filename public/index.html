@@ -1703,10 +1703,11 @@
       });
       document.querySelectorAll('.action-btn[data-msg]').forEach(btn => {
         const msg = btn.getAttribute('data-msg');
-        var label = t(`game.buttons.${msg}`);
-        if (!label && msg === 'take_pistol') label = (window.__LANG === 'ko') ? '권총 획득' : 'TAKE PISTOL';
-        if (!label && msg === 'shoot') label = (window.__LANG === 'ko') ? '사격' : 'SHOOT';
-        if (!label && msg === 'find_clue') label = (window.__LANG === 'ko') ? '단서 수집' : 'FIND CLUE';
+        var label;
+        if (msg === 'take_pistol') label = (window.__LANG === 'ko') ? '권총 획득' : 'TAKE PISTOL';
+        else if (msg === 'shoot') label = (window.__LANG === 'ko') ? '사격' : 'SHOOT';
+        else if (msg === 'find_clue') label = (window.__LANG === 'ko') ? '단서 수집' : 'FIND CLUE';
+        else label = t(`game.buttons.${msg}`);
         btn.textContent = label || btn.textContent || msg;
       });
       var ih = document.getElementById('input-hint');
@@ -2589,6 +2590,9 @@
     window.openAccuseModal = openAccuseModal;
     window.triggerAccuse = triggerAccuse;
     window.closeAccuseModal = closeAccuseModal;
+    window.openShootModal = openShootModal;
+    window.closeShootModal = closeShootModal;
+    window.triggerShoot = triggerShoot;
     if (typeof closeModal === "function") window.closeModal = closeModal;
     if (typeof submitAccusation === "function") window.submitAccusation = submitAccusation;
     if (typeof confirmAccuse === "function") window.confirmAccuse = confirmAccuse;
