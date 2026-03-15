@@ -1356,9 +1356,15 @@
       var t = String(text).trim();
       return /^QUESTION\s+(doctor|engineer|navigator|pilot|의사|엔지니어|네비게이터|파일럿|\S+)\s+/i.test(t) || /^(의사|엔지니어|네비게이터|파일럿),\s*그때\s*어디\s*있었지/i.test(t);
     }
+    function isCaptainFallbackText(txt) {
+      if (!txt || typeof txt !== 'string') return false;
+      var t = String(txt).trim();
+      return /브리지|상황\s*확인|로그\s*확인|점검|대기|bridge|check\s+bridge|inspect|wait/i.test(t) || /^OBSERVE\s/i.test(t);
+    }
     function appendNewEventsFromList(events, resultLines, deadCrewArr, opts) {
       const list = Array.isArray(events) ? events : [];
       var skipCaptainQuestion = !!(opts && opts.skipCaptainInResult);
+      var skipCaptainFallback = !!(opts && opts.skipCaptainFallbackForPreset);
       for (const e of list) {
         var role = String(e.role || 'system').toLowerCase().trim();
         var summ = String(e.summary || '').trim();
@@ -1426,6 +1432,7 @@
         }
         if (mainText && /^QUESTION\s+/i.test(String(mainText).trim())) continue;
         if (_skipCapQ && /^(의사|엔지니어|네비게이터|파일럿),\s*그때\s*어디\s*있었지/i.test(String(mainText).trim())) continue;
+        if (skipCaptainFallback && isCaptainFallbackText(mainText || summary)) continue;
         var existingRow = false;
         if (logEl) {
           var rows = logEl.querySelectorAll('.dialogue-line[data-event-key]');
@@ -1662,11 +1669,11 @@
         var appendOpts = null;
         if (opts && opts.captainPayload) {
           appendOpts = { skipCaptainInResult: true };
-          if (captainPayload.action === 'TAKE_PISTOL' || captainPayload.action === 'FIND_CLUE') {
+          if (captainPayload.action === 'TAKE_PISTOL') {
+            appendOpts.skipCaptainFallbackForPreset = true;
             events = events.filter(function(e) {
               var isCap = (e.role && String(e.role).toLowerCase() === 'captain') || (e.actor && String(e.actor).toLowerCase() === 'captain');
-              if (isCap && (e.action === 'OBSERVE' || /^OBSERVE\s/i.test(String(e.dialogue || '')) || /브리지|로그|점검|대기|bridge|check\s+log|inspect|wait/i.test(String(e.dialogue || e.summary || '')))) return false;
-              return true;
+              return !isCap;
             });
           }
         }
