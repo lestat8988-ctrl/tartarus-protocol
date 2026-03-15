@@ -243,6 +243,9 @@ module.exports = async (req, res) => {
   const derived = deriveFromEvents(allEvents);
   const resolved = resolveOutcome(match, gameState, derived);
 
+  const deadRoles = (gameState.dead_roles?.length > 0 ? gameState.dead_roles : derived?.dead_roles) ?? [];
+  const pistolHolder = gameState.pistol_holder ?? null;
+
   const safeResult = {
     debug_version: 'ep1-result-game-state-v3',
     match_id: match.match_id,
@@ -253,7 +256,9 @@ module.exports = async (req, res) => {
     location: match.location ?? 'bridge',
     public_events: Array.isArray(pub) ? pub : [],
     recent_events,
-    events_count
+    events_count,
+    dead_roles: deadRoles,
+    pistol_holder: pistolHolder
   };
   if (resolved.outcome_reason != null) safeResult.outcome_reason = resolved.outcome_reason;
   if (resolved.winner_side != null) safeResult.winner_side = resolved.winner_side;
