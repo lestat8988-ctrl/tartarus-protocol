@@ -2618,26 +2618,29 @@
 
       var isKo = window.__LANG === 'ko';
       var outcomeReason = (extra && extra.outcome_reason) ? String(extra.outcome_reason) : '';
-      var isTimeout = outcomeReason === 'timeout' || (extra && extra.winner_side === 'impostor' && outcomeReason.indexOf('timeout') >= 0);
+      var winnerSide = (extra && extra.winner_side) ? String(extra.winner_side) : '';
+      var isCrewWin = (state === 'victory') || (winnerSide === 'crew') || (outcomeReason === 'impostor_killed');
+      var isTimeout = (outcomeReason === 'timeout');
+      var resultType = isCrewWin ? 'crew_win' : (isTimeout ? 'timeout' : 'accuse_failed');
       var RESULT_DESC = {
-        ko: { defeat_timeout: '시간이 다 됐다. 중첩체는 끝까지 발각되지 않았다. 함선은 하데스의 것이 됐다.', defeat_accuse: '무고한 승무원이 처형당했습니다. 함선 파괴됨.', victory: '중첩체가 제거됐다. 하데스 계층이 봉인됐다. 함선은 살아남았다.' },
-        en: { defeat_timeout: "Time's up. The parasite was never found. The ship belongs to HADES now.", defeat_accuse: 'Innocent crew member executed. Ship destroyed.', victory: 'The parasite has been eliminated. HADES layer sealed. The ship survives.' }
+        ko: { crew_win: '중첩체가 제거됐다. 하데스 계층이 봉인됐다. 함선은 살아남았다.', timeout: '시간이 다 됐다. 중첩체는 끝까지 발각되지 않았다. 함선은 하데스의 것이 됐다.', accuse_failed: '무고한 승무원이 처형당했습니다. 함선 파괴됨.' },
+        en: { crew_win: 'The parasite has been eliminated. HADES layer sealed. The ship survives.', timeout: "Time's up. The parasite was never found. The ship belongs to HADES now.", accuse_failed: 'Innocent crew member executed. Ship destroyed.' }
       };
       var RESULT_TITLE = {
-        ko: { defeat: '미션 실패. 승무원 전원 사망.', victory: '임무 완료.' },
-        en: { defeat: 'MISSION FAILED. CREW TERMINATED.', victory: 'MISSION ACCOMPLISHED.' }
+        ko: { crew_win: '임무 완료.', defeat: '미션 실패. 승무원 전원 사망.' },
+        en: { crew_win: 'MISSION ACCOMPLISHED.', defeat: 'MISSION FAILED. CREW TERMINATED.' }
       };
       var lang = isKo ? 'ko' : 'en';
       var rd = RESULT_DESC[lang];
       var rt = RESULT_TITLE[lang];
-      if (state === 'victory') {
-        title.innerText = rt.victory;
-        desc.innerText = rd.victory;
+      if (resultType === 'crew_win') {
+        title.innerText = rt.crew_win;
+        desc.innerText = rd.crew_win;
         imposterEl.innerHTML = t('result.victory.imposterPrefix') + `<strong>${tLine(traitorName)}</strong>`;
         imposterEl.style.display = "block";
       } else {
         title.innerText = rt.defeat;
-        desc.innerText = isTimeout ? rd.defeat_timeout : rd.defeat_accuse;
+        desc.innerText = (resultType === 'timeout') ? rd.timeout : rd.accuse_failed;
         imposterEl.innerHTML = t('result.defeat.imposterPrefix') + `<strong>${tLine(traitorName)}</strong>`;
         imposterEl.style.display = "block";
       }
