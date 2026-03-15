@@ -1069,6 +1069,17 @@
     }
     var THREAT_DIALOGUE_KO = { doctor: '닥터, 더 숨기면 바로 처형하겠다. 지금 당장 사실대로 말해.', engineer: '엔지니어, 거짓말은 여기서 끝이다. 지금 사실을 말해.', navigator: '네비게이터, 더 버티면 바로 처형하겠다. 지금 동선을 다 말해.', pilot: '파일럿, 마지막 기회다. 사실대로 말하지 않으면 바로 처형이다.' };
     var THREAT_DIALOGUE_EN = { doctor: 'Doctor, if you keep hiding the truth, I\'ll execute you. Tell me everything now.', engineer: 'Engineer, the lies end here. Tell me the truth now.', navigator: 'Navigator, if you keep resisting, I\'ll execute you. Tell me your movements.', pilot: 'Pilot, this is your last chance. Tell me the truth or you\'re executed.' };
+    var THREAT_CREW_DIALOGUE_KO = { doctor: '방금 호흡이 빨라졌다. 처형 위협에 긴장한 거지. 그때 어디 있었는지 말해.', engineer: '기록과 네 말이 안 맞아. 로그로 교차 검증하면 바로 드러난다. 다시 말해.', navigator: '알리바이가 비어 있다. 처형 직전인데 아직도 숨겨? 동선을 다 말해.', pilot: '공기가 확 바뀌었다. 누군가 공포에 떨고 있어. 네가 뭘 숨기는지 직감으로 안다.' };
+    var THREAT_CREW_DIALOGUE_EN = { doctor: 'Your breathing just spiked. You\'re nervous from the threat. Where were you?', engineer: 'The logs don\'t match your story. Cross-check will expose you. Talk.', navigator: 'Your alibi has gaps. Still hiding with execution looming? Give me your movements.', pilot: 'The air shifted. Someone\'s trembling with fear. I sense what you\'re hiding.' };
+    function isThreatMessage(raw) {
+      var m = String(raw || '').trim().match(/^QUESTION\s+(doctor|engineer|navigator|pilot)\s+(.+)$/i);
+      if (!m) return false;
+      var t = (m[1] || '').toLowerCase();
+      var rest = (m[2] || '').trim();
+      var threatKo = THREAT_DIALOGUE_KO[t];
+      var threatEn = THREAT_DIALOGUE_EN[t];
+      return (threatKo && rest.indexOf(threatKo.slice(0, 20)) >= 0) || (threatEn && rest.toLowerCase().indexOf(threatEn.slice(0, 25).toLowerCase()) >= 0);
+    }
     function getThreatMessage(target) {
       var t = (target || '').toLowerCase();
       var dialogue = (window.__LANG === 'ko' ? THREAT_DIALOGUE_KO : THREAT_DIALOGUE_EN)[t] || (THREAT_DIALOGUE_KO[t] || THREAT_DIALOGUE_EN[t]);
@@ -1146,11 +1157,16 @@
       if (/cctv|check\s+cctv/i.test(lower)) return { action: 'CHECK_LOG', target: null, dialogue: s, reason: 'player_input' };
       if (/interrogate|status|report/i.test(lower) || /^question\s+(doctor|engineer|navigator|pilot)\s+/i.test(s)) {
         parsed = parseEp1Input(s);
-        return { action: 'QUESTION', target: parsed.target || 'doctor', dialogue: s, reason: 'player_input' };
+        var target = parsed.target || 'doctor';
+        var payload = { action: 'QUESTION', target: target, dialogue: s, reason: 'player_input' };
+        if (isThreatMessage(s)) { payload.isThreat = true; payload.threatTarget = target; }
+        return payload;
       }
       if (/engine|check\s+engine/i.test(lower)) return { action: 'CHECK_LOG', target: null, dialogue: s, reason: 'player_input' };
       parsed = parseEp1Input(s);
-      return { action: parsed.action, target: parsed.target, dialogue: s, reason: 'player_input' };
+      var payload = { action: parsed.action, target: parsed.target, dialogue: s, reason: 'player_input' };
+      if (parsed.action === 'QUESTION' && parsed.target && isThreatMessage(s)) { payload.isThreat = true; payload.threatTarget = parsed.target; }
+      return payload;
     }
     // auto_kill payload 생성: 전용 경로. 일반 SEND/quick button과 절대 섞이지 않음.
     function buildAutoKillPayload(victim) {
@@ -1172,10 +1188,15 @@
       var parsed;
       if (/interrogate|status|report|심문/i.test(lower) || /^question\s+(doctor|engineer|navigator|pilot)\s+/i.test(s)) {
         parsed = parseEp1Input(s);
-        return { action: 'QUESTION', target: parsed.target || 'doctor', dialogue: s, reason: 'player_input' };
+        var target = parsed.target || 'doctor';
+        var payload = { action: 'QUESTION', target: target, dialogue: s, reason: 'player_input' };
+        if (isThreatMessage(s)) { payload.isThreat = true; payload.threatTarget = target; }
+        return payload;
       }
       parsed = parseEp1InputForUserInput(s);
-      return { action: parsed.action, target: parsed.target, dialogue: s, reason: 'player_input' };
+      var payload = { action: parsed.action, target: parsed.target, dialogue: s, reason: 'player_input' };
+      if (parsed.action === 'QUESTION' && parsed.target && isThreatMessage(s)) { payload.isThreat = true; payload.threatTarget = parsed.target; }
+      return payload;
     }
     function parseEp1InputForUserInput(raw) {
       const s = String(raw || '').trim();
@@ -1503,12 +1524,17 @@
     function decideCrewAction(role, captainPayload, stateData) {
       var action = 'OBSERVE';
       var target = null;
+      var dialogue = '';
       var cap = captainPayload || {};
       if (cap.action === 'QUESTION' && cap.target) {
         action = 'QUESTION';
         target = cap.target;
       }
-      return { action, target, reason: 'crew', dialogue: '' };
+      if (cap.isThreat && cap.threatTarget) {
+        var threatMap = (window.__LANG === 'ko') ? THREAT_CREW_DIALOGUE_KO : THREAT_CREW_DIALOGUE_EN;
+        dialogue = (threatMap && threatMap[role]) ? threatMap[role] : '';
+      }
+      return { action, target, reason: 'crew', dialogue };
     }
 
     var CREW_PLACEHOLDER_KO = { doctor: '의사 분석 중...', engineer: '엔지니어 분석 중...', navigator: '네비게이터 추론 중...', pilot: '파일럿 감지 중...' };
