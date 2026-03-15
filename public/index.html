@@ -2420,7 +2420,9 @@
           gameEnded = true;
           var isVictory = data.state === 'victory' || data.outcome === 'victory' || data.outcome === 'crew_win';
           var extra = { outcome_reason: data.outcome_reason, winner_side: data.winner_side, loser_side: data.loser_side };
-          setTimeout(function() { showResult(isVictory ? 'victory' : 'defeat', displayText, data.actualImposter, extra); }, 800);
+          var isShoot = (captainPayload && captainPayload.action === 'SHOOT') || /^SHOOT\s+/i.test(raw);
+          var delayMs = isShoot ? 2500 : 800;
+          setTimeout(function() { showResult(isVictory ? 'victory' : 'defeat', displayText, data.actualImposter, extra); }, delayMs);
         } else if (data.state === 'victory' || data.state === 'defeat') {
           if (raw.indexOf('[ACCUSE]') === 0) {
             var accused = raw.replace(/^\[ACCUSE\]/i, '').trim();
