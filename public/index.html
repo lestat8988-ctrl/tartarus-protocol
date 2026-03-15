@@ -2144,6 +2144,10 @@
     function printDialogueLine(role, dialogue, summary, eventKey) {
       var main = dialogue || summary || '';
       if (!main) return Promise.resolve();
+      var isCapQContent = (typeof isCaptainQuestionRaw === 'function' && isCaptainQuestionRaw(main)) || (typeof isCaptainQuestionSummary === 'function' && isCaptainQuestionSummary(main));
+      if ((role === 'captain' || isCapQContent) && typeof hasCaptainQuestionRenderedForTurn === 'function' && hasCaptainQuestionRenderedForTurn(currentTurn || 1)) {
+        return Promise.resolve();
+      }
       var label = ROLE_LABEL_KO[role] || role || '?';
       if (typeof toRoleLabelKo === 'function') { main = toRoleLabelKo(main); if (summary) summary = toRoleLabelKo(summary); }
       var roleClass = getRoleClass(role);
