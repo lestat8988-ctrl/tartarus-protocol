@@ -547,7 +547,11 @@ async function callCrewDecide(role, observation) {
     }
     userContent += '\n';
   }
-  userContent += `Respond with JSON only (no markdown): {"action":"QUESTION|OBSERVE|CHECK_LOG|REPAIR|ACCUSE|WAIT","target":"player"|"doctor"|"engineer"|"navigator"|"pilot"|null,"reason":"한국어로 간단한 이유","dialogue":"한국어로 1~3문장 대사"}`;
+  const deadCrewForPrompt = Array.isArray(observation.dead_crew) ? observation.dead_crew : [];
+  if (deadCrewForPrompt.length > 0) {
+    userContent += `\n[금지] dead_crew=${JSON.stringify(deadCrewForPrompt)}. 이 역할들은 사망했으므로 target으로 선택하지 마라.`;
+  }
+  userContent += `\nRespond with JSON only (no markdown): {"action":"QUESTION|OBSERVE|CHECK_LOG|REPAIR|ACCUSE|WAIT","target":"player"|"doctor"|"engineer"|"navigator"|"pilot"|null,"reason":"한국어로 간단한 이유","dialogue":"한국어로 1~3문장 대사"}`;
 
   const url = `${OPENAI_BASE_URL.replace(/\/$/, '')}/chat/completions`;
   const controller = new AbortController();
@@ -618,6 +622,29 @@ async function callCrewDecide(role, observation) {
         decision = { ...decision, action: 'OBSERVE', target: null, dialogue: getObserveFallbackByRole(role) };
       } else {
         decision = { ...decision, action: 'OBSERVE', target: null, dialogue: getObserveFallbackByRole(role) };
+      }
+    }
+
+    // Safety net: QUESTION + target이 dead_crew에 포함 → 무효. 살아있는 target 재선정 또는 OBSERVE/CHECK_LOG fallback.
+    const deadCrew = Array.isArray(observation.dead_crew) ? observation.dead_crew : [];
+    const targetLower = hasTarget ? String(decision.target).trim().toLowerCase() : '';
+    const isTargetDead = targetLower && deadCrew.some((d) => String(d).toLowerCase() === targetLower);
+    if ((decision.action || '').toUpperCase() === 'QUESTION' && isTargetDead) {
+      const aliveCrew = AI_CREW_ROLES.filter((r) => !deadCrew.some((d) => String(d).toLowerCase() === r) && r !== role);
+      if (aliveCrew.length > 0) {
+        const newTarget = aliveCrew[0];
+        const newTargetKo = TARGET_KO[newTarget] || newTarget;
+        decision = { ...decision, target: newTarget, dialogue: getQuestionTargetFocusedFallback(role, newTargetKo) };
+      } else {
+        if (currentTurnAction === 'CHECK_LOG') {
+          if (role === 'engineer' || role === 'navigator') {
+            decision = { ...decision, action: 'CHECK_LOG', target: null, dialogue: role === 'engineer' ? '로그 확인 중입니다.' : '시간대와 위치 기록을 확인 중이다.' };
+          } else {
+            decision = { ...decision, action: 'OBSERVE', target: null, dialogue: getObserveFallbackByRole(role) };
+          }
+        } else {
+          decision = { ...decision, action: 'OBSERVE', target: null, dialogue: getObserveFallbackByRole(role) };
+        }
       }
     }
 
@@ -762,6 +789,7 @@ async function runEpisode(matchId, maxTurns = 10, logPath, testMode = false, tes
         observationBase.current_turn_action = currentTurnAction;
         observationBase.turn_context_rule = '현재 턴은 QUESTION이 아니다. recentEvents 안의 이전 QUESTION target은 현재 기본 추궁 대상이 아니다. 이전 질문 기록은 참고만 하고, 현재 턴 액션(CHECK_LOG/OBSERVE/REPAIR 등)을 우선하라. 특정 인물 추궁은 새 로그 근거가 있을 때만 나오게 하라. 아무 근거 없이 직전 QUESTION target을 반복 추궁하지 마라.';
       }
+      observationBase.dead_crew = deadRoles;
       const obs = observationBase;
 
       const decision = await callCrewDecide(role, obs);
