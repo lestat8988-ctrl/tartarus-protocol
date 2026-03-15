@@ -787,7 +787,7 @@
 
       <div class="action-bar">
         <!-- quick button: getInterrogateMessage()로 생존 승무원 기반 질문 생성 -->
-        <button type="button" class="action-btn" data-msg="interrogate" id="interrogate-btn">승무원 심문</button>
+        <button type="button" class="action-btn" data-msg="interrogate" id="interrogate-btn" onclick="if(typeof sendInterrogateClick==='function'){sendInterrogateClick(event,this);}return false;">승무원 심문</button>
         <button type="button" class="action-btn" data-msg="cctv" data-ep1="CHECK_LOG CCTV 로그를 확인한다." onclick="sendMessage(this.getAttribute('data-ep1'))">CCTV 로그 확인</button>
         <button type="button" class="action-btn" data-msg="engine" data-ep1="CHECK_LOG 엔진실 로그를 확인한다." onclick="sendMessage(this.getAttribute('data-ep1'))">엔진실 확인</button>
       </div>
@@ -1712,7 +1712,6 @@
     let questionInFlight = false; // 승무원 심문 버튼 재진입 차단
     let lastQuestionDispatchAt = 0;
     let lastQuestionKey = '';
-    let interrogateBtnBound = false; // 첫 클릭 전용: listener 중복 부착 방지
     const QUESTION_DEBOUNCE_MS = 800;
 
     let gamePhase = 'crew_resolving';
@@ -1919,20 +1918,7 @@
     async function startActualGame() {
       setPhase('captain_input');
       startGameTimer();
-      if (!interrogateBtnBound) {
-        interrogateBtnBound = true;
-        var bar = document.querySelector('.action-bar');
-        if (bar) {
-          bar.addEventListener('click', function(ev) {
-            var t = ev.target && ev.target.closest ? ev.target.closest('.action-btn[data-msg="interrogate"]') : null;
-            if (!t) return;
-            ev.preventDefault();
-            ev.stopPropagation();
-            if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
-            sendInterrogateClick(ev, t);
-          }, { capture: true, passive: false });
-        }
-      }
+      /* interrogate: single binding via onclick only. no delegation to avoid first-click double fire. */
       var lang = (window.__LANG === 'ko') ? 'ko' : 'en';
       var lines = OPENING_LINES[lang] || OPENING_LINES.ko;
       for (var i = 0; i < lines.length; i++) {
@@ -2000,10 +1986,7 @@
         var shortsCountdown = document.getElementById('shorts-countdown');
         if (shortsCountdown && document.body.classList.contains('shorts-mode')) shortsCountdown.textContent = timerText;
         
-        // 4분(240000ms) 간격 AUTO-KILL: 240s, 480s, 720s
-        if (elapsed === 240 || elapsed === 480 || elapsed === 720) {
-          triggerAutoKill();
-        }
+        // AUTO-KILL legacy: disabled. elapsed 240/480/720 no longer triggers.
         
         // Time's up - all crew dead
         if (timeRemaining <= 0) {
@@ -2014,6 +1997,7 @@
     }
 
     async function triggerAutoKill() {
+      return; /* legacy disabled */
       console.log('[AUTO-KILL] fired at', new Date().toLocaleTimeString());
       if (gameEnded) return;
       setPhase('crew_resolving'); // crew resolving
@@ -2079,6 +2063,7 @@
     }
 
     async function requestWitnessTestimony(victim, aliveCrew) {
+      return; /* legacy disabled */
       if (gameEnded || aliveCrew.length === 0) return;
 
       const crewList = (window.GAME_DATA && window.GAME_DATA.crew) ? window.GAME_DATA.crew : ['Navigator', 'Engineer', 'Doctor', 'Pilot'];
