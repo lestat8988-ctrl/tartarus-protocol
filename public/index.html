@@ -1103,6 +1103,8 @@
       if (!raw || !captainPayload) return raw;
       var s = String(raw).trim();
       var roleKo = function(r) { return (ROLE_LABEL_KO && r && ROLE_LABEL_KO[r.toLowerCase()]) || r || ''; };
+      if (captainPayload.action === 'TAKE_PISTOL') return (window.__LANG === 'ko') ? '권총을 집는다.' : 'Picks up the pistol.';
+      if (captainPayload.action === 'FIND_CLUE') return (window.__LANG === 'ko') ? '단서를 수집한다.' : 'Collects a clue.';
       if (captainPayload.action === 'ACCUSE' && captainPayload.target) {
         var t = captainPayload.target;
         return roleKo(t) + ' 처형';
@@ -1138,8 +1140,8 @@
         const target = roleMap[t] || t;
         return { action: 'ACCUSE', target: target || null, dialogue: '', reason: 'player_input' };
       }
-      if (/^TAKE_PISTOL$/i.test(s)) return { action: 'TAKE_PISTOL', target: null, dialogue: s, reason: 'player_input' };
-      if (/^FIND_CLUE$/i.test(s)) return { action: 'FIND_CLUE', target: null, dialogue: s, reason: 'player_input' };
+      if (/^TAKE_PISTOL$/i.test(s)) return { action: 'TAKE_PISTOL', target: null, dialogue: (window.__LANG === 'ko') ? '권총을 집는다.' : 'Picks up the pistol.', reason: 'player_input' };
+      if (/^FIND_CLUE$/i.test(s)) return { action: 'FIND_CLUE', target: null, dialogue: (window.__LANG === 'ko') ? '단서를 수집한다.' : 'Collects a clue.', reason: 'player_input' };
       const lower = s.toLowerCase();
       if (/cctv|check\s+cctv/i.test(lower)) return { action: 'CHECK_LOG', target: null, dialogue: s, reason: 'player_input' };
       if (/interrogate|status|report/i.test(lower) || /^question\s+(doctor|engineer|navigator|pilot)\s+/i.test(s)) {
@@ -1163,8 +1165,8 @@
       const s = String(raw || '').trim();
       if (!s) return null;
       const lower = s.toLowerCase();
-      if (/^TAKE_PISTOL$/i.test(s)) return { action: 'TAKE_PISTOL', target: null, dialogue: s, reason: 'player_input' };
-      if (/^FIND_CLUE$/i.test(s)) return { action: 'FIND_CLUE', target: null, dialogue: s, reason: 'player_input' };
+      if (/^TAKE_PISTOL$/i.test(s)) return { action: 'TAKE_PISTOL', target: null, dialogue: (window.__LANG === 'ko') ? '권총을 집는다.' : 'Picks up the pistol.', reason: 'player_input' };
+      if (/^FIND_CLUE$/i.test(s)) return { action: 'FIND_CLUE', target: null, dialogue: (window.__LANG === 'ko') ? '단서를 수집한다.' : 'Collects a clue.', reason: 'player_input' };
       if (/cctv|check\s+cctv|로그\s*확인/i.test(lower)) return { action: 'CHECK_LOG', target: null, dialogue: s, reason: 'player_input' };
       if (/engine|check\s+engine|엔진/i.test(lower)) return { action: 'CHECK_LOG', target: null, dialogue: s, reason: 'player_input' };
       var parsed;
@@ -1657,7 +1659,18 @@
         var resRecent = resData.recent_events || [];
         var resPub = resData.public_events || [];
         var events = resRecent.length > 0 ? resRecent : resPub;
-        appendNewEventsFromList(events, resultLines, deadCrew, opts && opts.captainPayload ? { skipCaptainInResult: true } : null);
+        var appendOpts = null;
+        if (opts && opts.captainPayload) {
+          appendOpts = { skipCaptainInResult: true };
+          if (captainPayload.action === 'TAKE_PISTOL' || captainPayload.action === 'FIND_CLUE') {
+            events = events.filter(function(e) {
+              var isCap = (e.role && String(e.role).toLowerCase() === 'captain') || (e.actor && String(e.actor).toLowerCase() === 'captain');
+              if (isCap && (e.action === 'OBSERVE' || /^OBSERVE\s/i.test(String(e.dialogue || '')) || /브리지|로그|점검|대기|bridge|check\s+log|inspect|wait/i.test(String(e.dialogue || e.summary || '')))) return false;
+              return true;
+            });
+          }
+        }
+        appendNewEventsFromList(events, resultLines, deadCrew, appendOpts);
         var resultText = resultLines.join('\n');
         history.push({ role: 'assistant', content: resultText });
 
@@ -2390,7 +2403,7 @@
       }
       if (!captainPayload) { isSubmittingCaptainAction = false; return; }
       setPhase('crew_resolving');
-      var captainDisplay = (typeof formatCaptainDisplay === 'function') ? formatCaptainDisplay(raw, captainPayload) : raw;
+      var captainDisplay = (typeof formatCaptainDisplay === 'function') ? formatCaptainDisplay(captainPayload.dialogue || raw, captainPayload) : (captainPayload.dialogue || raw);
       printDialogueLine('captain', captainDisplay, null);
       if (captainPayload.action === 'QUESTION') {
         var capQKey = captainQuestionDedupeKey(currentTurn || 1, captainPayload.target, captainDisplay);
