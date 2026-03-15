@@ -2616,15 +2616,29 @@
         keyEvidenceEl.style.display = 'none';
       }
 
+      var isKo = window.__LANG === 'ko';
+      var outcomeReason = (extra && extra.outcome_reason) ? String(extra.outcome_reason) : '';
+      var isTimeout = outcomeReason === 'timeout' || (extra && extra.winner_side === 'impostor' && outcomeReason.indexOf('timeout') >= 0);
+      var RESULT_DESC = {
+        ko: { defeat_timeout: '시간이 다 됐다. 중첩체는 끝까지 발각되지 않았다. 함선은 하데스의 것이 됐다.', defeat_accuse: '무고한 승무원이 처형당했습니다. 함선 파괴됨.', victory: '중첩체가 제거됐다. 하데스 계층이 봉인됐다. 함선은 살아남았다.' },
+        en: { defeat_timeout: "Time's up. The parasite was never found. The ship belongs to HADES now.", defeat_accuse: 'Innocent crew member executed. Ship destroyed.', victory: 'The parasite has been eliminated. HADES layer sealed. The ship survives.' }
+      };
+      var RESULT_TITLE = {
+        ko: { defeat: '미션 실패. 승무원 전원 사망.', victory: '임무 완료.' },
+        en: { defeat: 'MISSION FAILED. CREW TERMINATED.', victory: 'MISSION ACCOMPLISHED.' }
+      };
+      var lang = isKo ? 'ko' : 'en';
+      var rd = RESULT_DESC[lang];
+      var rt = RESULT_TITLE[lang];
       if (state === 'victory') {
-        title.innerText = t('result.victory.title');
-        desc.innerText = t('result.victory.desc');
-        imposterEl.innerHTML = t('result.victory.imposterPrefix') + `<strong>${tLine(traitorName)}</strong>`; // PATCH
+        title.innerText = rt.victory;
+        desc.innerText = rd.victory;
+        imposterEl.innerHTML = t('result.victory.imposterPrefix') + `<strong>${tLine(traitorName)}</strong>`;
         imposterEl.style.display = "block";
       } else {
-        title.innerText = t('result.defeat.title');
-        desc.innerText = t('result.defeat.desc');
-        imposterEl.innerHTML = t('result.defeat.imposterPrefix') + `<strong>${tLine(traitorName)}</strong>`; // PATCH
+        title.innerText = rt.defeat;
+        desc.innerText = isTimeout ? rd.defeat_timeout : rd.defeat_accuse;
+        imposterEl.innerHTML = t('result.defeat.imposterPrefix') + `<strong>${tLine(traitorName)}</strong>`;
         imposterEl.style.display = "block";
       }
 
