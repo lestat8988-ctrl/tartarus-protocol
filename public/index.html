@@ -775,7 +775,7 @@
       <div id="game-content">
       <div class="game-header">
         <div class="header-title" data-i18n="game.title">TARTARUS PROTOCOL v4.0 (GLOBAL)</div>
-        <div id="countdown-timer">TIME UNTIL TOTAL SHIP COLLAPSE : 10:00</div>
+        <div id="countdown-timer">TIME UNTIL TOTAL SHIP COLLAPSE : 7:00</div>
         <div class="header-clock" id="timer" data-i18n="game.clock">[TIME] 10:00</div>
       </div>
       
@@ -1768,7 +1768,7 @@
       if (ih) ih.textContent = t('game.inputHint') || '';
       var inst = document.getElementById('accuse-modal-instruction');
       if (inst) inst.textContent = t('game.accuseModal.instruction') || '';
-      var ct = t('game.timerPrefix') + '10:00';
+      var ct = t('game.timerPrefix') + '7:00';
       document.getElementById('countdown-timer').textContent = ct;
       // PATCH: sync shorts header
       var sc = document.getElementById('shorts-countdown');
@@ -1811,7 +1811,7 @@
     const renderedEventKeys = new Set(); // turn:actor:role:action:summary 기준 중복 방지
     
     let history = [];
-    let timeRemaining = 600; // 10 minutes in seconds
+    let timeRemaining = 420; // 7 minutes in seconds
     let gameTimer = null;
     let autoKillIntervals = [];
     let deadCrew = []; // Track dead crew members
@@ -2026,6 +2026,7 @@
       ]
     };
     async function startActualGame() {
+      if (typeof pickImposter === 'function') pickImposter();
       setPhase('captain_input');
       startGameTimer();
       if (!window.__interrogateBound) {
@@ -2088,97 +2089,87 @@
     Promise.all(imgList.map(function(src) { return loadImageSafe(src); })).then(runInitialUI);
     setTimeout(runInitialUI, 2500);
 
-    // Game Timer and Auto-Kill System
+    // Game Timer and Auto-Kill System (7 min total, auto-kill at 4:00 and 1:00 remaining)
+    var GAME_TOTAL_SEC = 420;
+    var AUTO_KILL_AT_REMAINING = [240, 60]; // 4:00, 1:00
+    var autoKillFiredAt = [];
     function startGameTimer() {
       const timerEl = document.getElementById('countdown-timer');
-      let elapsed = 0; // Track elapsed time
-      
-      // Update timer every second
-      gameTimer = setInterval(() => {
+      timeRemaining = GAME_TOTAL_SEC;
+      autoKillFiredAt = [];
+      gameTimer = setInterval(function() {
         if (gameEnded) return;
-        
-        elapsed++;
         timeRemaining--;
-        const minutes = Math.floor(timeRemaining / 60);
-        const seconds = timeRemaining % 60;
-        const timerText = t('game.timerPrefix') + `${minutes}:${String(seconds).padStart(2, '0')}`;
-        timerEl.textContent = timerText;
-        // PATCH: sync shorts header countdown
+        var minutes = Math.floor(timeRemaining / 60);
+        var seconds = timeRemaining % 60;
+        var timerText = t('game.timerPrefix') + minutes + ':' + String(seconds).padStart(2, '0');
+        if (timerEl) timerEl.textContent = timerText;
         var shortsCountdown = document.getElementById('shorts-countdown');
         if (shortsCountdown && document.body.classList.contains('shorts-mode')) shortsCountdown.textContent = timerText;
-        
-        // AUTO-KILL legacy: disabled. elapsed 240/480/720 no longer triggers.
-        
-        // Time's up - all crew dead
+        var rem = timeRemaining;
+        if (AUTO_KILL_AT_REMAINING.indexOf(rem) >= 0 && autoKillFiredAt.indexOf(rem) < 0) {
+          autoKillFiredAt.push(rem);
+          triggerAutoKill();
+        }
         if (timeRemaining <= 0) {
-          clearInterval(gameTimer);
+          if (gameTimer) clearInterval(gameTimer);
           triggerTotalFailure();
         }
       }, 1000);
     }
 
+    var AUTO_KILL_ZONE_KO = { doctor: '의무실', engineer: '엔진실', navigator: '항해실', pilot: '조종실' };
+    var AUTO_KILL_ZONE_EN = { doctor: 'Medical Bay', engineer: 'Engine Room', navigator: 'Navigation', pilot: 'Cockpit' };
+    var ROLE_CAPITAL = { doctor: 'Doctor', engineer: 'Engineer', navigator: 'Navigator', pilot: 'Pilot' };
+    function getAutoKillMessage(victimRole) {
+      var zoneMap = (window.__LANG === 'ko') ? AUTO_KILL_ZONE_KO : AUTO_KILL_ZONE_EN;
+      var zone = zoneMap[victimRole] || victimRole;
+      var roleLabel = (ROLE_LABEL_KO && ROLE_LABEL_KO[victimRole]) || ROLE_CAPITAL[victimRole] || victimRole;
+      if (window.__LANG === 'ko') {
+        return zone + '에서 생체신호가 소실됐다. ' + roleLabel + ' — 응답 없음.\n목격자 없음. 마지막 통신 이후 로그 공백만 남아 있다.';
+      }
+      return 'Bio signal lost in ' + zone + '. ' + roleLabel + ' — no response.\nNo witnesses. Only log gaps after last communication.';
+    }
     async function triggerAutoKill() {
-      return; /* legacy disabled */
-      console.log('[AUTO-KILL] fired at', new Date().toLocaleTimeString());
       if (gameEnded) return;
-      setPhase('crew_resolving'); // crew resolving
-
-      // Get alive crew members
-      const aliveCrew = ['Navigator', 'Engineer', 'Doctor', 'Pilot'].filter(crew => !deadCrew.includes(crew));
-      
-      if (aliveCrew.length === 0) {
+      var impostor = (typeof pickImposter === 'function') ? pickImposter() : null;
+      var impostorLower = impostor ? String(impostor).toLowerCase() : null;
+      var aliveRoles = CREW_ROLES.filter(function(r) {
+        return !isRoleDead(r, deadCrew) && (!impostorLower || r !== impostorLower);
+      });
+      if (aliveRoles.length === 0) {
         triggerTotalFailure();
         return;
       }
-      
-      // Randomly select one to kill
-      const victim = aliveCrew[Math.floor(Math.random() * aliveCrew.length)];
-      deadCrew.push(victim);
-      
-      // Show glitch effect (0.8s overlay, clear previous timer)
-      const glitchEl = document.getElementById('kill-glitch');
-      const messageEl = document.getElementById('kill-message-text');
+      var victimRole = aliveRoles[Math.floor(Math.random() * aliveRoles.length)];
+      var victimCap = ROLE_CAPITAL[victimRole] || victimRole;
+      deadCrew.push(victimCap);
+      setPhase('crew_resolving');
+      var glitchEl = document.getElementById('kill-glitch');
+      var messageEl = document.getElementById('kill-message-text');
       if (window.__killGlitchTimer) { clearTimeout(window.__killGlitchTimer); window.__killGlitchTimer = null; }
-      var killMsg = window.isKo ? tLine('[EMERGENCY ALERT] ' + victim + ' terminated') : `[EMERGENCY ALERT]\n${victim.toUpperCase()} TERMINATED`; // PATCH
-      messageEl.textContent = killMsg; // PATCH
-      glitchEl.classList.add('active');
-      
+      var killMsg = (window.__LANG === 'ko') ? '[긴급 경보]\n' + victimCap + ' 생체신호 소실' : '[EMERGENCY ALERT]\n' + victimCap.toUpperCase() + ' BIO SIGNAL LOST';
+      if (messageEl) messageEl.textContent = killMsg;
+      if (glitchEl) glitchEl.classList.add('active');
+      printLine('[긴급 경보]', "role-alert");
+      var alertLines = getAutoKillMessage(victimRole).split('\n');
+      for (var i = 0; i < alertLines.length; i++) {
+        if (alertLines[i].trim()) printLine(alertLines[i], "role-system");
+      }
+      if (typeof playAlarmBeep === 'function') playAlarmBeep();
       try {
-        printLine('[EMERGENCY ALERT]', "role-alert");
-        var data = await runEp1Flow(null, deadCrew, { autoKillVictim: victim, lastWitnessLine: window.__lastWitnessLine || '' });
-        var content = data.resultText || data.result || '';
-        var lines = String(content).split('\n');
-        var witnessTestimonyFound = false;
-        var witnessLinePrinted = false;
-        for (var i = 0; i < lines.length; i++) {
-          var line = lines[i];
-          if (line.trim()) {
-            if (line.indexOf('[WITNESS TESTIMONY]') >= 0 || line.indexOf('WITNESS TESTIMONY') >= 0) {
-              witnessTestimonyFound = true;
-              typingSkipped = false;
-              await printLine('[WITNESS TESTIMONY INCOMING]', "witness-alert", { typewriter: true });
-            } else if (witnessTestimonyFound && !witnessLinePrinted && line.indexOf(':') >= 0 && (line.indexOf('Navigator:') === 0 || line.indexOf('Engineer:') === 0 || line.indexOf('Doctor:') === 0 || line.indexOf('Pilot:') === 0)) {
-              typingSkipped = false;
-              await printLine(line, "witness-testimony", { typewriter: true });
-              witnessLinePrinted = true;
-            }
-          }
-        }
-        history.push({ role: "assistant", content: content });
-        
-        // Request witness testimony if not already included
-        if (!witnessTestimonyFound && aliveCrew.length > 1) {
-          setTimeout(function() { requestWitnessTestimony(victim, aliveCrew.filter(function(c) { return c !== victim; })); }, 900);
-        }
-        window.__killGlitchTimer = setTimeout(function() { glitchEl.classList.remove('active'); window.__killGlitchTimer = null; }, 650);
+        var deathPayload = { action: 'DEATH', target: victimRole, reason: 'auto_kill', dialogue: '' };
+        await ep1CallAction(deathPayload, { deadCrew: deadCrew });
+        if (window.__killGlitchTimer) clearTimeout(window.__killGlitchTimer);
+        window.__killGlitchTimer = setTimeout(function() { if (glitchEl) glitchEl.classList.remove('active'); window.__killGlitchTimer = null; }, 650);
         if (deadCrew.length >= 4) {
           setTimeout(triggerTotalFailure, 2000);
-        } else if (witnessTestimonyFound || aliveCrew.length <= 1) {
+        } else {
           setPhase('captain_input');
         }
       } catch (err) {
         printLine('[ERROR] ' + err.message, "role-alert");
-        glitchEl.classList.remove('active');
+        if (glitchEl) glitchEl.classList.remove('active');
         setPhase('captain_input');
       }
     }
@@ -2217,24 +2208,34 @@
     function triggerTotalFailure() {
       if (gameEnded) return;
       gameEnded = true;
-      clearInterval(gameTimer);
-      
+      if (gameTimer) clearInterval(gameTimer);
       printLine(t('system.totalFailure'), "role-alert");
       printLine(t('system.allTerminated'), "role-system");
       printLine(t('system.missionFailed'), "role-system");
-      
       setTimeout(async function() {
         var impostorVal = null;
         var extra = null;
         if (MATCH_ID) {
           try {
+            var impostor = (typeof pickImposter === 'function') ? pickImposter() : null;
+            var impostorLower = impostor ? String(impostor).toLowerCase() : null;
+            var stillAlive = CREW_ROLES.filter(function(r) { return !isRoleDead(r, deadCrew); });
+            for (var i = 0; i < stillAlive.length; i++) {
+              var r = stillAlive[i];
+              if (impostorLower && r === impostorLower) continue;
+              try {
+                await ep1CallAction({ action: 'DEATH', target: r, reason: 'timeout', dialogue: '' }, { deadCrew: deadCrew });
+                deadCrew.push(ROLE_CAPITAL[r] || r);
+              } catch (e) {}
+            }
             var resData = await ep1CallResult({ client_ended: true });
             impostorVal = resData.true_impostor || resData.actual_imposter || resData.impostor || resData.hidden_host || resData.culprit || null;
             if (impostorVal && typeof impostorVal === 'string' && impostorVal.trim() === '') impostorVal = null;
+            if (!impostorVal && typeof pickImposter === 'function') impostorVal = pickImposter();
             extra = {
-              outcome_reason: resData.outcome_reason || null,
-              winner_side: resData.winner_side || null,
-              loser_side: resData.loser_side || null
+              outcome_reason: resData.outcome_reason || 'timeout',
+              winner_side: resData.winner_side || 'impostor',
+              loser_side: resData.loser_side || 'crew'
             };
           } catch (e) {}
         }
