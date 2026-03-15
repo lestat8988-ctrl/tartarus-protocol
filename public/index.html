@@ -790,6 +790,9 @@
         <button type="button" class="action-btn" data-msg="interrogate" id="interrogate-btn">승무원 심문</button>
         <button type="button" class="action-btn" data-msg="cctv" data-ep1="CHECK_LOG CCTV 로그를 확인한다." onclick="sendMessage(this.getAttribute('data-ep1'))">CCTV 로그 확인</button>
         <button type="button" class="action-btn" data-msg="engine" data-ep1="CHECK_LOG 엔진실 로그를 확인한다." onclick="sendMessage(this.getAttribute('data-ep1'))">엔진실 확인</button>
+        <button type="button" class="action-btn" data-msg="take_pistol" onclick="sendMessage('TAKE_PISTOL')">권총 획득</button>
+        <button type="button" class="action-btn" data-msg="shoot" onclick="openShootModal()">사격</button>
+        <button type="button" class="action-btn" data-msg="find_clue" onclick="sendMessage('FIND_CLUE')">단서 수집</button>
       </div>
 
       <div id="phase-status" style="border-bottom:1px solid rgba(57,255,20,0.3);padding-bottom:6px;"></div>
@@ -812,6 +815,18 @@
           <button class="target-btn" data-role="Doctor" onclick="triggerAccuse('Doctor')">Doctor</button>
           <button class="target-btn" data-role="Pilot" onclick="triggerAccuse('Pilot')">Pilot</button>
           <button class="target-btn" style="border-color:#555; color:#555;" onclick="closeAccuseModal()" data-i18n="game.accuseModal.cancel">CANCEL</button>
+        </div>
+      </div>
+
+      <div id="shoot-modal" class="modal-overlay">
+        <div class="modal-box accuse-box">
+          <div class="accuse-modal-title" id="shoot-modal-title">사격 대상 선택</div>
+          <div class="accuse-modal-instruction" id="shoot-modal-instruction">사격할 대상 1명을 선택하십시오.</div>
+          <button class="target-btn shoot-target-btn" data-role="Doctor" onclick="triggerShoot('doctor')">Doctor</button>
+          <button class="target-btn shoot-target-btn" data-role="Engineer" onclick="triggerShoot('engineer')">Engineer</button>
+          <button class="target-btn shoot-target-btn" data-role="Navigator" onclick="triggerShoot('navigator')">Navigator</button>
+          <button class="target-btn shoot-target-btn" data-role="Pilot" onclick="triggerShoot('pilot')">Pilot</button>
+          <button class="target-btn shoot-modal-cancel" style="border-color:#555; color:#555;" onclick="closeShootModal()">취소</button>
         </div>
       </div>
 
@@ -1015,7 +1030,7 @@
     }
 
     // EP1 입력 파서: action [target] [dialogue]
-    const EP1_VALID_ACTIONS = new Set(['QUESTION', 'OBSERVE', 'CHECK_LOG', 'REPAIR', 'ACCUSE', 'WAIT']);
+    const EP1_VALID_ACTIONS = new Set(['QUESTION', 'OBSERVE', 'CHECK_LOG', 'REPAIR', 'ACCUSE', 'WAIT', 'TAKE_PISTOL', 'SHOOT', 'FIND_CLUE']);
     const EP1_VALID_TARGETS = new Set(['doctor', 'engineer', 'navigator', 'pilot', 'player', 'captain']);
     function parseEp1Input(raw) {
       const s = String(raw || '').trim();
@@ -1116,6 +1131,15 @@
         const target = roleMap[t] || t;
         return { action: 'ACCUSE', target: target || null, dialogue: '', reason: 'player_input' };
       }
+      if (/^TAKE_PISTOL$/i.test(s)) return { action: 'TAKE_PISTOL', target: null, dialogue: s, reason: 'player_input' };
+      if (/^FIND_CLUE$/i.test(s)) return { action: 'FIND_CLUE', target: null, dialogue: s, reason: 'player_input' };
+      if (/^SHOOT\s+(\S+)$/i.test(s)) {
+        var m = s.match(/^SHOOT\s+(\S+)$/i);
+        var t = (m && m[1] || '').toLowerCase();
+        var roleMap = { navigator: 'navigator', engineer: 'engineer', doctor: 'doctor', pilot: 'pilot' };
+        var target = roleMap[t] || t;
+        return { action: 'SHOOT', target: target || null, dialogue: s, reason: 'player_input' };
+      }
       const lower = s.toLowerCase();
       if (/cctv|check\s+cctv/i.test(lower)) return { action: 'CHECK_LOG', target: null, dialogue: s, reason: 'player_input' };
       if (/interrogate|status|report/i.test(lower) || /^question\s+(doctor|engineer|navigator|pilot)\s+/i.test(s)) {
@@ -1139,6 +1163,15 @@
       const s = String(raw || '').trim();
       if (!s) return null;
       const lower = s.toLowerCase();
+      if (/^TAKE_PISTOL$/i.test(s)) return { action: 'TAKE_PISTOL', target: null, dialogue: s, reason: 'player_input' };
+      if (/^FIND_CLUE$/i.test(s)) return { action: 'FIND_CLUE', target: null, dialogue: s, reason: 'player_input' };
+      if (/^shoot\s+(\S+)$/i.test(s)) {
+        var m = s.match(/^shoot\s+(\S+)$/i);
+        var t = (m && m[1] || '').toLowerCase();
+        var roleMap = { navigator: 'navigator', engineer: 'engineer', doctor: 'doctor', pilot: 'pilot' };
+        var target = roleMap[t] || t;
+        return { action: 'SHOOT', target: target || null, dialogue: s, reason: 'player_input' };
+      }
       if (/cctv|check\s+cctv|로그\s*확인/i.test(lower)) return { action: 'CHECK_LOG', target: null, dialogue: s, reason: 'player_input' };
       if (/engine|check\s+engine|엔진/i.test(lower)) return { action: 'CHECK_LOG', target: null, dialogue: s, reason: 'player_input' };
       var parsed;
@@ -1167,7 +1200,8 @@
         }
       }
       dialogue = dialogue || s;
-      return { action, target: action === 'QUESTION' ? target : null, dialogue };
+      var needsTarget = action === 'QUESTION' || action === 'SHOOT';
+      return { action, target: needsTarget ? target : null, dialogue };
     }
 
     function eventDedupeKey(e) {
@@ -1669,7 +1703,11 @@
       });
       document.querySelectorAll('.action-btn[data-msg]').forEach(btn => {
         const msg = btn.getAttribute('data-msg');
-        btn.textContent = t(`game.buttons.${msg}`);
+        var label = t(`game.buttons.${msg}`);
+        if (!label && msg === 'take_pistol') label = (window.__LANG === 'ko') ? '권총 획득' : 'TAKE PISTOL';
+        if (!label && msg === 'shoot') label = (window.__LANG === 'ko') ? '사격' : 'SHOOT';
+        if (!label && msg === 'find_clue') label = (window.__LANG === 'ko') ? '단서 수집' : 'FIND CLUE';
+        btn.textContent = label || btn.textContent || msg;
       });
       var ih = document.getElementById('input-hint');
       if (ih) ih.textContent = t('game.inputHint') || '';
@@ -1689,11 +1727,26 @@
           if (r) btn.textContent = roleLabel(r);
         });
       }
+      var sm = document.getElementById('shoot-modal');
+      if (sm && sm.querySelectorAll) {
+        var roleLabel = function(r) { return (window.__LANG === 'ko' && window.__KO_ROLE) ? (window.__KO_ROLE(r) || r) : r; };
+        sm.querySelectorAll('.shoot-target-btn[data-role]').forEach(function(btn) {
+          var r = btn.getAttribute('data-role');
+          if (r) btn.textContent = roleLabel(r);
+        });
+        var shootTitle = document.getElementById('shoot-modal-title');
+        var shootInst = document.getElementById('shoot-modal-instruction');
+        if (shootTitle) shootTitle.textContent = (window.__LANG === 'ko') ? '사격 대상 선택' : 'SELECT TARGET TO SHOOT';
+        if (shootInst) shootInst.textContent = (window.__LANG === 'ko') ? '사격할 대상 1명을 선택하십시오.' : 'Choose one target to shoot.';
+        var shootCancel = sm.querySelector('.shoot-modal-cancel');
+        if (shootCancel) shootCancel.textContent = (window.__LANG === 'ko') ? '취소' : 'CANCEL';
+      }
     }
 
     const logEl = document.getElementById('log');
     const inputEl = document.getElementById('input');
     const accuseModal = document.getElementById('accuse-modal');
+    const shootModal = document.getElementById('shoot-modal');
     const resultModal = document.getElementById('result-modal');
     const resultBox = document.getElementById('result-box');
 
@@ -2423,6 +2476,30 @@
       if (gameEnded) return;
       closeAccuseModal();
       sendMessage(`[ACCUSE] ${target}`);
+    }
+
+    function openShootModal() {
+      if (gameEnded) return;
+      var roleLabel = function(r) { return (window.__LANG === 'ko' && window.__KO_ROLE) ? (window.__KO_ROLE(r) || r) : r; };
+      shootModal.querySelectorAll('.shoot-target-btn[data-role]').forEach(function(btn) {
+        var role = btn.getAttribute('data-role');
+        if (deadCrew.includes(role)) {
+          btn.style.display = 'none';
+        } else {
+          btn.style.display = 'block';
+          btn.disabled = false;
+          btn.style.opacity = '1';
+          btn.style.cursor = 'pointer';
+          btn.textContent = roleLabel(role);
+        }
+      });
+      shootModal.classList.add('active');
+    }
+    function closeShootModal() { shootModal.classList.remove('active'); }
+    function triggerShoot(target) {
+      if (gameEnded) return;
+      closeShootModal();
+      sendMessage('SHOOT ' + target);
     }
 
     function showResult(state, message, actualImposter, extra) {
