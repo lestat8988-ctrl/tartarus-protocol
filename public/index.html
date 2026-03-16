@@ -562,7 +562,7 @@
     @media (max-width: 768px) {
       body {
         padding: 5px;
-        padding-top: env(safe-area-inset-top, 8px);
+        padding-top: max(env(safe-area-inset-top), 8px);
         align-items: flex-start;
         justify-content: flex-start;
       }
@@ -578,7 +578,7 @@
       #game-container {
         height: calc(100dvh - 40px);
         padding: 12px;
-        min-height: 500px;
+        min-height: 400px;
       }
       
       /* 헤더 모바일: 세로 정렬 (타이틀 위, 타이머 아래) */
