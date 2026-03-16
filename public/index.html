@@ -394,6 +394,11 @@
     .role-engineer { color: #ff8c00; text-shadow: 0 0 4px #ff8c00, 0 0 1px #ff8c00; }
     .role-doctor { color: #00bfff; text-shadow: 0 0 4px #00bfff, 0 0 1px #00bfff; }
     .role-pilot { color: #da70d6; text-shadow: 0 0 4px #da70d6, 0 0 1px #da70d6; }
+    /* 크루 이름표 라벨 전용 - glow 50% 축소 (가독성) */
+    .dialogue-speaker.role-navigator,
+    .dialogue-speaker.role-engineer,
+    .dialogue-speaker.role-doctor,
+    .dialogue-speaker.role-pilot { text-shadow: 0 0 1px currentColor; }
     .role-system { color: #39ff14; text-shadow: 0 0 3px #39ff14, 0 0 1px #39ff14; }
     .role-user { color: #ffffff; font-weight: bold; text-shadow: 0 0 4px #ffffff, 0 0 1px #ffffff; }
     /* 함장 대사 전용 - glow 50% 축소 (가독성) */
@@ -450,6 +455,13 @@
     .accuse-modal-instruction { font-size: 13px; opacity: 0.9; margin-bottom: 16px; line-height: 1.4; }
     .target-btn { display: block; width: 100%; padding: 12px; margin-bottom: 10px; background: transparent; border: 1px solid var(--alert-red); color: var(--alert-red); cursor: pointer; font-family: inherit; text-shadow: 0 0 3px var(--alert-red); }
     .target-btn:hover { background: var(--alert-red); color: #000; text-shadow: 0 0 4px var(--alert-red); }
+    /* 처형/위협 모달 - glow 50% 축소 (가독성) */
+    #accuse-modal .accuse-modal-title,
+    #threat-modal .accuse-modal-title { text-shadow: 0 0 1px rgba(255,0,0,0.45); }
+    #accuse-modal .target-btn,
+    #threat-modal .target-btn { text-shadow: 0 0 1px rgba(255,0,0,0.35); }
+    #accuse-modal .target-btn:hover,
+    #threat-modal .target-btn:hover { text-shadow: none; }
 
     /* 결과창 모달 스타일 (레이아웃: 화면 밖 이탈 방지) */
     #result-modal .modal-box {
@@ -476,13 +488,21 @@
       text-shadow: 0 0 4px currentColor;
     }
     .restart-btn:hover { background: currentColor; color: #000; text-shadow: 0 0 6px currentColor; }
+    /* 결과창 glow 50% 축소 (가독성) */
+    #result-modal .result-title { text-shadow: 0 0 2px currentColor; }
+    #result-modal .result-desc { text-shadow: 0 0 1px currentColor; }
+    #result-modal .result-imposter { text-shadow: 0 0 2px currentColor; }
+    #result-modal .result-outcome-detail,
+    #result-modal .result-key-evidence { text-shadow: 0 0 1px currentColor; }
+    #result-modal .restart-btn { text-shadow: 0 0 1px currentColor; }
+    #result-modal .restart-btn:hover { text-shadow: none; }
     
     /* 결과창 승리/패배 색상 구분 */
     #result-modal.modal-victory .modal-box {
       border: 2px solid #39ff14;
       color: #39ff14;
       box-shadow: 0 0 14px rgba(57, 255, 20, 0.2);
-      text-shadow: 0 0 4px #39ff14;
+      text-shadow: 0 0 1px rgba(57,255,20,0.4);
     }
     #result-modal.modal-victory .result-title,
     #result-modal.modal-victory .result-desc,
@@ -504,7 +524,7 @@
       border: 2px solid #ff0000;
       color: #ff0000;
       box-shadow: 0 0 14px rgba(255, 0, 0, 0.35);
-      text-shadow: 0 0 4px #ff0000;
+      text-shadow: 0 0 1px rgba(255,0,0,0.4);
     }
     #result-modal.modal-defeat .result-title,
     #result-modal.modal-defeat .result-desc,
@@ -530,14 +550,14 @@
       font-size: 13px;
       line-height: 1.5;
       color: #ff3333;
-      text-shadow: 0 0 6px rgba(255, 0, 0, 0.4);
+      text-shadow: 0 0 2px rgba(255, 0, 0, 0.35);
       text-align: center;
       max-width: 380px;
     }
     #result-modal.modal-victory .support-message {
       color: #ff4444;
       border-top-color: rgba(255, 68, 68, 0.5);
-      text-shadow: 0 0 6px rgba(255, 100, 100, 0.35);
+      text-shadow: 0 0 2px rgba(255, 100, 100, 0.3);
     }
 
     /* 인트로 BG + 스크롤 모바일 */
