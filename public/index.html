@@ -111,7 +111,7 @@
       max-width: 440px;
       padding: 24px 20px 80px;
       text-align: center;
-      animation: introCreditsScroll 157s linear 0s 1 forwards;
+      animation: introCreditsScroll 78.5s linear 0s 1 forwards;
     }
     @keyframes introCreditsScroll {
       0% { transform: translateX(-50%) translateY(0); }
@@ -121,14 +121,14 @@
       font-size: 18px;
       letter-spacing: 6px;
       color: var(--terminal-green);
-      text-shadow: 0 0 7px var(--terminal-green), 0 0 3px var(--terminal-green);
+      text-shadow: 0 0 2px rgba(57,255,20,0.5);
       margin-bottom: 24px;
     }
     #intro-scroll-subtitle {
       font-size: 12px;
       letter-spacing: 2px;
       color: rgba(57,255,20,0.9);
-      text-shadow: 0 0 4px var(--terminal-green);
+      text-shadow: 0 0 1px rgba(57,255,20,0.4);
       margin-bottom: 28px;
       line-height: 1.8;
     }
@@ -143,7 +143,7 @@
       font-weight: bold;
       line-height: 2.2;
       color: var(--terminal-green);
-      text-shadow: 0 0 6px var(--terminal-green), 0 0 3px var(--terminal-green);
+      text-shadow: 0 0 2px rgba(57,255,20,0.5);
       margin-top: 24px;
       margin-bottom: 16px;
     }
@@ -168,12 +168,12 @@
       border: 2px solid var(--terminal-green);
       cursor: pointer;
       transition: 0.2s;
-      box-shadow: 0 0 8px rgba(57,255,20,0.35);
+      box-shadow: 0 0 3px rgba(57,255,20,0.15);
       text-shadow: none;
     }
     #intro-start-btn:hover {
       background: rgba(57,255,20,0.9);
-      box-shadow: 0 0 14px rgba(57,255,20,0.5);
+      box-shadow: 0 0 5px rgba(57,255,20,0.2);
     }
     #intro-press-enter {
       font-size: 11px;
@@ -195,6 +195,7 @@
       border: 1px solid var(--terminal-green);
       cursor: pointer;
       transition: 0.2s;
+      text-shadow: none;
     }
     .intro-lang-btn:hover { background: rgba(57, 255, 20, 0.15); }
     .intro-lang-btn.active {
@@ -388,17 +389,17 @@
       flex: 1; background: rgba(0, 20, 0, 0.5); border: 1px solid var(--terminal-green);
       color: var(--terminal-green); padding: 12px; font-family: inherit; cursor: pointer;
       text-transform: uppercase; transition: 0.2s; font-weight: bold;
-      text-shadow: 0 0 4px var(--terminal-green), 0 0 2px var(--terminal-green);
+      text-shadow: 0 0 1px rgba(57,255,20,0.4);
     }
-    .action-btn:hover { background: var(--terminal-green); color: #000; text-shadow: 0 0 7px var(--terminal-green), 0 0 4px var(--terminal-green); }
+    .action-btn:hover { background: var(--terminal-green); color: #000; text-shadow: none; }
 
     /* 입력창 */
     .input-hint { font-size: 11px; opacity: 0.9; margin-top: 8px; margin-bottom: 4px; color: var(--terminal-green); line-height: 1.45; }
     .input-row { display: flex; align-items: center; border-top: 1px solid var(--terminal-green); padding-top: 12px; margin-top: 12px; z-index: 20; }
     #input { flex: 1; background: transparent; border: none; color: var(--terminal-green); font-size: 16px; font-family: inherit; outline: none; margin-left: 10px; }
     #input:disabled, .input-row.disabled #input { opacity: 0.4; cursor: not-allowed; color: #666; }
-    .input-send-btn { background: transparent; border: 1px solid var(--terminal-green); color: var(--terminal-green); padding: 6px 12px; font-family: inherit; cursor: pointer; margin-left: 8px; font-size: 12px; text-shadow: 0 0 3px var(--terminal-green); }
-    .input-send-btn:hover { background: var(--terminal-green); color: #000; text-shadow: 0 0 4px var(--terminal-green); }
+    .input-send-btn { background: transparent; border: 1px solid var(--terminal-green); color: var(--terminal-green); padding: 6px 12px; font-family: inherit; cursor: pointer; margin-left: 8px; font-size: 12px; text-shadow: 0 0 1px rgba(57,255,20,0.35); }
+    .input-send-btn:hover { background: var(--terminal-green); color: #000; text-shadow: none; }
     .input-send-btn:disabled, .input-row.disabled .input-send-btn { opacity: 0.4; cursor: not-allowed; border-color: #555; color: #555; }
     .action-btn:disabled, .accuse-btn-main:disabled { opacity: 0.4; cursor: not-allowed; border-color: #555; color: #555; }
 
@@ -407,9 +408,9 @@
       width: 100%; margin-top: 10px; border: 2px solid var(--alert-red); color: var(--alert-red);
       background: rgba(50,0,0,0.3); padding: 10px; cursor: pointer; font-family: inherit;
       font-size: 16px; font-weight: bold; z-index: 20;
-      text-shadow: 0 0 6px var(--alert-red), 0 0 3px var(--alert-red);
+      text-shadow: 0 0 1px rgba(255,0,0,0.4);
     }
-    .accuse-btn-main:hover { background: var(--alert-red); color: #000; text-shadow: 0 0 8px var(--alert-red), 0 0 4px var(--alert-red); }
+    .accuse-btn-main:hover { background: var(--alert-red); color: #000; text-shadow: none; }
 
     /* 팝업창 (처형 선택 & 결과) */
     .modal-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.95); z-index: 100; display: none; justify-content: center; align-items: center; flex-direction: column; }
@@ -528,12 +529,13 @@
         background-position: center 35%;
       }
       #intro-scroll-content { padding: 16px 16px 80px; }
-      #intro-scroll-title { font-size: 14px; letter-spacing: 3px; margin-bottom: 16px; }
-      #intro-scroll-subtitle { font-size: 11px; margin-bottom: 20px; }
+      #intro-scroll-title { font-size: 14px; letter-spacing: 3px; margin-bottom: 16px; text-shadow: 0 0 1px rgba(57,255,20,0.35); }
+      #intro-scroll-subtitle { font-size: 11px; margin-bottom: 20px; text-shadow: 0 0 1px rgba(57,255,20,0.3); }
       .intro-scroll-line { font-size: 12px; margin-bottom: 8px; }
-      .intro-scroll-line.strong { font-size: 13px; }
+      .intro-scroll-line.strong { font-size: 13px; text-shadow: 0 0 1px rgba(57,255,20,0.35); }
       #intro-bottom { padding: 12px 16px 16px; }
-      #intro-start-btn { font-size: 11px; padding: 10px 20px; }
+      #intro-start-btn { font-size: 11px; padding: 10px 20px; box-shadow: 0 0 2px rgba(57,255,20,0.12); }
+      #intro-start-btn:hover { box-shadow: 0 0 4px rgba(57,255,20,0.15); }
       #intro-press-enter { font-size: 10px; }
       .intro-lang-btn { font-size: 11px; padding: 6px 14px; }
     }
@@ -601,6 +603,7 @@
         font-size: 13px;
         padding: 10px;
         width: 100%;
+        text-shadow: 0 0 1px rgba(57,255,20,0.3);
       }
       
       .input-hint { font-size: 10px; white-space: normal; word-break: keep-all; max-height: 3em; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.4; }
@@ -618,6 +621,7 @@
         font-size: 13px;
         padding: 10px;
         margin-top: 8px;
+        text-shadow: 0 0 1px rgba(255,0,0,0.3);
       }
       
       /* 모달도 모바일에 맞게 조정 (결과창은 #result-modal .modal-box에서 이미 제한됨) */
@@ -1092,7 +1096,7 @@
       if (gameEnded) { questionInFlight = false; return; }
       var now = Date.now();
       if ((now - lastQuestionDispatchAt) < QUESTION_DEBOUNCE_MS) { questionInFlight = false; return; }
-      var msg = (typeof getInterrogateMessage === 'function') ? getInterrogateMessage() : 'QUESTION doctor 의사, 그때 어디 있었지?';
+      var msg = (typeof getInterrogateMessage === 'function') ? getInterrogateMessage() : 'QUESTION doctor 닥터, 그때 어디 있었지?';
       var m = String(msg).trim().match(/^QUESTION\s+(\S+)/i);
       var key = m ? ('QUESTION:' + (m[1] || '').toLowerCase()) : msg;
       lastQuestionKey = key;
@@ -1130,12 +1134,12 @@
           var rest = s.slice(prefix.length).trim();
           return rest || roleKo(captainPayload.target) + ', 그때 어디 있었지?';
         }
-        var m = s.match(/^QUESTION\s+(doctor|engineer|navigator|pilot|의사|엔지니어|네비게이터|파일럿)\s+/i);
+        var m = s.match(/^QUESTION\s+(doctor|engineer|navigator|pilot|닥터|엔지니어|네비게이터|파일럿)\s+/i);
         if (m) return s.slice(m[0].length).trim() || roleKo(m[1]) + ', 그때 어디 있었지?';
       }
       var stripped = s.replace(/^(CHECK_LOG|OBSERVE|REPAIR|WAIT)\s+/i, '').trim();
       if (stripped !== s) return stripped;
-      var qm = s.match(/^QUESTION\s+(doctor|engineer|navigator|pilot|의사|엔지니어|네비게이터|파일럿)\s+(.+)$/i);
+      var qm = s.match(/^QUESTION\s+(doctor|engineer|navigator|pilot|닥터|엔지니어|네비게이터|파일럿)\s+(.+)$/i);
       if (qm) return qm[2].trim() || roleKo(qm[1]) + ', 그때 어디 있었지?';
       var qmAny = s.match(/^QUESTION\s+(\S+)\s+(.+)$/);
       if (qmAny) return qmAny[2].trim() || roleKo(qmAny[1]) + ', 그때 어디 있었지?';
@@ -1375,7 +1379,7 @@
     function isCaptainQuestionRaw(text) {
       if (!text || typeof text !== 'string') return false;
       var t = String(text).trim();
-      return /^QUESTION\s+(doctor|engineer|navigator|pilot|의사|엔지니어|네비게이터|파일럿|\S+)\s+/i.test(t) || /^(의사|엔지니어|네비게이터|파일럿),\s*그때\s*어디\s*있었지/i.test(t);
+      return /^QUESTION\s+(doctor|engineer|navigator|pilot|닥터|엔지니어|네비게이터|파일럿|\S+)\s+/i.test(t) || /^(닥터|엔지니어|네비게이터|파일럿),\s*그때\s*어디\s*있었지/i.test(t);
     }
     function isCaptainFallbackText(txt) {
       if (!txt || typeof txt !== 'string') return false;
@@ -1453,7 +1457,7 @@
           mainText = formatCaptainDisplay(mainText, { action: e.action || 'OBSERVE', target: e.target || null });
         }
         if (mainText && /^QUESTION\s+/i.test(String(mainText).trim())) continue;
-        if (_skipCapQ && /^(의사|엔지니어|네비게이터|파일럿),\s*그때\s*어디\s*있었지/i.test(String(mainText).trim())) continue;
+        if (_skipCapQ && /^(닥터|엔지니어|네비게이터|파일럿),\s*그때\s*어디\s*있었지/i.test(String(mainText).trim())) continue;
         if (skipCaptainFallback && isCaptainFallbackText(mainText || summary)) continue;
         var existingRow = false;
         if (logEl) {
@@ -1544,7 +1548,7 @@
       return { action, target, reason: 'crew', dialogue };
     }
 
-    var CREW_PLACEHOLDER_KO = { doctor: '의사 분석 중...', engineer: '엔지니어 분석 중...', navigator: '네비게이터 추론 중...', pilot: '파일럿 감지 중...' };
+    var CREW_PLACEHOLDER_KO = { doctor: '닥터 분석 중...', engineer: '엔지니어 분석 중...', navigator: '네비게이터 추론 중...', pilot: '파일럿 감지 중...' };
     var CREW_PLACEHOLDER_EN = { doctor: 'Doctor analyzing...', engineer: 'Engineer analyzing...', navigator: 'Navigator reasoning...', pilot: 'Pilot sensing...' };
     var CREW_FALLBACK_KO = { doctor: '표정과 호흡을 확인 중이다. 이상 징후가 있으면 보고하겠다.', engineer: '기록 끊김과 접근 로그를 확인 중이다. 불일치가 있으면 짚겠다.', navigator: '그 시간대 동선부터 다시 말해봐. 알리바이가 비어 있다.', pilot: '공기가 달라졌어. 누군가 뭔가를 숨기고 있는 것 같아.' };
     var CREW_FALLBACK_EN = { doctor: 'Checking expression and breathing. Will report any anomalies.', engineer: 'Checking logs for gaps and access records. Will flag discrepancies.', navigator: 'Tell me your movements for that time again. Your alibi has gaps.', pilot: 'The air shifted. Someone seems to be hiding something.' };
@@ -1839,19 +1843,19 @@
     const PHASE_HINTS = {
       captain_input: '함장 입력 대기',
       crew_resolving: '크루 반응 진행 중...',
-      crew_doctor: '의사 반응 중...',
+      crew_doctor: '닥터 반응 중...',
       crew_engineer: '엔지니어 로그 확인 중...',
       crew_navigator: '네비게이터 추궁 중...',
       crew_pilot: '파일럿 반응 중...',
       server_update: '상태 갱신 중...',
       game_over: '게임 종료'
     };
-    const ROLE_LABEL_KO = { captain: '함장', doctor: '의사', engineer: '엔지니어', navigator: '네비게이터', pilot: '파일럿', system: '시스템' };
+    const ROLE_LABEL_KO = { captain: '함장', doctor: '닥터', engineer: '엔지니어', navigator: '네비게이터', pilot: '파일럿', system: '시스템' };
     function toRoleLabelKo(text) {
       if (!text || typeof text !== 'string') return text;
       if (window.__LANG !== 'ko') return text;
       var s = text;
-      var map = { doctor: '의사', engineer: '엔지니어', navigator: '네비게이터', pilot: '파일럿' };
+      var map = { doctor: '닥터', engineer: '엔지니어', navigator: '네비게이터', pilot: '파일럿' };
       for (var key in map) {
         var re = new RegExp('\\b' + key + '\\b', 'gi');
         s = s.replace(re, map[key]);
@@ -2364,7 +2368,7 @@
         let __displayRole = role; // PATCH
         let __displayMsg = msg; // PATCH
         if (__isKo) { // PATCH
-          const ROLE_KO = { Navigator:'네비게이터', Engineer:'엔지니어', Doctor:'의사', Pilot:'파일럿' }; // PATCH
+          const ROLE_KO = { Navigator:'네비게이터', Engineer:'엔지니어', Doctor:'닥터', Pilot:'파일럿' }; // PATCH
           __displayRole = ROLE_KO[role] || role; // PATCH
           if (window.__KO_TRANSLATE) { // PATCH
             const whole = role + ': ' + msg; // PATCH
