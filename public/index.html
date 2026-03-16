@@ -2583,9 +2583,16 @@
         btn.style.cursor = 'not-allowed';
       });
       
+      // resultType 먼저 계산 (클래스 분기에서 사용)
+      var outcomeReason = (extra && extra.outcome_reason) ? String(extra.outcome_reason) : '';
+      var winnerSide = (extra && extra.winner_side) ? String(extra.winner_side) : '';
+      var isCrewWin = (state === 'victory') || (winnerSide === 'crew') || (outcomeReason === 'impostor_killed');
+      var isTimeout = (outcomeReason === 'timeout');
+      var resultType = isCrewWin ? 'crew_win' : (isTimeout ? 'timeout' : 'accuse_failed');
+      
       // 결과창에 승리/패배 클래스 적용 (기존 구분 클래스 제거 후 추가)
       resultModal.classList.remove('modal-victory', 'modal-defeat');
-      if (state === 'victory') {
+      if (state === 'victory' || resultType === 'crew_win') {
         resultModal.classList.add('modal-victory');
       } else {
         resultModal.classList.add('modal-defeat');
@@ -2629,11 +2636,6 @@
       }
 
       var isKo = window.__LANG === 'ko';
-      var outcomeReason = (extra && extra.outcome_reason) ? String(extra.outcome_reason) : '';
-      var winnerSide = (extra && extra.winner_side) ? String(extra.winner_side) : '';
-      var isCrewWin = (state === 'victory') || (winnerSide === 'crew') || (outcomeReason === 'impostor_killed');
-      var isTimeout = (outcomeReason === 'timeout');
-      var resultType = isCrewWin ? 'crew_win' : (isTimeout ? 'timeout' : 'accuse_failed');
       var RESULT_DESC = {
         ko: { crew_win: '중첩체가 제거됐다. 하데스 계층이 봉인됐다. 함선은 살아남았다.', timeout: '시간이 다 됐다. 중첩체는 끝까지 발각되지 않았다. 함선은 하데스의 것이 됐다.', accuse_failed: '무고한 승무원이 처형당했습니다. 함선 파괴됨.' },
         en: { crew_win: 'The parasite has been eliminated. HADES layer sealed. The ship survives.', timeout: "Time's up. The parasite was never found. The ship belongs to HADES now.", accuse_failed: 'Innocent crew member executed. Ship destroyed.' }
