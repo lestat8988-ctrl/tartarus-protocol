@@ -719,6 +719,29 @@
         margin-top: 20px;
         padding-top: 12px;
       }
+
+      /* 모바일 + 영어 모드 전용 레이아웃 보정 (한국어 모드는 기존 유지) */
+      body.lang-en #game-container {
+        padding-top: 18px;
+        margin-top: 4px;
+      }
+      body.lang-en .input-hint {
+        font-size: 9.5px;
+        line-height: 1.55;
+        min-height: 2.9em;
+        max-height: none;
+        overflow: visible;
+        display: block;
+        -webkit-line-clamp: unset;
+        -webkit-box-orient: unset;
+        word-break: break-word;
+        overflow-wrap: break-word;
+      }
+      body.lang-en #phase-status {
+        min-height: 2.2em;
+        line-height: 1.4;
+        font-size: 12px;
+      }
     }
 
     /* PATCH: shorts-mode layout - grid 3구역, 모니터 위/아래 꽉 차게 */
@@ -962,6 +985,7 @@
     var isKo = new URLSearchParams(location.search).get('lang') === 'ko';
     window.isKo = isKo;
     window.__LANG = isKo ? 'ko' : 'en';
+    (function(){ var lang = window.__LANG || 'en'; document.documentElement.setAttribute('lang', lang); if (document.body) document.body.classList.add('lang-' + lang); })();
     var INTRO_TEXT = {
       en: {
         lines: [
