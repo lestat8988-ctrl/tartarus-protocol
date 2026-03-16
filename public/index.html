@@ -1620,6 +1620,7 @@
     var CREW_PLACEHOLDER_EN = { doctor: 'Doctor analyzing...', engineer: 'Engineer analyzing...', navigator: 'Navigator reasoning...', pilot: 'Pilot sensing...' };
     var CREW_FALLBACK_KO = { doctor: '표정과 호흡을 확인 중이다. 이상 징후가 있으면 보고하겠다.', engineer: '기록 끊김과 접근 로그를 확인 중이다. 불일치가 있으면 짚겠다.', navigator: '그 시간대 동선부터 다시 말해봐. 알리바이가 비어 있다.', pilot: '공기가 달라졌어. 누군가 뭔가를 숨기고 있는 것 같아.' };
     var CREW_FALLBACK_EN = { doctor: 'Checking expression and breathing. Will report any anomalies.', engineer: 'Checking logs for gaps and access records. Will flag discrepancies.', navigator: 'Tell me your movements for that time again. Your alibi has gaps.', pilot: 'The air shifted. Someone seems to be hiding something.' };
+    var SUMMARY_FALLBACK_EN = { doctor: "Doctor checked the crew's reactions.", engineer: 'Engineer checked the system logs.', navigator: 'Navigator pressed for their movements.', pilot: 'Pilot sensed a shift in the atmosphere.', captain: 'Captain acted.' };
     var CREW_GENERIC_OLD_KO = { doctor: '반응을 살펴보겠습니다.', engineer: '로그 확인 중입니다.', navigator: '동선을 짚어보겠습니다.', pilot: '분위기가 이상합니다.' };
     var CREW_GENERIC_OLD_EN = { doctor: 'Checking reactions.', engineer: 'Checking logs.', navigator: 'Tracing movements.', pilot: 'Something feels off.' };
     function isGenericOrPlaceholderText(role, text) {
@@ -1698,11 +1699,12 @@
       }
       var subEl = row.querySelector('.dialogue-summary');
       if (summary && safeText) {
-        if (subEl) { subEl.textContent = summary; subEl.style.display = ''; }
+        var dispSumm = (window.__LANG === 'en') ? ensureSummaryEnglish(summary, eventData, role, SUMMARY_FALLBACK_EN) : summary;
+        if (subEl) { subEl.textContent = dispSumm; subEl.style.display = ''; }
         else {
           var sub = document.createElement('div');
           sub.className = 'dialogue-summary';
-          sub.textContent = summary;
+          sub.textContent = dispSumm;
           row.appendChild(sub);
         }
       } else if (subEl) subEl.style.display = 'none';
@@ -1967,6 +1969,46 @@
       var built = buildEnglishFromEvent(ev, role, null);
       if (built) return built;
       return (fallback && fallback[role]) || '—';
+    }
+    function buildEnglishSummary(ev, role, fallback) {
+      if (!ev || window.__LANG !== 'en') return null;
+      var action = (ev.action || ev.event_type || '').toUpperCase();
+      var target = (ev.target || '').toLowerCase();
+      var r = (role || ev.role || '').toLowerCase();
+      var targetLabel = ROLE_LABEL_EN[target] || target;
+      var roleLabel = ROLE_LABEL_EN[r] || r;
+      if (action === 'DEATH') return "Emergency alert: " + roleLabel + "'s biosignal was lost.";
+      if (action === 'OBSERVE') {
+        var obs = { doctor: "Doctor checked the crew's reactions.", engineer: 'Engineer checked the system logs.', navigator: 'Navigator pressed for the movement timeline.', pilot: 'Pilot sensed a shift in the atmosphere.' };
+        return obs[r] || roleLabel + ' observed.';
+      }
+      if (action === 'QUESTION' && target) {
+        var ask = { doctor: ' asked ' + targetLabel + ' to explain.', engineer: ' asked ' + targetLabel + ' to clarify.', navigator: ' pressed ' + targetLabel + ' for their movements.', pilot: ' asked ' + targetLabel + ' about the atmosphere.' };
+        return roleLabel + (ask[r] || ' questioned ' + targetLabel + '.');
+      }
+      if (action === 'CHECK_LOG') {
+        var log = { doctor: "Doctor checked the crew's reactions.", engineer: 'Engineer checked the system logs.', navigator: 'Navigator checked movement records.', pilot: 'Pilot checked logs.' };
+        return log[r] || roleLabel + ' checked logs.';
+      }
+      if (action === 'REPAIR') return roleLabel + ' repaired the system.';
+      if (action === 'WAIT') return roleLabel + ' waited.';
+      if (action === 'TAKE_PISTOL') return 'Captain took the pistol.';
+      if (action === 'FIND_CLUE') return 'Captain collected a clue.';
+      if (action === 'ACCUSE' && target) return 'Captain accused ' + targetLabel + '.';
+      if (/threat|위협/i.test(String(ev.dialogue || '')) && target) return 'Captain threatened ' + targetLabel + '.';
+      if (r === 'captain') {
+        if (action === 'CHECK_LOG') return /cctv|로그/i.test(String(ev.dialogue || ev.summary || '')) ? 'Captain checked the CCTV logs.' : 'Captain checked the engine room.';
+        if (action === 'QUESTION' && target) return 'Captain questioned ' + targetLabel + '.';
+      }
+      return (fallback && fallback[role]) || (roleLabel + ' acted.');
+    }
+    function ensureSummaryEnglish(summary, ev, role, fallback) {
+      if (window.__LANG !== 'en') return summary;
+      if (!summary || !String(summary).trim()) return (SUMMARY_FALLBACK_EN && SUMMARY_FALLBACK_EN[role]) || (fallback && fallback[role]) || '—';
+      if (!isKorean(summary)) return summary;
+      var built = buildEnglishSummary(ev, role, null);
+      if (built) return built;
+      return (SUMMARY_FALLBACK_EN && SUMMARY_FALLBACK_EN[role]) || (fallback && fallback[role]) || '—';
     }
     function toRoleLabelKo(text) {
       if (!text || typeof text !== 'string') return text;
@@ -2413,7 +2455,7 @@
       var label = getRoleLabel(role);
       if (window.__LANG === 'en') {
         main = ensureDisplayEnglish(main, eventData, role, CREW_FALLBACK_EN);
-        if (summary) summary = isKorean(summary) ? ensureDisplayEnglish(summary, eventData, role, CREW_FALLBACK_EN) : summary;
+        if (summary) summary = ensureSummaryEnglish(summary, eventData, role, SUMMARY_FALLBACK_EN);
       } else if (typeof toRoleLabelKo === 'function') { main = toRoleLabelKo(main); if (summary) summary = toRoleLabelKo(summary); }
       var roleClass = getRoleClass(role);
       var div = document.createElement('div');
@@ -2452,7 +2494,7 @@
       var dispSumm = summary;
       if (window.__LANG === 'en') {
         dispMain = ensureDisplayEnglish(dispMain || '', null, role, CREW_FALLBACK_EN);
-        if (dispSumm) dispSumm = isKorean(dispSumm) ? ensureDisplayEnglish(dispSumm, null, role, CREW_FALLBACK_EN) : dispSumm;
+        if (dispSumm) dispSumm = ensureSummaryEnglish(dispSumm, null, role, SUMMARY_FALLBACK_EN);
       } else if (typeof toRoleLabelKo === 'function') { dispMain = toRoleLabelKo(dispMain || ''); if (dispSumm) dispSumm = toRoleLabelKo(dispSumm); }
       if (textEl) textEl.textContent = dispMain || '';
       if (subEl) {
