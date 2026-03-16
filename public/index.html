@@ -390,6 +390,8 @@
 
     /* 캐릭터별 색상 (네온 글로우) - 역할명·경고문 강화 */
     .role-alert { color: #ff0000; font-weight: bold; text-shadow: 0 0 4px #ff0000, 0 0 2px #ff0000; }
+    /* [하데스 경보] 라벨 전용 - glow 50% 축소 (가독성) */
+    .line.hades-alert-label { text-shadow: 0 0 1px rgba(255,0,0,0.45); }
     .role-navigator { color: #ffd700; text-shadow: 0 0 4px #ffd700, 0 0 1px #ffd700; }
     .role-engineer { color: #ff8c00; text-shadow: 0 0 4px #ff8c00, 0 0 1px #ff8c00; }
     .role-doctor { color: #00bfff; text-shadow: 0 0 4px #00bfff, 0 0 1px #00bfff; }
@@ -2466,6 +2468,7 @@
 
       const div = document.createElement('div');
       div.className = "line " + finalClass;
+      if (/^\[하데스 경보\]$|^\[HADES ALERT\]$/.test(String(text).trim())) div.classList.add('hades-alert-label');
       logEl.appendChild(div);
 
       if (useTypewriter) {
