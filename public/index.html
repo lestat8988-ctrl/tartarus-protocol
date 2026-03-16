@@ -229,18 +229,7 @@
       border-color: var(--terminal-green);
     }
     
-    /* 메인 메뉴 / 게임 화면 우측 하단 후원 안내 */
-    .main-menu-support-hint,
-    .game-support-hint {
-      position: absolute;
-      bottom: 12px;
-      right: 16px;
-      font-size: 11px;
-      color: var(--terminal-green);
-      opacity: 0.7;
-      pointer-events: none;
-      z-index: 25;
-    }
+    /* 메인 메뉴 / 게임 화면 우측 하단 후원 안내 - 제거됨 */
     @keyframes crtTurnOff {
       0% { opacity: 1; transform: scale(1); filter: brightness(1); }
       30% { filter: brightness(1.5); }
@@ -573,15 +562,16 @@
     @media (max-width: 768px) {
       body { padding: 5px; }
       
-      /* CRT 래퍼 - 모바일 패딩만 */
+      /* CRT 래퍼 - 모바일 패딩, 하단 푸터 제거로 높이 확대 */
       .crt-bezel {
         width: 100%;
         padding: 8px;
+        max-height: calc(100vh - 16px);
       }
       
-      /* 4. 게임 컨테이너 높이를 유동적으로 변경 */
+      /* 4. 게임 컨테이너 높이 - 하단 푸터 제거로 더 많이 활용 */
       #game-container {
-        height: 80vh;
+        height: 94vh;
         padding: 12px;
         min-height: 500px;
       }
@@ -794,7 +784,6 @@
   <div id="shorts-stage">
   <div id="shorts-game-wrapper">
   <div class="crt-bezel">
-    <div class="game-support-hint" data-i18n="intro.supportHint">Support the Developer ($2) ↓</div>
     <div id="game-container">
       <div class="scanlines"></div>
 
