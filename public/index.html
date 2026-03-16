@@ -111,7 +111,7 @@
       max-width: 440px;
       padding: 24px 20px 80px;
       text-align: center;
-      animation: introCreditsScroll 224s linear 0s 1 forwards;
+      animation: introCreditsScroll 157s linear 0s 1 forwards;
     }
     @keyframes introCreditsScroll {
       0% { transform: translateX(-50%) translateY(0); }
@@ -1435,7 +1435,8 @@
           if (_skipCapQ && isCaptainQuestionSummary(line)) continue;
           var crewMain = getMainTextFromEvent(e);
           var crewSumm = e.summary || null;
-          updateCrewPlaceholder(role, crewMain || crewSumm || ((window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN)[role]) || '—', crewSumm, eventDedupeKey(e));
+          var _batchId = (opts && opts.crewBatchId) || (pendingCrewBatch && pendingCrewBatch.batchId);
+          updateCrewPlaceholder(role, crewMain || crewSumm || ((window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN)[role]) || '—', crewSumm, eventDedupeKey(e), _batchId);
           renderedEventKeys.add(eventDedupeKey(e));
           if (line) resultLines.push(line);
           continue;
@@ -1476,9 +1477,10 @@
     function getMainTextFromEvent(e) {
       return (e && (e.dialogue || e.summary || e.action)) || '';
     }
-    function syncCrewSlotsFromResult(resData, deadCrewArr) {
+    function syncCrewSlotsFromResult(resData, deadCrewArr, batchId) {
       if (!resData || !logEl) return;
       var recent = resData.recent_events || [];
+      var useBatch = batchId || (pendingCrewBatch && pendingCrewBatch.batchId);
       var fallbackMap = (window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN);
       var sr = resData.server_result || {};
       var CREW_ROLES_SYNC = ['doctor', 'engineer', 'navigator', 'pilot'];
@@ -1513,7 +1515,7 @@
         if (!displayText && sr.summary && String(sr.summary).trim()) displayText = String(sr.summary).trim();
         var safeText = displayText || (fallbackMap && fallbackMap[role]) || '—';
         if (typeof isGenericOrPlaceholderText === 'function' && isGenericOrPlaceholderText(role, safeText)) safeText = (fallbackMap && fallbackMap[role]) || '—';
-        updateCrewPlaceholder(role, safeText, summ, evKey);
+        updateCrewPlaceholder(role, safeText, summ, evKey, useBatch);
       }
       if (pendingCrewBatch) pendingCrewBatch.resolved = true;
     }
@@ -1601,10 +1603,16 @@
       logEl.scrollTop = logEl.scrollHeight;
       if (window.fitShortsScale) window.fitShortsScale();
     }
-    function updateCrewPlaceholder(role, mainText, summary, eventKey) {
+    function updateCrewPlaceholder(role, mainText, summary, eventKey, batchId) {
       if (!logEl) return;
       var rows = logEl.querySelectorAll('.dialogue-line[data-crew-slot="' + role + '"]');
-      var row = rows.length > 0 ? rows[rows.length - 1] : null;
+      var row = null;
+      if (batchId && rows.length > 0) {
+        for (var i = rows.length - 1; i >= 0; i--) {
+          if (rows[i].getAttribute('data-crew-batch') === batchId) { row = rows[i]; break; }
+        }
+      }
+      if (!row && rows.length > 0) row = rows[rows.length - 1];
       if (!row) return;
       var fallbackMap = (window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN);
       var safeText = (mainText && String(mainText).trim()) ? String(mainText).trim() : ((fallbackMap && fallbackMap[role]) || '—');
@@ -1678,14 +1686,14 @@
               if (!displayText || (typeof isGenericOrPlaceholderText === 'function' && isGenericOrPlaceholderText(role, displayText))) displayText = fallbackVal;
               var summ = (ev && ev.summary) || (currEv && currEv.summary) || sr.summary || null;
               var key = ev ? eventDedupeKey(ev) : (currEv && currEv.role ? role + ':' + (currEv.dialogue || currEv.summary || '').slice(0, 20) : null);
-              var r = role, dt = displayText, s = displayText ? summ : null, k = key;
-              setTimeout(function() { updateCrewPlaceholder(r, dt, s, k); }, 0);
+              var r = role, dt = displayText, s = displayText ? summ : null, k = key, bid = batchId;
+              setTimeout(function() { updateCrewPlaceholder(r, dt, s, k, bid); }, 0);
               if (ev) renderedEventKeys.add(key);
               return { role: role, ok: true, game_over: !!crewData.game_over, outcome: crewData.outcome };
             } catch (e) {
               var fbMap = (window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN);
               var fb = (fbMap && fbMap[role]) || '—';
-              setTimeout(function() { updateCrewPlaceholder(role, fb, null); }, 0);
+              setTimeout(function() { updateCrewPlaceholder(role, fb, null, null, batchId); }, 0);
               return { role: role, ok: false };
             }
           })();
@@ -1701,15 +1709,15 @@
         if (resData.game_over) { isGameOver = true; outcome = resData.outcome || outcome; }
         if (resData.turn != null) currentTurn = resData.turn;
 
-        if (typeof syncCrewSlotsFromResult === 'function') syncCrewSlotsFromResult(resData, deadCrew);
+        if (typeof syncCrewSlotsFromResult === 'function') syncCrewSlotsFromResult(resData, deadCrew, batchId);
 
         var resultLines = [];
         var resRecent = resData.recent_events || [];
         var resPub = resData.public_events || [];
         var events = resRecent.length > 0 ? resRecent : resPub;
-        var appendOpts = null;
+        var appendOpts = { crewBatchId: batchId };
         if (opts && opts.captainPayload) {
-          appendOpts = { skipCaptainInResult: true };
+          appendOpts.skipCaptainInResult = true;
           if (captainPayload.action === 'TAKE_PISTOL') {
             appendOpts.skipCaptainFallbackForPreset = true;
             events = events.filter(function(e) {
