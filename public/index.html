@@ -56,23 +56,27 @@
       background: radial-gradient(ellipse 90% 90% at 50% 50%, transparent 55%, rgba(0,0,0,0.15) 100%);
     }
     /* CRT 브라운관 효과 - 플레이 화면에만 (인트로 제외) */
-    #game-container.started::before {
+    #game-container.crt-gameplay {
+      position: relative;
+      overflow: hidden;
+      border-radius: 6px;
+      box-shadow: inset 0 0 100px rgba(0,0,0,0.08);
+    }
+    #game-container.crt-gameplay::before {
       content: '';
       position: absolute;
       inset: 0;
       pointer-events: none;
       z-index: 16;
-      background: linear-gradient(180deg, rgba(255,255,255,0.012) 0%, transparent 8%);
+      background: linear-gradient(135deg, rgba(255,255,255,0.09) 0%, rgba(255,255,255,0.05) 15%, rgba(255,255,255,0.02) 30%, transparent 50%);
     }
-    #game-container.started::after {
+    #game-container.crt-gameplay::after {
       content: '';
       position: absolute;
       inset: 0;
       pointer-events: none;
       z-index: 17;
-      background: 
-        radial-gradient(ellipse 92% 92% at 50% 50%, transparent 60%, rgba(0,0,0,0.05) 88%, rgba(0,0,0,0.1) 100%),
-        radial-gradient(ellipse 80% 80% at 50% 48%, rgba(255,255,255,0.006) 0%, transparent 45%);
+      background: radial-gradient(ellipse 85% 85% at 50% 50%, transparent 50%, rgba(0,0,0,0.08) 80%, rgba(0,0,0,0.22) 95%, rgba(0,0,0,0.35) 100%);
     }
     #game-content { display: none; flex-direction: column; flex: 1; min-height: 0; }
     #game-container.started #game-content { display: flex; }
@@ -2016,7 +2020,7 @@
       setTimeout(function() {
         introBriefingEl.classList.add('hidden');
         introBriefingEl.classList.remove('crt-turnoff');
-        gameContainerEl.classList.add('started');
+        gameContainerEl.classList.add('started', 'crt-gameplay');
         if (window.fitShortsScale) window.fitShortsScale();
         startActualGame();
       }, 650);
