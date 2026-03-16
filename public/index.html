@@ -55,6 +55,25 @@
       z-index: 15;
       background: radial-gradient(ellipse 90% 90% at 50% 50%, transparent 55%, rgba(0,0,0,0.15) 100%);
     }
+    /* CRT 브라운관 효과 - 플레이 화면에만 (인트로 제외) */
+    #game-container.started::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 16;
+      background: linear-gradient(180deg, rgba(255,255,255,0.012) 0%, transparent 8%);
+    }
+    #game-container.started::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 17;
+      background: 
+        radial-gradient(ellipse 92% 92% at 50% 50%, transparent 60%, rgba(0,0,0,0.05) 88%, rgba(0,0,0,0.1) 100%),
+        radial-gradient(ellipse 80% 80% at 50% 48%, rgba(255,255,255,0.006) 0%, transparent 45%);
+    }
     #game-content { display: none; flex-direction: column; flex: 1; min-height: 0; }
     #game-container.started #game-content { display: flex; }
     #game-container.started #intro-briefing { display: none; }
