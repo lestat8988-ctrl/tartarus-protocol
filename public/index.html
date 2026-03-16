@@ -560,7 +560,12 @@
 
     /* 모바일 반응형 디자인 */
     @media (max-width: 768px) {
-      body { padding: 5px; }
+      body {
+        padding: 5px;
+        padding-top: env(safe-area-inset-top, 8px);
+        align-items: flex-start;
+        justify-content: flex-start;
+      }
       
       /* CRT 래퍼 - 모바일 패딩, 하단 푸터 제거로 높이 확대 */
       .crt-bezel {
@@ -569,9 +574,9 @@
         max-height: calc(100vh - 16px);
       }
       
-      /* 4. 게임 컨테이너 높이 - 하단 푸터 제거로 더 많이 활용 */
+      /* 4. 게임 컨테이너 높이 - viewport 기준, 상단 잘림 방지 */
       #game-container {
-        height: 94vh;
+        height: calc(100dvh - 40px);
         padding: 12px;
         min-height: 500px;
       }
