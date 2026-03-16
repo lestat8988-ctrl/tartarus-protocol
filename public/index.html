@@ -848,8 +848,8 @@
       <div class="action-bar">
         <!-- quick button: getInterrogateMessage()로 생존 승무원 기반 질문 생성 -->
         <button type="button" class="action-btn" data-msg="interrogate" id="interrogate-btn">승무원 심문</button>
-        <button type="button" class="action-btn" data-msg="cctv" data-ep1="CHECK_LOG CCTV 로그를 확인한다." onclick="sendMessage(this.getAttribute('data-ep1'))">CCTV 로그 확인</button>
-        <button type="button" class="action-btn" data-msg="engine" data-ep1="CHECK_LOG 엔진실 로그를 확인한다." onclick="sendMessage(this.getAttribute('data-ep1'))">엔진실 확인</button>
+        <button type="button" class="action-btn" data-msg="cctv" data-ep1="CHECK_LOG CCTV 로그를 확인한다." data-ep1-en="CHECK_LOG Checking CCTV logs." onclick="sendMessage((window.__LANG==='en'?this.getAttribute('data-ep1-en'):this.getAttribute('data-ep1'))||this.getAttribute('data-ep1'))">CCTV 로그 확인</button>
+        <button type="button" class="action-btn" data-msg="engine" data-ep1="CHECK_LOG 엔진실 로그를 확인한다." data-ep1-en="CHECK_LOG Checking engine room logs." onclick="sendMessage((window.__LANG==='en'?this.getAttribute('data-ep1-en'):this.getAttribute('data-ep1'))||this.getAttribute('data-ep1'))">엔진실 확인</button>
         <button type="button" class="action-btn" data-msg="take_pistol" onclick="sendMessage('TAKE_PISTOL')">권총 획득</button>
         <button type="button" class="action-btn" data-msg="threat" onclick="openThreatModal()">위협</button>
         <button type="button" class="action-btn" data-msg="find_clue" onclick="sendMessage('FIND_CLUE')">단서 수집</button>
@@ -1094,7 +1094,7 @@
     const EP1_VALID_TARGETS = new Set(['doctor', 'engineer', 'navigator', 'pilot', 'player', 'captain']);
     function parseEp1Input(raw) {
       const s = String(raw || '').trim();
-      if (!s) return { action: 'OBSERVE', target: null, dialogue: '브리지부터 확인한다.' };
+      if (!s) return { action: 'OBSERVE', target: null, dialogue: (window.__LANG === 'ko') ? '브리지부터 확인한다.' : 'Checking the bridge.' };
       const parts = s.split(/\s+/).filter(Boolean);
       let action = String(parts[0] || '').toUpperCase();
       if (!EP1_VALID_ACTIONS.has(action)) action = 'OBSERVE';
@@ -1109,7 +1109,7 @@
           dialogue = parts.slice(1).join(' ').trim();
         }
       }
-      const defaults = { OBSERVE: '브리지부터 확인한다.', CHECK_LOG: '로그부터 확인한다.', REPAIR: '점검한다.', WAIT: '대기한다.', QUESTION: '', ACCUSE: '' };
+      const defaults = (window.__LANG === 'ko') ? { OBSERVE: '브리지부터 확인한다.', CHECK_LOG: '로그부터 확인한다.', REPAIR: '점검한다.', WAIT: '대기한다.', QUESTION: '', ACCUSE: '' } : { OBSERVE: 'Checking the bridge.', CHECK_LOG: 'Checking logs.', REPAIR: 'Inspecting.', WAIT: 'Waiting.', QUESTION: '', ACCUSE: '' };
       return { action, target: action === 'QUESTION' ? target : null, dialogue: dialogue || (defaults[action] || '') };
     }
 
@@ -1121,11 +1121,11 @@
     function getInterrogateMessage() {
       var crewList = ['Navigator', 'Engineer', 'Doctor', 'Pilot'];
       var alive = crewList.filter(function(c) { return !deadCrew.includes(c); });
-      if (alive.length === 0) return 'OBSERVE 브리지 상황을 확인한다.';
+      if (alive.length === 0) return (window.__LANG === 'ko') ? 'OBSERVE 브리지 상황을 확인한다.' : 'OBSERVE Checking bridge status.';
       var target = alive[Math.floor(Math.random() * alive.length)];
       var roleLower = target.toLowerCase();
-      var roleKo = (ROLE_LABEL_KO && ROLE_LABEL_KO[roleLower]) || roleLower;
-      return 'QUESTION ' + roleLower + ' ' + roleKo + ', 그때 어디 있었지?';
+      var roleLabel = (window.__LANG === 'en') ? target : (ROLE_LABEL_KO && ROLE_LABEL_KO[roleLower]) || roleLower;
+      return (window.__LANG === 'en') ? ('QUESTION ' + roleLower + ' ' + roleLabel + ', where were you then?') : ('QUESTION ' + roleLower + ' ' + roleLabel + ', 그때 어디 있었지?');
     }
     var THREAT_DIALOGUE_KO = { doctor: '닥터, 더 숨기면 바로 처형하겠다. 지금 당장 사실대로 말해.', engineer: '엔지니어, 거짓말은 여기서 끝이다. 지금 사실을 말해.', navigator: '네비게이터, 더 버티면 바로 처형하겠다. 지금 동선을 다 말해.', pilot: '파일럿, 마지막 기회다. 사실대로 말하지 않으면 바로 처형이다.' };
     var THREAT_DIALOGUE_EN = { doctor: 'Doctor, if you keep hiding the truth, I\'ll execute you. Tell me everything now.', engineer: 'Engineer, the lies end here. Tell me the truth now.', navigator: 'Navigator, if you keep resisting, I\'ll execute you. Tell me your movements.', pilot: 'Pilot, this is your last chance. Tell me the truth or you\'re executed.' };
@@ -1152,7 +1152,7 @@
       if (gameEnded) { questionInFlight = false; return; }
       var now = Date.now();
       if ((now - lastQuestionDispatchAt) < QUESTION_DEBOUNCE_MS) { questionInFlight = false; return; }
-      var msg = (typeof getInterrogateMessage === 'function') ? getInterrogateMessage() : 'QUESTION doctor 닥터, 그때 어디 있었지?';
+      var msg = (typeof getInterrogateMessage === 'function') ? getInterrogateMessage() : ((window.__LANG === 'ko') ? 'QUESTION doctor 닥터, 그때 어디 있었지?' : 'QUESTION doctor Doctor, where were you then?');
       var m = String(msg).trim().match(/^QUESTION\s+(\S+)/i);
       var key = m ? ('QUESTION:' + (m[1] || '').toLowerCase()) : msg;
       lastQuestionKey = key;
@@ -1173,32 +1173,40 @@
     function formatCaptainDisplay(raw, captainPayload) {
       if (!raw || !captainPayload) return raw;
       var s = String(raw).trim();
+      var roleLabel = function(r) { return getRoleLabel(r); };
       var roleKo = function(r) { return (ROLE_LABEL_KO && r && ROLE_LABEL_KO[r.toLowerCase()]) || r || ''; };
       if (captainPayload.action === 'TAKE_PISTOL') return (window.__LANG === 'ko') ? '권총을 집는다.' : 'Picks up the pistol.';
       if (captainPayload.action === 'FIND_CLUE') return (window.__LANG === 'ko') ? '단서를 수집한다.' : 'Collects a clue.';
       if (captainPayload.action === 'ACCUSE' && captainPayload.target) {
         var t = captainPayload.target;
-        return roleKo(t) + ' 처형';
+        return (window.__LANG === 'en') ? (roleLabel(t) + ' eliminated') : (roleKo(t) + ' 처형');
       }
       if (/^\[ACCUSE\]\s*/i.test(s)) {
         var accTarget = s.replace(/^\[ACCUSE\]\s*/i, '').trim().toLowerCase();
-        return (roleKo(accTarget) || accTarget) + ' 처형';
+        return (window.__LANG === 'en') ? (roleLabel(accTarget) + ' eliminated') : ((roleKo(accTarget) || accTarget) + ' 처형');
       }
       if (captainPayload.action === 'QUESTION' && captainPayload.target) {
         var prefix = 'QUESTION ' + captainPayload.target.toLowerCase() + ' ';
         if (s.toLowerCase().indexOf(prefix.toLowerCase()) === 0) {
           var rest = s.slice(prefix.length).trim();
-          return rest || roleKo(captainPayload.target) + ', 그때 어디 있었지?';
+          return rest || ((window.__LANG === 'en') ? (roleLabel(captainPayload.target) + ', where were you then?') : (roleKo(captainPayload.target) + ', 그때 어디 있었지?'));
         }
         var m = s.match(/^QUESTION\s+(doctor|engineer|navigator|pilot|닥터|엔지니어|네비게이터|파일럿)\s+/i);
-        if (m) return s.slice(m[0].length).trim() || roleKo(m[1]) + ', 그때 어디 있었지?';
+        if (m) return s.slice(m[0].length).trim() || ((window.__LANG === 'en') ? (roleLabel(m[1]) + ', where were you then?') : (roleKo(m[1]) + ', 그때 어디 있었지?'));
       }
       var stripped = s.replace(/^(CHECK_LOG|OBSERVE|REPAIR|WAIT)\s+/i, '').trim();
       if (stripped !== s) return stripped;
       var qm = s.match(/^QUESTION\s+(doctor|engineer|navigator|pilot|닥터|엔지니어|네비게이터|파일럿)\s+(.+)$/i);
-      if (qm) return qm[2].trim() || roleKo(qm[1]) + ', 그때 어디 있었지?';
+      if (qm) return qm[2].trim() || ((window.__LANG === 'en') ? (roleLabel(qm[1]) + ', where were you then?') : (roleKo(qm[1]) + ', 그때 어디 있었지?'));
       var qmAny = s.match(/^QUESTION\s+(\S+)\s+(.+)$/);
-      if (qmAny) return qmAny[2].trim() || roleKo(qmAny[1]) + ', 그때 어디 있었지?';
+      if (qmAny) return qmAny[2].trim() || ((window.__LANG === 'en') ? (roleLabel(qmAny[1]) + ', where were you then?') : (roleKo(qmAny[1]) + ', 그때 어디 있었지?'));
+      if (window.__LANG === 'en' && isKorean(s)) {
+        var act = (captainPayload.action || 'OBSERVE').toUpperCase();
+        if (act === 'OBSERVE') return 'Observing the bridge.';
+        if (act === 'CHECK_LOG') return 'Checking the logs.';
+        if (act === 'REPAIR') return 'Conducting repairs.';
+        if (act === 'WAIT') return 'Waiting.';
+      }
       return s;
     }
     // preset 버튼 경로: [ACCUSE], quick button 문구. [AUTO-KILL]/[WITNESS] 사용 안 함.
@@ -1323,10 +1331,11 @@
               mainT = formatCaptainDisplay(mainT, { action: e.action || 'OBSERVE', target: e.target || null });
             }
             if (role === 'captain' && mainT && /^QUESTION\s+/i.test(String(mainT).trim())) continue;
-            printDialogueLine(role, mainT, e.summary || null, key);
+            printDialogueLine(role, mainT, e.summary || null, key, e);
             renderedEventKeys.add(key);
           } else if (main) {
-            await printLine(main, 'role-system', { typewriter: true });
+            var toPrint = (window.__LANG === 'en' && isKorean(main)) ? 'System update.' : main;
+            await printLine(toPrint, 'role-system', { typewriter: true });
             renderedEventKeys.add(key);
           }
         }
@@ -1430,7 +1439,9 @@
     function isCaptainQuestionSummary(line) {
       if (!line || typeof line !== 'string') return false;
       var t = String(line).trim();
-      return /^함장이?\s+.*질문|^함장이?\s+.*확인을\s*요청|^함장이?\s+.*기술적\s*질문|^함장이?\s+.*동선을\s*추궁|^함장이?\s+.*공기\s*변화/i.test(t);
+      if (/^함장이?\s+.*질문|^함장이?\s+.*확인을\s*요청|^함장이?\s+.*기술적\s*질문|^함장이?\s+.*동선을\s*추궁|^함장이?\s+.*공기\s*변화/i.test(t)) return true;
+      if (window.__LANG === 'en' && /^Captain\s+.*(asked|question|request|inquire|where|when)/i.test(t)) return true;
+      return false;
     }
     function isCaptainQuestionRaw(text) {
       if (!text || typeof text !== 'string') return false;
@@ -1489,14 +1500,14 @@
         }
         if (_skipCapQ && isCaptainQuestionSummary(line)) continue;
         if (_skipCapQ && isCaptainQuestionSummary(summ)) continue;
-        if ((!e.role || role === 'system') && /^함장이?\s|^함장\s*:/.test(summ)) continue;
+        if ((!e.role || role === 'system') && (/^함장이?\s|^함장\s*:/.test(summ) || (window.__LANG === 'en' && /^Captain\s*:?\s/.test(summ)))) continue;
         if (['doctor', 'engineer', 'navigator', 'pilot'].indexOf(role) >= 0) {
           if (isRoleDead(role, deadCrewArr)) continue;
           if (_skipCapQ && isCaptainQuestionSummary(line)) continue;
           var crewMain = getMainTextFromEvent(e);
           var crewSumm = e.summary || null;
           var _batchId = (opts && opts.crewBatchId) || (pendingCrewBatch && pendingCrewBatch.batchId);
-          updateCrewPlaceholder(role, crewMain || crewSumm || ((window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN)[role]) || '—', crewSumm, eventDedupeKey(e), _batchId);
+          updateCrewPlaceholder(role, crewMain || crewSumm || ((window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN)[role]) || '—', crewSumm, eventDedupeKey(e), _batchId, e);
           renderedEventKeys.add(eventDedupeKey(e));
           if (line) resultLines.push(line);
           continue;
@@ -1513,7 +1524,7 @@
           mainText = formatCaptainDisplay(mainText, { action: e.action || 'OBSERVE', target: e.target || null });
         }
         if (mainText && /^QUESTION\s+/i.test(String(mainText).trim())) continue;
-        if (_skipCapQ && /^(닥터|엔지니어|네비게이터|파일럿),\s*그때\s*어디\s*있었지/i.test(String(mainText).trim())) continue;
+        if (_skipCapQ && (/^(닥터|엔지니어|네비게이터|파일럿),\s*그때\s*어디\s*있었지/i.test(String(mainText).trim()) || (window.__LANG === 'en' && /^(Doctor|Engineer|Navigator|Pilot),\s*where\s+were\s+you/i.test(String(mainText).trim())))) continue;
         if (skipCaptainFallback && isCaptainFallbackText(mainText || summary)) continue;
         var existingRow = false;
         if (logEl) {
@@ -1526,8 +1537,8 @@
             }
           }
         }
-        if (!existingRow && mainText && (ROLE_LABEL_KO[role] || role === 'system')) {
-          printDialogueLine(role, mainText, summary, key);
+        if (!existingRow && mainText && (ROLE_LABEL_KO[role] || ROLE_LABEL_EN[role] || role === 'system')) {
+          printDialogueLine(role, mainText, summary, key, e);
         }
         renderedEventKeys.add(key);
         if (line) resultLines.push(line);
@@ -1575,7 +1586,8 @@
         if (!displayText && sr.summary && String(sr.summary).trim()) displayText = String(sr.summary).trim();
         var safeText = displayText || (fallbackMap && fallbackMap[role]) || '—';
         if (typeof isGenericOrPlaceholderText === 'function' && isGenericOrPlaceholderText(role, safeText)) safeText = (fallbackMap && fallbackMap[role]) || '—';
-        updateCrewPlaceholder(role, safeText, summ, evKey, useBatch);
+        var evForEn = currEv || findCrewEventInRecent(recent, role);
+        updateCrewPlaceholder(role, safeText, summ, evKey, useBatch, evForEn);
       }
       if (pendingCrewBatch) pendingCrewBatch.resolved = true;
     }
@@ -1623,7 +1635,7 @@
       var rolesToShow = CREW_ROLES.filter(function(r) { return !isRoleDead(r, deadCrewArr); });
       for (var i = 0; i < rolesToShow.length; i++) {
         var role = rolesToShow[i];
-        var label = ROLE_LABEL_KO[role] || role;
+        var label = getRoleLabel(role);
         var placeholder = (placeholderMap && placeholderMap[role]) || '...';
         var roleClass = getRoleClass(role);
         var div = document.createElement('div');
@@ -1645,7 +1657,7 @@
       if (window.fitShortsScale) window.fitShortsScale();
     }
     function printCrewPlaceholder(role) {
-      var label = ROLE_LABEL_KO[role] || role;
+      var label = getRoleLabel(role);
       var placeholder = (window.__LANG === 'ko' ? CREW_PLACEHOLDER_KO : CREW_PLACEHOLDER_EN)[role] || '...';
       var roleClass = getRoleClass(role);
       var div = document.createElement('div');
@@ -1663,7 +1675,7 @@
       logEl.scrollTop = logEl.scrollHeight;
       if (window.fitShortsScale) window.fitShortsScale();
     }
-    function updateCrewPlaceholder(role, mainText, summary, eventKey, batchId) {
+    function updateCrewPlaceholder(role, mainText, summary, eventKey, batchId, eventData) {
       if (!logEl) return;
       var rows = logEl.querySelectorAll('.dialogue-line[data-crew-slot="' + role + '"]');
       var row = null;
@@ -1675,9 +1687,9 @@
       if (!row && rows.length > 0) row = rows[rows.length - 1];
       if (!row) return;
       var fallbackMap = (window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN);
-      var safeText = (mainText && String(mainText).trim()) ? String(mainText).trim() : ((fallbackMap && fallbackMap[role]) || '—');
-      if (typeof isGenericOrPlaceholderText === 'function' && isGenericOrPlaceholderText(role, safeText)) safeText = (fallbackMap && fallbackMap[role]) || '—';
-      if (typeof toRoleLabelKo === 'function') safeText = toRoleLabelKo(safeText);
+      var rawText = (mainText && String(mainText).trim()) ? String(mainText).trim() : ((fallbackMap && fallbackMap[role]) || '—');
+      if (typeof isGenericOrPlaceholderText === 'function' && isGenericOrPlaceholderText(role, rawText)) rawText = (fallbackMap && fallbackMap[role]) || '—';
+      var safeText = (window.__LANG === 'en') ? ensureDisplayEnglish(rawText, eventData, role, fallbackMap) : (typeof toRoleLabelKo === 'function' ? toRoleLabelKo(rawText) : rawText);
       if (eventKey) row.setAttribute('data-event-key', eventKey);
       var textEl = row.querySelector('.dialogue-text');
       if (textEl) {
@@ -1746,8 +1758,9 @@
               if (!displayText || (typeof isGenericOrPlaceholderText === 'function' && isGenericOrPlaceholderText(role, displayText))) displayText = fallbackVal;
               var summ = (ev && ev.summary) || (currEv && currEv.summary) || sr.summary || null;
               var key = ev ? eventDedupeKey(ev) : (currEv && currEv.role ? role + ':' + (currEv.dialogue || currEv.summary || '').slice(0, 20) : null);
-              var r = role, dt = displayText, s = displayText ? summ : null, k = key, bid = batchId;
-              setTimeout(function() { updateCrewPlaceholder(r, dt, s, k, bid); }, 0);
+              var evData = currEv || ev;
+              var r = role, dt = displayText, s = displayText ? summ : null, k = key, bid = batchId, evd = evData;
+              setTimeout(function() { updateCrewPlaceholder(r, dt, s, k, bid, evd); }, 0);
               if (ev) renderedEventKeys.add(key);
               return { role: role, ok: true, game_over: !!crewData.game_over, outcome: crewData.outcome };
             } catch (e) {
@@ -1906,7 +1919,55 @@
       server_update: '상태 갱신 중...',
       game_over: '게임 종료'
     };
+    const PHASE_HINTS_EN = {
+      captain_input: 'Awaiting Captain input',
+      crew_resolving: 'Crew responding...',
+      crew_doctor: 'Doctor responding...',
+      crew_engineer: 'Engineer checking logs...',
+      crew_navigator: 'Navigator pressing...',
+      crew_pilot: 'Pilot responding...',
+      server_update: 'Updating state...',
+      game_over: 'Game Over'
+    };
     const ROLE_LABEL_KO = { captain: '함장', doctor: '닥터', engineer: '엔지니어', navigator: '네비게이터', pilot: '파일럿', system: '시스템' };
+    const ROLE_LABEL_EN = { captain: 'Captain', doctor: 'Doctor', engineer: 'Engineer', navigator: 'Navigator', pilot: 'Pilot', system: 'System' };
+    function getRoleLabel(role) {
+      if (!role) return role || '?';
+      var r = String(role).toLowerCase();
+      return (window.__LANG === 'en') ? (ROLE_LABEL_EN[r] || role) : (ROLE_LABEL_KO[r] || role);
+    }
+    function isKorean(text) { return text && typeof text === 'string' && /[가-힣]/.test(text); }
+    function buildEnglishFromEvent(e, role, fallback) {
+      if (!e || window.__LANG !== 'en') return null;
+      var action = (e.action || '').toUpperCase();
+      var target = (e.target || '').toLowerCase();
+      var r = (role || e.role || '').toLowerCase();
+      var targetLabel = ROLE_LABEL_EN[target] || target;
+      var roleLabel = ROLE_LABEL_EN[r] || r;
+      if (action === 'OBSERVE') {
+        var obs = { doctor: 'Checking reactions.', engineer: 'Checking system logs.', navigator: 'Pressing for the movement timeline.', pilot: 'Sensing something is off.' };
+        return obs[r] || roleLabel + ' is observing.';
+      }
+      if (action === 'QUESTION' && target) {
+        var ask = { doctor: ' asked ' + targetLabel + ' to explain.', engineer: ' asked ' + targetLabel + ' to clarify.', navigator: ' pressed ' + targetLabel + ' for their movements.', pilot: ' asked ' + targetLabel + ' about the atmosphere.' };
+        return roleLabel + (ask[r] || ' asked ' + targetLabel + ' a question.');
+      }
+      if (action === 'CHECK_LOG') {
+        var log = { doctor: 'Checked reactions.', engineer: 'Checked the system logs.', navigator: 'Checked movement records.', pilot: 'Checked logs.' };
+        return (log[r] || roleLabel + ' checked logs.');
+      }
+      if (action === 'REPAIR') return roleLabel + ' is repairing.';
+      if (action === 'WAIT') return roleLabel + ' is waiting.';
+      return fallback || null;
+    }
+    function ensureDisplayEnglish(text, ev, role, fallback) {
+      if (window.__LANG !== 'en') return text;
+      if (!text || !String(text).trim()) return (fallback && fallback[role]) || '—';
+      if (!isKorean(text)) return text;
+      var built = buildEnglishFromEvent(ev, role, null);
+      if (built) return built;
+      return (fallback && fallback[role]) || '—';
+    }
     function toRoleLabelKo(text) {
       if (!text || typeof text !== 'string') return text;
       if (window.__LANG !== 'ko') return text;
@@ -1923,7 +1984,8 @@
       currentPhaseActor = actor || null;
       var phaseKey = phase;
       if (actor && phase === 'crew_resolving') phaseKey = 'crew_' + actor;
-      var statusText = PHASE_HINTS[phaseKey] || PHASE_HINTS[phase] || PHASE_HINTS.captain_input;
+      var hints = (window.__LANG === 'en') ? PHASE_HINTS_EN : PHASE_HINTS;
+      var statusText = hints[phaseKey] || hints[phase] || hints.captain_input;
       var statusEl = document.getElementById('phase-status');
       if (statusEl) statusEl.textContent = statusText;
       var isCaptainTurn = phase === 'captain_input';
@@ -1931,7 +1993,7 @@
       var sendBtn = document.getElementById('input-send-btn');
       if (inputEl) {
         inputEl.disabled = !isCaptainTurn;
-        inputEl.placeholder = PHASE_HINTS.captain_input;
+        inputEl.placeholder = statusText;
       }
       if (inputRow) inputRow.classList.toggle('disabled', !isCaptainTurn);
       if (sendBtn) sendBtn.disabled = !isCaptainTurn;
@@ -2196,7 +2258,7 @@
     function getAutoKillMessage(victimRole) {
       var zoneMap = (window.__LANG === 'ko') ? AUTO_KILL_ZONE_KO : AUTO_KILL_ZONE_EN;
       var zone = zoneMap[victimRole] || victimRole;
-      var roleLabel = (ROLE_LABEL_KO && ROLE_LABEL_KO[victimRole]) || ROLE_CAPITAL[victimRole] || victimRole;
+      var roleLabel = (window.__LANG === 'en') ? (ROLE_LABEL_EN && ROLE_LABEL_EN[victimRole]) || ROLE_CAPITAL[victimRole] || victimRole : (ROLE_LABEL_KO && ROLE_LABEL_KO[victimRole]) || ROLE_CAPITAL[victimRole] || victimRole;
       if (window.__LANG === 'ko') {
         return zone + '에서 생체신호가 소실됐다. ' + roleLabel + ' — 응답 없음.\n목격자 없음. 마지막 통신 이후 로그 공백만 남아 있다.';
       }
@@ -2223,7 +2285,7 @@
       var killMsg = (window.__LANG === 'ko') ? '[긴급 경보]\n' + victimCap + ' 생체신호 소실' : '[EMERGENCY ALERT]\n' + victimCap.toUpperCase() + ' BIO SIGNAL LOST';
       if (messageEl) messageEl.textContent = killMsg;
       if (glitchEl) glitchEl.classList.add('active');
-      printLine('[긴급 경보]', "role-alert");
+      printLine((window.__LANG === 'ko') ? '[긴급 경보]' : '[EMERGENCY ALERT]', "role-alert");
       var alertLines = getAutoKillMessage(victimRole).split('\n');
       for (var i = 0; i < alertLines.length; i++) {
         if (alertLines[i].trim()) printLine(alertLines[i], "role-system");
@@ -2341,15 +2403,18 @@
       if (r === 'system') return 'role-system';
       return 'role-system';
     }
-    function printDialogueLine(role, dialogue, summary, eventKey) {
+    function printDialogueLine(role, dialogue, summary, eventKey, eventData) {
       var main = dialogue || summary || '';
       if (!main) return Promise.resolve();
       var isCapQContent = (typeof isCaptainQuestionRaw === 'function' && isCaptainQuestionRaw(main)) || (typeof isCaptainQuestionSummary === 'function' && isCaptainQuestionSummary(main));
       if ((role === 'captain' || isCapQContent) && typeof hasCaptainQuestionRenderedForTurn === 'function' && hasCaptainQuestionRenderedForTurn(currentTurn || 1)) {
         return Promise.resolve();
       }
-      var label = ROLE_LABEL_KO[role] || role || '?';
-      if (typeof toRoleLabelKo === 'function') { main = toRoleLabelKo(main); if (summary) summary = toRoleLabelKo(summary); }
+      var label = getRoleLabel(role);
+      if (window.__LANG === 'en') {
+        main = ensureDisplayEnglish(main, eventData, role, CREW_FALLBACK_EN);
+        if (summary) summary = isKorean(summary) ? ensureDisplayEnglish(summary, eventData, role, CREW_FALLBACK_EN) : summary;
+      } else if (typeof toRoleLabelKo === 'function') { main = toRoleLabelKo(main); if (summary) summary = toRoleLabelKo(summary); }
       var roleClass = getRoleClass(role);
       var div = document.createElement('div');
       div.className = 'dialogue-line line';
@@ -2385,7 +2450,10 @@
       var subEl = row.querySelector('.dialogue-summary');
       var dispMain = mainText;
       var dispSumm = summary;
-      if (typeof toRoleLabelKo === 'function') { dispMain = toRoleLabelKo(dispMain || ''); if (dispSumm) dispSumm = toRoleLabelKo(dispSumm); }
+      if (window.__LANG === 'en') {
+        dispMain = ensureDisplayEnglish(dispMain || '', null, role, CREW_FALLBACK_EN);
+        if (dispSumm) dispSumm = isKorean(dispSumm) ? ensureDisplayEnglish(dispSumm, null, role, CREW_FALLBACK_EN) : dispSumm;
+      } else if (typeof toRoleLabelKo === 'function') { dispMain = toRoleLabelKo(dispMain || ''); if (dispSumm) dispSumm = toRoleLabelKo(dispSumm); }
       if (textEl) textEl.textContent = dispMain || '';
       if (subEl) {
         if (dispSumm && dispMain) { subEl.textContent = dispSumm; subEl.style.display = ''; }
@@ -2437,6 +2505,10 @@
             if (idx >= 0) __displayMsg = wholeKo.slice(idx + 1).trim(); // PATCH
           } // PATCH
           if (typeof toRoleLabelKo === 'function') __displayMsg = toRoleLabelKo(__displayMsg); // PATCH
+        } else if (window.__LANG === 'en' && isKorean(msg)) { // PATCH: EN mode, Korean crew msg -> English fallback
+          var rl = (role || '').toLowerCase();
+          var CREW_MSG_EN = { doctor: 'Checking reactions.', engineer: 'Checking system logs.', navigator: 'Pressing for the movement timeline.', pilot: 'Sensing something is off.' };
+          __displayMsg = CREW_MSG_EN[rl] || (role + ' responded.');
         } // PATCH
         text = __displayRole + ': ' + __displayMsg; // PATCH
       } else if (!(className === 'role-user' && /^>\s/.test(text))) { // PATCH
@@ -2447,6 +2519,12 @@
             text = window.__KO_TRANSLATE_FRAGMENTS(text) || text; // PATCH
           } // PATCH
           if (typeof toRoleLabelKo === 'function') text = toRoleLabelKo(text); // PATCH
+        } else if (window.__LANG === 'en' && isKorean(text)) { // PATCH: 영어 모드에서 한국어 숨김
+          if (/\[긴급 경보\]|\[EMERGENCY ALERT\]/i.test(text)) text = text.replace(/\[긴급 경보\]/g, '[EMERGENCY ALERT]');
+          else if (/^\[ERROR\]/.test(text)) text = '[ERROR] System error.';
+          else if (className === 'role-alert') text = '[ALERT]';
+          else if (className === 'role-user') text = 'Captain input.';
+          else text = 'System update.';
         } // PATCH
       } // PATCH
       const useTypewriter = options.typewriter === true;
@@ -2676,6 +2754,10 @@
         if (match) traitorName = match[1].trim() || null;
       }
       traitorName = traitorName || 'Unknown';
+      if (window.__LANG === 'en' && isKorean(traitorName)) {
+        var rn = traitorName.toLowerCase();
+        traitorName = ROLE_LABEL_EN[rn] || traitorName;
+      }
 
       // KEY EVIDENCE: primary.keyEvidence 또는 primary.lines 상위 2줄 // PATCH
       let keyEvidenceText = '';
@@ -2689,7 +2771,10 @@
       }
       if (keyEvidenceText) {
         var lines = keyEvidenceText.split('\n');
-        lines = lines.map(function(l){ return tLine(l); }); // PATCH
+        lines = lines.map(function(l){
+          if (window.__LANG === 'en' && isKorean(l)) return 'Key evidence recorded.';
+          return tLine(l);
+        }); // PATCH
         keyEvidenceEl.textContent = 'KEY EVIDENCE:\n' + lines.join('\n'); // PATCH
         keyEvidenceEl.style.display = 'block'; // PATCH
       } else {
@@ -2722,9 +2807,17 @@
 
       if (outcomeDetailEl && extra && (extra.outcome_reason || extra.winner_side || extra.loser_side)) {
         var parts = [];
-        if (extra.outcome_reason) parts.push((window.__LANG === 'ko' ? '사유: ' : 'Reason: ') + extra.outcome_reason);
-        if (extra.winner_side) parts.push((window.__LANG === 'ko' ? '승리: ' : 'Winner: ') + extra.winner_side);
-        if (extra.loser_side) parts.push((window.__LANG === 'ko' ? '패배: ' : 'Loser: ') + extra.loser_side);
+        var or = extra.outcome_reason ? String(extra.outcome_reason) : '';
+        var ws = extra.winner_side ? String(extra.winner_side) : '';
+        var ls = extra.loser_side ? String(extra.loser_side) : '';
+        if (window.__LANG === 'en') {
+          if (isKorean(or)) or = 'impostor_killed'; else if (or === 'timeout') or = "Time's up"; else if (or === 'accuse_failed') or = 'Wrong accusation';
+          if (isKorean(ws)) ws = 'crew'; else if (ws === 'impostor') ws = 'impostor';
+          if (isKorean(ls)) ls = 'impostor'; else if (ls === 'crew') ls = 'crew';
+        }
+        if (extra.outcome_reason) parts.push((window.__LANG === 'ko' ? '사유: ' : 'Reason: ') + or);
+        if (extra.winner_side) parts.push((window.__LANG === 'ko' ? '승리: ' : 'Winner: ') + ws);
+        if (extra.loser_side) parts.push((window.__LANG === 'ko' ? '패배: ' : 'Loser: ') + ls);
         outcomeDetailEl.textContent = parts.join('  |  ');
         outcomeDetailEl.style.display = 'block';
       } else if (outcomeDetailEl) {
