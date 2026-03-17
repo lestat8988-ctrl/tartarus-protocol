@@ -48,6 +48,13 @@ app.all('/api/ep1/action', (req, res) => proxyEp1(req, res, '/api/ep1/action'));
 app.all('/api/ep1/state', (req, res) => proxyEp1(req, res, '/api/ep1/state'));
 app.all('/api/ep1/result', (req, res) => proxyEp1(req, res, '/api/ep1/result'));
 
+app.get('/healthz', (req, res) => {
+  res.status(200).json({ ok: true, service: 'itch-proxy' });
+});
+app.get('/', (req, res) => {
+  res.status(200).json({ ok: true, service: 'itch-proxy' });
+});
+
 app.listen(PORT, () => {
   console.log('itch-proxy listening on http://localhost:' + PORT);
 });
