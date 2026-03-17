@@ -1,0 +1,2940 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Tartarus Protocol v4.0 (GLOBAL)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
+  <style>
+    /* --- [디자인] itch.io 임베드 최적화 + CRT 모니터 스타일 --- */
+    :root { color-scheme: dark; --terminal-green: #39ff14; --bg-black: #111; --alert-red: #ff0000; }
+    * { box-sizing: border-box; }
+    html, body { 
+      margin: 0; padding: 0; 
+      width: 100%; min-width: 100%;
+      height: 100%; min-height: 100vh;
+      overflow: hidden;
+    }
+    body { 
+      padding: 12px; 
+      height: 100vh;
+      min-height: 100vh;
+      background: #000; color: var(--terminal-green); 
+      font-family: 'Share Tech Mono', monospace; 
+      display: flex; flex-direction: column; align-items: center; justify-content: center; 
+    }
+
+    /* CRT 화면 래퍼 - 프레임 제거, 검은 공간 위 CRT만 */
+    .crt-bezel { 
+      width: 100%; max-width: 1200px; 
+      height: 100%; max-height: calc(100vh - 24px);
+      background: transparent;
+      border: none;
+      padding: 20px;
+      position: relative;
+    }
+
+    /* CRT 화면 - 검은 배경 + 비네팅 */
+    #game-container { 
+      background: var(--bg-black);
+      border: none;
+      border-radius: 0;
+      padding: 20px; 
+      flex: 1; min-height: 0;
+      height: 100%; max-height: calc(100vh - 120px); min-height: 350px;
+      position: relative; display: flex; flex-direction: column; 
+      overflow: hidden;
+      box-shadow: none;
+    }
+    #game-container::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 15;
+      background: radial-gradient(ellipse 90% 90% at 50% 50%, transparent 55%, rgba(0,0,0,0.15) 100%);
+    }
+    /* CRT 브라운관 효과 - 플레이 화면에만 (인트로 제외) */
+    #game-container.crt-gameplay {
+      position: relative;
+      overflow: hidden;
+      border-radius: 8px;
+      box-shadow: inset 0 0 120px rgba(0,0,0,0.12), inset 0 0 0 1px rgba(255,255,255,0.03);
+    }
+    #game-container.crt-gameplay::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 16;
+      background: 
+        linear-gradient(180deg, rgba(255,255,255,0.06) 0%, transparent 18%),
+        linear-gradient(135deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.08) 18%, rgba(255,255,255,0.04) 35%, transparent 62%);
+    }
+    #game-container.crt-gameplay::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 17;
+      background: radial-gradient(ellipse 80% 80% at 50% 50%, transparent 45%, rgba(0,0,0,0.1) 72%, rgba(0,0,0,0.28) 90%, rgba(0,0,0,0.48) 100%);
+    }
+    #game-content { display: none; flex-direction: column; flex: 1; min-height: 0; }
+    #game-container.started #game-content { display: flex; }
+    #game-container.started #intro-briefing { display: none; }
+    
+    /* --- [인트로] BG 배경 이미지 + 엔딩 크레딧식 세로 스크롤 (원근 없음) --- */
+    #intro-briefing {
+      position: absolute;
+      inset: 0;
+      z-index: 50;
+      display: flex;
+      flex-direction: column;
+      padding: 0;
+      overflow: hidden;
+      color: var(--terminal-green);
+      font-family: 'Share Tech Mono', monospace;
+      background: #000 url('/assets/tartarus-ship-neptune.png') center center no-repeat;
+      background-size: clamp(320px, 70vw, 900px) auto;
+      background-position: center 45%;
+    }
+    #intro-briefing::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 5;
+      background: repeating-linear-gradient(0deg, rgba(0,0,0,0.05) 0px, transparent 1px, transparent 3px);
+    }
+    #intro-briefing::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 6;
+      background: 
+        linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.5) 30%, rgba(0,0,0,0.55) 65%, rgba(0,0,0,0.9) 100%),
+        radial-gradient(ellipse 85% 85% at 50% 50%, transparent 45%, rgba(0,0,0,0.4) 100%);
+    }
+    #intro-briefing.hidden { display: none; }
+    #intro-briefing.crt-turnoff {
+      animation: crtTurnOff 0.6s ease-out forwards;
+    }
+    #intro-scroll-wrapper {
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+      position: relative;
+      z-index: 8;
+    }
+    #intro-scroll-content {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%) translateY(0);
+      width: 100%;
+      max-width: 440px;
+      padding: 24px 20px 80px;
+      text-align: center;
+      animation: introCreditsScroll 78.5s linear 0s 1 forwards;
+    }
+    @keyframes introCreditsScroll {
+      0% { transform: translateX(-50%) translateY(0); }
+      100% { transform: translateX(-50%) translateY(-100%); }
+    }
+    #intro-scroll-title {
+      font-size: 18px;
+      letter-spacing: 6px;
+      color: var(--terminal-green);
+      text-shadow: 0 0 2px rgba(57,255,20,0.5);
+      margin-bottom: 24px;
+    }
+    #intro-scroll-subtitle {
+      font-size: 12px;
+      letter-spacing: 2px;
+      color: rgba(57,255,20,0.9);
+      text-shadow: 0 0 1px rgba(57,255,20,0.4);
+      margin-bottom: 28px;
+      line-height: 1.8;
+    }
+    .intro-scroll-line {
+      font-size: 13px;
+      line-height: 2;
+      color: rgba(57,255,20,0.85);
+      margin-bottom: 10px;
+    }
+    .intro-scroll-line.strong {
+      font-size: 14px;
+      font-weight: bold;
+      line-height: 2.2;
+      color: var(--terminal-green);
+      text-shadow: 0 0 2px rgba(57,255,20,0.5);
+      margin-top: 24px;
+      margin-bottom: 16px;
+    }
+    #intro-bottom {
+      flex-shrink: 0;
+      padding: 16px 20px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      position: relative;
+      z-index: 20;
+      background: linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.85) 25%);
+    }
+    #intro-start-btn {
+      padding: 12px 28px;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 13px;
+      letter-spacing: 2px;
+      color: #000;
+      background: var(--terminal-green);
+      border: 2px solid var(--terminal-green);
+      cursor: pointer;
+      transition: 0.2s;
+      box-shadow: 0 0 3px rgba(57,255,20,0.15);
+      text-shadow: none;
+    }
+    #intro-start-btn:hover {
+      background: rgba(57,255,20,0.9);
+      box-shadow: 0 0 5px rgba(57,255,20,0.2);
+    }
+    #intro-press-enter {
+      font-size: 11px;
+      letter-spacing: 1px;
+      color: rgba(57,255,20,0.7);
+    }
+    .intro-lang-row {
+      flex-shrink: 0;
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+    }
+    .intro-lang-btn {
+      padding: 8px 20px;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 12px;
+      color: var(--terminal-green);
+      background: transparent;
+      border: 1px solid var(--terminal-green);
+      cursor: pointer;
+      transition: 0.2s;
+      text-shadow: none;
+    }
+    .intro-lang-btn:hover { background: rgba(57, 255, 20, 0.15); }
+    .intro-lang-btn.active {
+      background: var(--terminal-green);
+      color: #000;
+      border-color: var(--terminal-green);
+    }
+    
+    /* 메인 메뉴 / 게임 화면 우측 하단 후원 안내 - 제거됨 */
+    @keyframes crtTurnOff {
+      0% { opacity: 1; transform: scale(1); filter: brightness(1); }
+      30% { filter: brightness(1.5); }
+      60% { opacity: 1; transform: scale(1.02); filter: brightness(0.3); }
+      100% { opacity: 0; transform: scale(0.98); filter: brightness(0); visibility: hidden; }
+    }
+    
+    /* 스캔라인 - 미세한 가로줄 (CRT 느낌, 가독성 유지) */
+    .scanlines { position: absolute; inset: 0; pointer-events: none; z-index: 10; background: repeating-linear-gradient(0deg, rgba(0,0,0,0.05) 0px, transparent 1px, transparent 3px); }
+    
+    /* 헤더 영역 (PC: Grid 3열 / 모바일: 세로) */
+    .game-header { 
+      position: relative; z-index: 20; 
+      margin-bottom: 10px; 
+      border-bottom: 1px solid var(--terminal-green); 
+      padding-bottom: 5px;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+    }
+    
+    .header-title { font-size: 14px; justify-self: start; text-shadow: 0 0 6px var(--terminal-green), 0 0 3px var(--terminal-green); }
+    
+    .header-clock { font-size: 14px; justify-self: end; display: none; }
+    
+    /* 붉은색 타이머 (중앙 고정) */
+    #countdown-timer { 
+      justify-self: center;
+      color: #ff0000; 
+      font-size: 18px; 
+      font-weight: bold; 
+      text-shadow: 0 0 2px rgba(255,0,0,0.45); 
+      animation: pulse 1s infinite;
+      white-space: nowrap;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+    
+    /* 살해 메시지 글리치 효과 - opacity 낮춰 crew 렌더링이 아래서 보이게 */
+    .kill-glitch {
+      position: fixed;
+      inset: 0;
+      background: rgba(255, 0, 0, 0.22);
+      z-index: 1500;
+      display: none;
+      justify-content: center;
+      align-items: center;
+      animation: glitch 0.3s infinite;
+    }
+    .kill-glitch.active {
+      display: flex;
+    }
+    .crew-placeholder { opacity: 0.85; }
+    @keyframes glitch {
+      0%, 100% { transform: translate(0); }
+      20% { transform: translate(-2px, 2px); }
+      40% { transform: translate(-2px, -2px); }
+      60% { transform: translate(2px, 2px); }
+      80% { transform: translate(2px, -2px); }
+    }
+    
+    /* 타자기 커서 */
+    .typing-cursor {
+      display: inline-block;
+      width: 2px;
+      height: 1em;
+      background: currentColor;
+      margin-left: 2px;
+      vertical-align: text-bottom;
+      animation: cursorBlink 0.7s infinite;
+    }
+    @keyframes cursorBlink {
+      0%, 50% { opacity: 1; }
+      51%, 100% { opacity: 0; }
+    }
+    
+    /* 사망/경고 시 화면 흔들림 */
+    body.body-shake {
+      animation: screenShake 0.5s ease-out;
+    }
+    @keyframes screenShake {
+      0%, 100% { transform: translate(0, 0); }
+      10% { transform: translate(-8px, -4px); }
+      20% { transform: translate(8px, 4px); }
+      30% { transform: translate(-6px, 6px); }
+      40% { transform: translate(6px, -6px); }
+      50% { transform: translate(-4px, -2px); }
+      60% { transform: translate(4px, 2px); }
+      70% { transform: translate(-2px, 4px); }
+      80% { transform: translate(2px, -4px); }
+      90% { transform: translate(-2px, -2px); }
+    }
+    
+    /* 붉은색 노이즈 (Red Glitch) */
+    .red-glitch-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(255, 0, 0, 0.25);
+      z-index: 9999;
+      pointer-events: none;
+      opacity: 0;
+      animation: redGlitchFlash 0.5s ease-out;
+    }
+    @keyframes redGlitchFlash {
+      0% { opacity: 0; }
+      15% { opacity: 0.8; }
+      30% { opacity: 0.2; }
+      45% { opacity: 0.6; }
+      60% { opacity: 0.1; }
+      75% { opacity: 0.4; }
+      100% { opacity: 0; }
+    }
+    #red-glitch-overlay.active {
+      animation: redGlitchFlash 0.5s ease-out forwards;
+    }
+    .kill-message {
+      color: #ff0000;
+      font-size: 24px;
+      font-weight: bold;
+      text-shadow: 0 0 3px rgba(255,0,0,0.5);
+      text-align: center;
+      padding: 20px;
+      background: rgba(0, 0, 0, 0.9);
+      border: 3px solid #ff0000;
+    }
+    
+    /* 목격자 증언 강조 */
+    .witness-testimony {
+      color: #ffff00;
+      font-weight: bold;
+      text-shadow: 0 0 7px #ffff00, 0 0 14px #ffff00;
+      animation: witnessPulse 1s infinite;
+    }
+    @keyframes witnessPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.8; }
+    }
+    .witness-alert {
+      color: #ffff00;
+      font-size: 18px;
+      font-weight: bold;
+      text-shadow: 0 0 7px #ffff00, 0 0 14px #ffff00;
+    }
+    
+    /* 로그 영역 - 본문은 글로우 최소화 */
+    #log { flex: 1; overflow-y: auto; padding: 0 4px 24px 0; font-size: 15px; line-height: 1.55; z-index: 20; text-shadow: 0 0 1px rgba(57,255,20,0.28); }
+    #log::-webkit-scrollbar { width: 8px; }
+    #log::-webkit-scrollbar-thumb { background: var(--terminal-green); }
+
+    .line { margin-bottom: 5px; }
+    .dialogue-line { margin-bottom: 14px; }
+    .dialogue-speaker { font-size: 13px; font-weight: bold; margin-bottom: 4px; letter-spacing: 1.5px; opacity: 1; text-shadow: 0 0 3px currentColor; }
+    .dialogue-text { font-size: 17px; line-height: 1.6; }
+    .dialogue-summary { font-size: 11px; opacity: 0.6; margin-top: 4px; color: rgba(57, 255, 20, 0.75); }
+    #phase-status { font-size: 13px; color: var(--terminal-green); opacity: 0.95; margin-bottom: 6px; min-height: 1.8em; font-weight: bold; text-shadow: 0 0 1px rgba(57,255,20,0.4); }
+
+    /* 캐릭터별 색상 (네온 글로우) - 역할명·경고문 강화 */
+    .role-alert { color: #ff0000; font-weight: bold; text-shadow: 0 0 4px #ff0000, 0 0 2px #ff0000; }
+    /* [하데스 경보] 라벨 전용 - glow 50% 축소 (가독성) */
+    .line.hades-alert-label { text-shadow: 0 0 1px rgba(255,0,0,0.45); }
+    .role-navigator { color: #ffd700; text-shadow: 0 0 4px #ffd700, 0 0 1px #ffd700; }
+    .role-engineer { color: #ff8c00; text-shadow: 0 0 4px #ff8c00, 0 0 1px #ff8c00; }
+    .role-doctor { color: #00bfff; text-shadow: 0 0 4px #00bfff, 0 0 1px #00bfff; }
+    .role-pilot { color: #da70d6; text-shadow: 0 0 4px #da70d6, 0 0 1px #da70d6; }
+    /* 크루 이름표 라벨 전용 - glow 50% 축소 (가독성) */
+    .dialogue-speaker.role-navigator,
+    .dialogue-speaker.role-engineer,
+    .dialogue-speaker.role-doctor,
+    .dialogue-speaker.role-pilot { text-shadow: 0 0 1px currentColor; }
+    .role-system { color: #39ff14; text-shadow: 0 0 3px #39ff14, 0 0 1px #39ff14; }
+    .role-user { color: #ffffff; font-weight: bold; text-shadow: 0 0 4px #ffffff, 0 0 1px #ffffff; }
+    /* 함장 대사 전용 - glow 50% 축소 (가독성) */
+    .line.role-user,
+    .dialogue-speaker.role-user,
+    .dialogue-text.role-user { text-shadow: 0 0 1px rgba(255,255,255,0.4); }
+
+    /* ★ 하단 버튼 3개 (스타일 복구) ★ */
+    .action-bar { display: flex; gap: 10px; margin-top: 10px; z-index: 20; }
+    .action-btn {
+      flex: 1; background: rgba(0, 20, 0, 0.5); border: 1px solid var(--terminal-green);
+      color: var(--terminal-green); padding: 12px; font-family: inherit; cursor: pointer;
+      text-transform: uppercase; transition: 0.2s; font-weight: bold;
+      text-shadow: 0 0 1px rgba(57,255,20,0.4);
+    }
+    .action-btn:hover { background: var(--terminal-green); color: #000; text-shadow: none; }
+
+    /* 입력창 */
+    .input-hint { font-size: 11px; opacity: 0.9; margin-top: 8px; margin-bottom: 4px; color: var(--terminal-green); line-height: 1.45; }
+    .input-row { display: flex; align-items: center; border-top: 1px solid var(--terminal-green); padding-top: 12px; margin-top: 12px; z-index: 20; }
+    #input { flex: 1; background: transparent; border: none; color: var(--terminal-green); font-size: 16px; font-family: inherit; outline: none; margin-left: 10px; }
+    #input:disabled, .input-row.disabled #input { opacity: 0.4; cursor: not-allowed; color: #666; }
+    .input-send-btn { background: transparent; border: 1px solid var(--terminal-green); color: var(--terminal-green); padding: 6px 12px; font-family: inherit; cursor: pointer; margin-left: 8px; font-size: 12px; text-shadow: 0 0 1px rgba(57,255,20,0.35); }
+    .input-send-btn:hover { background: var(--terminal-green); color: #000; text-shadow: none; }
+    .input-send-btn:disabled, .input-row.disabled .input-send-btn { opacity: 0.4; cursor: not-allowed; border-color: #555; color: #555; }
+    .action-btn:disabled, .accuse-btn-main:disabled { opacity: 0.4; cursor: not-allowed; border-color: #555; color: #555; }
+
+    /* 긴급 처형 버튼 */
+    .accuse-btn-main {
+      width: 100%; margin-top: 10px; border: 2px solid var(--alert-red); color: var(--alert-red);
+      background: rgba(50,0,0,0.3); padding: 10px; cursor: pointer; font-family: inherit;
+      font-size: 16px; font-weight: bold; z-index: 20;
+      text-shadow: 0 0 1px rgba(255,0,0,0.4);
+    }
+    .accuse-btn-main:hover { background: var(--alert-red); color: #000; text-shadow: none; }
+
+    /* 팝업창 (처형 선택 & 결과) */
+    .modal-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.95); z-index: 100; display: none; justify-content: center; align-items: center; flex-direction: column; }
+    .modal-overlay.active { display: flex; }
+    .modal-box { border: 2px solid; padding: 30px; background: #050505; width: 80%; max-width: 450px; text-align: center; box-shadow: 0 0 30px rgba(0,0,0,0.5); }
+    
+    /* 결과창 모달: viewport 기준 fixed + 레이아웃 제한 (itch.io iframe 대응) */
+    #result-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 2000;
+      padding: 12px;
+      box-sizing: border-box;
+      overflow: auto;
+    }
+    
+    .accuse-box { border-color: var(--alert-red); color: var(--alert-red); }
+    .accuse-modal-title { font-size: 20px; font-weight: bold; margin-bottom: 12px; text-shadow: 0 0 6px var(--alert-red), 0 0 3px var(--alert-red); }
+    .accuse-modal-instruction { font-size: 13px; opacity: 0.9; margin-bottom: 16px; line-height: 1.4; }
+    .target-btn { display: block; width: 100%; padding: 12px; margin-bottom: 10px; background: transparent; border: 1px solid var(--alert-red); color: var(--alert-red); cursor: pointer; font-family: inherit; text-shadow: 0 0 3px var(--alert-red); }
+    .target-btn:hover { background: var(--alert-red); color: #000; text-shadow: 0 0 4px var(--alert-red); }
+    /* 처형/위협 모달 - glow 50% 축소 (가독성) */
+    #accuse-modal .accuse-modal-title,
+    #threat-modal .accuse-modal-title { text-shadow: 0 0 1px rgba(255,0,0,0.45); }
+    #accuse-modal .target-btn,
+    #threat-modal .target-btn { text-shadow: 0 0 1px rgba(255,0,0,0.35); }
+    #accuse-modal .target-btn:hover,
+    #threat-modal .target-btn:hover { text-shadow: none; }
+
+    /* 결과창 모달 스타일 (레이아웃: 화면 밖 이탈 방지) */
+    #result-modal .modal-box {
+      padding: 40px;
+      font-size: 18px;
+      width: min(92%, 720px);
+      max-height: 92%;
+      overflow: auto;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    #result-modal .modal-box * { box-sizing: border-box; }
+    .result-title { font-size: 36px; font-weight: bold; margin-bottom: 16px; text-shadow: 0 0 6px currentColor, 0 0 3px currentColor; }
+    .result-desc { font-size: 20px; line-height: 1.6; margin-bottom: 20px; text-align: center; }
+    .result-imposter { font-size: 28px; font-weight: bold; margin: 24px 0 30px; text-shadow: 0 0 8px currentColor, 0 0 4px currentColor; }
+    .result-outcome-detail { font-size: 14px; line-height: 1.5; margin: 12px 0 16px; opacity: 0.9; }
+    .result-key-evidence { font-size: 14px; line-height: 1.5; margin: 12px 0 20px; padding: 12px; background: rgba(0,0,0,0.3); border: 1px solid currentColor; white-space: pre-wrap; text-align: left; max-width: 100%; } /* PATCH */
+    .restart-btn { 
+      margin-top: auto; padding: 14px 36px; font-size: 18px;
+      background: transparent; border: 2px solid currentColor; color: currentColor; 
+      font-family: inherit; cursor: pointer; font-weight: bold;
+      text-shadow: 0 0 4px currentColor;
+    }
+    .restart-btn:hover { background: currentColor; color: #000; text-shadow: 0 0 6px currentColor; }
+    /* 결과창 glow 50% 축소 (가독성) */
+    #result-modal .result-title { text-shadow: 0 0 2px currentColor; }
+    #result-modal .result-desc { text-shadow: 0 0 1px currentColor; }
+    #result-modal .result-imposter { text-shadow: 0 0 2px currentColor; }
+    #result-modal .result-outcome-detail,
+    #result-modal .result-key-evidence { text-shadow: 0 0 1px currentColor; }
+    #result-modal .restart-btn { text-shadow: 0 0 1px currentColor; }
+    #result-modal .restart-btn:hover { text-shadow: none; }
+    
+    /* 결과창 승리/패배 색상 구분 */
+    #result-modal.modal-victory .modal-box {
+      border: 2px solid #39ff14;
+      color: #39ff14;
+      box-shadow: 0 0 14px rgba(57, 255, 20, 0.2);
+      text-shadow: 0 0 1px rgba(57,255,20,0.4);
+    }
+    #result-modal.modal-victory .result-title,
+    #result-modal.modal-victory .result-desc,
+    #result-modal.modal-victory .result-imposter,
+    #result-modal.modal-victory .result-outcome-detail,
+    #result-modal.modal-victory .result-key-evidence { /* PATCH */
+      color: #39ff14;
+    }
+    #result-modal.modal-victory .restart-btn {
+      border-color: #39ff14;
+      color: #39ff14;
+    }
+    #result-modal.modal-victory .restart-btn:hover {
+      background: #39ff14;
+      color: #000;
+    }
+    
+    #result-modal.modal-defeat .modal-box {
+      border: 2px solid #ff0000;
+      color: #ff0000;
+      box-shadow: 0 0 14px rgba(255, 0, 0, 0.35);
+      text-shadow: 0 0 1px rgba(255,0,0,0.4);
+    }
+    #result-modal.modal-defeat .result-title,
+    #result-modal.modal-defeat .result-desc,
+    #result-modal.modal-defeat .result-imposter,
+    #result-modal.modal-defeat .result-outcome-detail,
+    #result-modal.modal-defeat .result-key-evidence { /* PATCH */
+      color: #ff0000;
+    }
+    #result-modal.modal-defeat .restart-btn {
+      border-color: #ff0000;
+      color: #ff0000;
+    }
+    #result-modal.modal-defeat .restart-btn:hover {
+      background: #ff0000;
+      color: #000;
+    }
+    
+    /* 후원 안내 문구 (Game Over / Ending 공통) */
+    .support-message {
+      margin-top: 28px;
+      padding-top: 16px;
+      border-top: 1px solid rgba(255, 0, 0, 0.4);
+      font-size: 13px;
+      line-height: 1.5;
+      color: #ff3333;
+      text-shadow: 0 0 2px rgba(255, 0, 0, 0.35);
+      text-align: center;
+      max-width: 380px;
+    }
+    #result-modal.modal-victory .support-message {
+      color: #ff4444;
+      border-top-color: rgba(255, 68, 68, 0.5);
+      text-shadow: 0 0 2px rgba(255, 100, 100, 0.3);
+    }
+
+    /* 인트로 BG + 스크롤 모바일 */
+    @media (max-width: 768px) {
+      #intro-briefing {
+        background-size: contain;
+        background-position: center 35%;
+      }
+      #intro-scroll-content { padding: 16px 16px 80px; }
+      #intro-scroll-title { font-size: 14px; letter-spacing: 3px; margin-bottom: 16px; text-shadow: 0 0 1px rgba(57,255,20,0.35); }
+      #intro-scroll-subtitle { font-size: 11px; margin-bottom: 20px; text-shadow: 0 0 1px rgba(57,255,20,0.3); }
+      .intro-scroll-line { font-size: 12px; margin-bottom: 8px; }
+      .intro-scroll-line.strong { font-size: 13px; text-shadow: 0 0 1px rgba(57,255,20,0.35); }
+      #intro-bottom { padding: 12px 16px 16px; }
+      #intro-start-btn { font-size: 11px; padding: 10px 20px; box-shadow: 0 0 2px rgba(57,255,20,0.12); }
+      #intro-start-btn:hover { box-shadow: 0 0 4px rgba(57,255,20,0.15); }
+      #intro-press-enter { font-size: 10px; }
+      .intro-lang-btn { font-size: 11px; padding: 6px 14px; }
+    }
+
+    /* 모바일 반응형 디자인 */
+    @media (max-width: 768px) {
+      body {
+        padding: 5px;
+        padding-top: max(env(safe-area-inset-top), 8px);
+        align-items: flex-start;
+        justify-content: flex-start;
+      }
+      
+      /* CRT 래퍼 - 모바일 패딩, 하단 푸터 제거로 높이 확대 */
+      .crt-bezel {
+        width: 100%;
+        padding: 8px;
+        max-height: calc(100vh - 16px);
+      }
+      
+      /* 4. 게임 컨테이너 높이 - viewport 기준, 상단 잘림 방지 */
+      #game-container {
+        height: calc(100dvh - 40px);
+        padding: 12px;
+        min-height: 400px;
+      }
+      
+      /* 헤더 모바일: 세로 정렬 (타이틀 위, 타이머 아래) */
+      .game-header {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        grid-template-columns: none;
+        margin-bottom: 6px;
+        padding-bottom: 4px;
+      }
+      
+      .header-title {
+        font-size: 12px;
+        margin-bottom: 6px;
+      }
+      
+      .header-clock {
+        display: none; /* 모바일: 중복 제거, countdown-timer만 표시 */
+      }
+      
+      #countdown-timer {
+        font-size: 0.9rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      
+      #log {
+        font-size: 13px;
+        line-height: 1.5;
+        padding-bottom: 12px;
+        flex: 1 1 auto;
+        min-height: 120px;
+      }
+      
+      .line {
+        font-size: 13px;
+        margin-bottom: 4px;
+      }
+      
+      #phase-status {
+        margin-bottom: 4px;
+        min-height: 1.5em;
+      }
+      
+      /* 2. 액션 바 - 높이/간격 축소로 로그 영역 확보 */
+      .action-bar {
+        flex-direction: column;
+        gap: 4px;
+        margin-top: 5px;
+        flex-shrink: 0;
+      }
+      
+      .action-btn {
+        font-size: 12px;
+        padding: 6px 8px;
+        min-height: 0;
+        width: 100%;
+        text-shadow: 0 0 1px rgba(57,255,20,0.3);
+      }
+      
+      .input-hint { font-size: 10px; white-space: normal; word-break: keep-all; max-height: 2.6em; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.4; }
+      .input-row {
+        padding-top: 6px;
+        margin-top: 6px;
+      }
+      
+      #input {
+        font-size: 13px;
+        margin-left: 6px;
+      }
+      
+      .accuse-btn-main {
+        font-size: 12px;
+        padding: 7px 8px;
+        margin-top: 5px;
+        text-shadow: 0 0 1px rgba(255,0,0,0.3);
+      }
+      
+      /* 모달도 모바일에 맞게 조정 (결과창은 #result-modal .modal-box에서 이미 제한됨) */
+      .modal-box {
+        padding: 20px;
+        max-width: min(95%, 400px);
+      }
+      #accuse-modal .modal-box {
+        overflow-y: auto;
+        max-height: 90vh;
+      }
+      #result-modal .modal-box {
+        width: min(92%, 720px);
+        max-height: 92%;
+      }
+      
+      .accuse-modal-title { font-size: 18px; margin-bottom: 8px; }
+      .accuse-modal-instruction { font-size: 12px; margin-bottom: 14px; white-space: normal; word-wrap: break-word; }
+      .target-btn {
+        font-size: 13px;
+        padding: 10px 8px;
+        margin-bottom: 8px;
+        min-height: 44px;
+      }
+      
+      .result-title {
+        font-size: 24px;
+        margin-bottom: 15px;
+      }
+      
+      .restart-btn {
+        font-size: 13px;
+        padding: 10px 20px;
+      }
+      
+      .support-message {
+        font-size: 11px;
+        margin-top: 20px;
+        padding-top: 12px;
+      }
+
+      /* 모바일 + 영어 모드 전용 레이아웃 보정 (한국어 모드는 기존 유지) */
+      body.lang-en #game-container {
+        padding-top: 18px;
+        margin-top: 4px;
+      }
+      body.lang-en .input-hint {
+        font-size: 9.5px;
+        line-height: 1.55;
+        min-height: 2.9em;
+        max-height: none;
+        overflow: visible;
+        display: block;
+        -webkit-line-clamp: unset;
+        -webkit-box-orient: unset;
+        word-break: break-word;
+        overflow-wrap: break-word;
+      }
+      body.lang-en #phase-status {
+        min-height: 2.2em;
+        line-height: 1.4;
+        font-size: 12px;
+      }
+    }
+
+    /* PATCH: shorts-mode layout - grid 3구역, 모니터 위/아래 꽉 차게 */
+    body:not(.shorts-mode) #shorts-stage { display: contents; }
+    body:not(.shorts-mode) #shorts-game-wrapper {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    html:has(body.shorts-mode) { background: #000; }
+    body.shorts-mode {
+      display: grid;
+      grid-template-rows: 88px 1fr 180px; /* PATCH: header 88px, stage 1fr, evidence 180px */
+      padding: 0;
+      margin: 0 auto;
+      max-width: min(100vw, calc(100vh * 9 / 16));
+      min-height: 100vh;
+    }
+    body.shorts-mode #shorts-header {
+      display: flex !important;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 12px;
+      margin: 0;
+      background: #0a0a0a;
+      border-bottom: 1px solid var(--terminal-green);
+      font-size: 12px;
+    }
+    body.shorts-mode #shorts-countdown {
+      color: #ff0000;
+      font-weight: bold;
+    }
+    body.shorts-mode #shorts-stage {
+      min-height: 0;
+      display: flex;
+      align-items: stretch;
+      justify-content: center;
+      overflow: hidden;
+    } /* PATCH: 1fr 스테이지, 모니터 wrapper 꽉 채움 */
+    #shorts-game-wrapper {
+      width: 100%; max-width: 1200px;
+      height: 100%; max-height: calc(100vh - 24px);
+    }
+    body.shorts-mode #shorts-game-wrapper {
+      display: flex;
+      align-items: center; /* PATCH */
+      justify-content: center;
+      overflow: hidden;
+      width: 100%;
+      height: 100%;
+    } /* PATCH: top center 기준으로 scale 시 위/아래 꽉 참 */
+    body.shorts-mode .crt-bezel {
+      flex: 0 0 auto;
+      width: 1200px;
+      height: 900px;
+      transform-origin: center center; /* PATCH */
+    }
+    body.shorts-mode #shorts-key-evidence {
+      display: block !important;
+      width: 100%;
+      padding: 8px 12px;
+      margin: 0;
+      background: #0a0a0a;
+      border-top: 1px solid var(--terminal-green);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    body.shorts-mode #shorts-evidence-line1,
+    body.shorts-mode #shorts-evidence-line2 {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .hide-lang { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <!-- PATCH: shorts-mode header (hidden by default) -->
+  <div id="shorts-header" style="display:none;">
+    <span id="shorts-title" class="header-title" data-i18n="game.title">TARTARUS PROTOCOL v4.0 (GLOBAL)</span>
+    <span id="shorts-countdown">TIME UNTIL TOTAL SHIP COLLAPSE : 10:00</span>
+  </div>
+
+  <div id="red-glitch-overlay" class="red-glitch-overlay"></div>
+
+  <!-- PATCH: shorts-stage(1fr) > shorts-game-wrapper(모니터) -->
+  <div id="shorts-stage">
+  <div id="shorts-game-wrapper">
+  <div class="crt-bezel">
+    <div id="game-container">
+      <div class="scanlines"></div>
+
+      <div id="intro-briefing">
+        <div id="intro-scroll-wrapper">
+          <div id="intro-scroll-content">
+            <div id="intro-scroll-title">TARTARUS PROTOCOL</div>
+            <div id="intro-scroll-subtitle">USS C TARTARUS<br>2198 / NEPTUNE OUTER ORBIT</div>
+            <div id="intro-scroll-lines"></div>
+          </div>
+        </div>
+        <div id="intro-bottom">
+          <button type="button" id="intro-start-btn"><span id="intro-start-en">[ SYSTEM INITIALIZE ]</span><span id="intro-start-ko" style="display:none;">[ 시스템 기동 ]</span></button>
+          <div id="intro-press-enter" data-i18n="intro.pressEnter">[ PRESS ENTER ]</div>
+          <div class="intro-lang-row">
+            <button type="button" class="intro-lang-btn" id="intro-lang-ko" data-lang="ko">한국어</button>
+            <button type="button" class="intro-lang-btn" id="intro-lang-en" data-lang="en">ENGLISH</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="game-content">
+      <div class="game-header">
+        <div class="header-title" data-i18n="game.title">TARTARUS PROTOCOL v4.0 (GLOBAL)</div>
+        <div id="countdown-timer">TIME UNTIL TOTAL SHIP COLLAPSE : 7:00</div>
+        <div class="header-clock" id="timer" data-i18n="game.clock">[TIME] 10:00</div>
+      </div>
+      
+      <div id="kill-glitch" class="kill-glitch">
+        <div class="kill-message" id="kill-message-text"></div>
+      </div>
+
+      <div id="log"></div>
+
+      <div class="action-bar">
+        <!-- quick button: getInterrogateMessage()로 생존 승무원 기반 질문 생성 -->
+        <button type="button" class="action-btn" data-msg="interrogate" id="interrogate-btn">승무원 심문</button>
+        <button type="button" class="action-btn" data-msg="cctv" data-ep1="CHECK_LOG CCTV 로그를 확인한다." data-ep1-en="CHECK_LOG Checking CCTV logs." onclick="sendMessage((window.__LANG==='en'?this.getAttribute('data-ep1-en'):this.getAttribute('data-ep1'))||this.getAttribute('data-ep1'))">CCTV 로그 확인</button>
+        <button type="button" class="action-btn" data-msg="engine" data-ep1="CHECK_LOG 엔진실 로그를 확인한다." data-ep1-en="CHECK_LOG Checking engine room logs." onclick="sendMessage((window.__LANG==='en'?this.getAttribute('data-ep1-en'):this.getAttribute('data-ep1'))||this.getAttribute('data-ep1'))">엔진실 확인</button>
+        <button type="button" class="action-btn" data-msg="take_pistol" onclick="sendMessage('TAKE_PISTOL')">권총 획득</button>
+        <button type="button" class="action-btn" data-msg="threat" onclick="openThreatModal()">위협</button>
+        <button type="button" class="action-btn" data-msg="find_clue" onclick="sendMessage('FIND_CLUE')">단서 수집</button>
+      </div>
+
+      <div id="phase-status" style="border-bottom:1px solid rgba(57,255,20,0.3);padding-bottom:6px;"></div>
+      <div class="input-hint" id="input-hint"></div>
+      <div class="input-row" id="input-row">
+        <span>&gt;</span>
+        <input id="input" type="text" autocomplete="off" placeholder="" data-i18n-placeholder="game.placeholder" />
+        <!-- 일반 SEND 입력 경로: 사용자가 친 텍스트를 dialogue로 그대로 전송 -->
+        <button type="button" class="input-send-btn" id="input-send-btn" onclick="sendMessage()">SEND</button>
+      </div>
+      
+      <button class="accuse-btn-main" onclick="openAccuseModal()" data-i18n="game.accuseBtn">[ INITIATE PURGE PROTOCOL (ACCUSE) ]</button>
+
+      <div id="accuse-modal" class="modal-overlay">
+        <div class="modal-box accuse-box">
+          <div class="accuse-modal-title" data-i18n="game.accuseModal.title">SELECT TARGET FOR ELIMINATION</div>
+          <div class="accuse-modal-instruction" id="accuse-modal-instruction" data-i18n="game.accuseModal.instruction"></div>
+          <button class="target-btn" data-role="Navigator" onclick="triggerAccuse('Navigator')">Navigator</button>
+          <button class="target-btn" data-role="Engineer" onclick="triggerAccuse('Engineer')">Engineer</button>
+          <button class="target-btn" data-role="Doctor" onclick="triggerAccuse('Doctor')">Doctor</button>
+          <button class="target-btn" data-role="Pilot" onclick="triggerAccuse('Pilot')">Pilot</button>
+          <button class="target-btn" style="border-color:#555; color:#555;" onclick="closeAccuseModal()" data-i18n="game.accuseModal.cancel">CANCEL</button>
+        </div>
+      </div>
+
+      <div id="threat-modal" class="modal-overlay">
+        <div class="modal-box accuse-box">
+          <div class="accuse-modal-title" id="threat-modal-title">위협 대상 선택</div>
+          <div class="accuse-modal-instruction" id="threat-modal-instruction">대상을 압박해 반응을 본다</div>
+          <button class="target-btn threat-target-btn" data-role="Doctor" onclick="triggerThreat('doctor')">Doctor</button>
+          <button class="target-btn threat-target-btn" data-role="Engineer" onclick="triggerThreat('engineer')">Engineer</button>
+          <button class="target-btn threat-target-btn" data-role="Navigator" onclick="triggerThreat('navigator')">Navigator</button>
+          <button class="target-btn threat-target-btn" data-role="Pilot" onclick="triggerThreat('pilot')">Pilot</button>
+          <button class="target-btn threat-modal-cancel" style="border-color:#555; color:#555;" onclick="closeThreatModal()">취소</button>
+        </div>
+      </div>
+
+      <div id="result-modal" class="modal-overlay">
+        <div class="modal-box" id="result-box">
+          <div class="result-title" id="result-title"></div>
+          <div id="result-desc" class="result-desc"></div>
+          <div id="result-imposter" class="result-imposter"></div>
+          <div id="result-outcome-detail" class="result-outcome-detail" style="display:none;"></div>
+          <div id="result-key-evidence" class="result-key-evidence" style="display:none;"></div><!-- PATCH -->
+          <button class="restart-btn" onclick="location.reload()" data-i18n="game.restart">REBOOT SYSTEM</button>
+          <div class="support-message" data-i18n="result.support">Did you enjoy the horror? Please support the dev via the [Support This Game] button below!</div>
+        </div>
+      </div>
+      </div><!-- /#game-content -->
+    </div>
+  </div>
+  </div><!-- /shorts-game-wrapper -->
+  </div><!-- /shorts-stage -->
+
+  <!-- PATCH: shorts-mode KEY EVIDENCE panel (hidden by default) -->
+  <div id="shorts-key-evidence" style="display:none;">
+    <div style="font-weight:bold;margin-bottom:4px;">KEY EVIDENCE</div>
+    <div id="shorts-evidence-line1"></div>
+    <div id="shorts-evidence-line2"></div>
+  </div>
+
+  <script>
+    // PATCH: shorts=1 URL -> body.shorts-mode
+    (function(){
+      if(/[?&]shorts=1/.test(location.search)){
+        document.body.classList.add('shorts-mode');
+        function fitShortsScale(){
+          var header = document.getElementById('shorts-header'); // PATCH
+          var footer = document.getElementById('shorts-key-evidence'); // PATCH
+          var b = document.querySelector('.crt-bezel');
+          if(!b || !document.body.classList.contains('shorts-mode')) return;
+          var totalH = window.innerHeight;
+          var headerH = header ? header.offsetHeight : 0;
+          var footerH = footer ? footer.offsetHeight : 0;
+          var stageH = totalH - headerH - footerH;
+          var stageW = window.innerWidth;
+          var monW = 1200, monH = 900;
+          var s = Math.min(stageW / monW, stageH / monH);
+          b.style.transform = 'scale(' + s + ')';
+          b.style.transformOrigin = 'center center'; // PATCH
+        }
+        window.fitShortsScale=fitShortsScale; // PATCH: expose for post-intro, printLine
+        window.addEventListener('resize',fitShortsScale);
+        if(document.readyState==='complete')fitShortsScale();else window.addEventListener('load',fitShortsScale);
+      }
+    })();
+    (function() {
+      function showFatal(msg) {
+        var el = document.createElement('div');
+        el.style.cssText = 'position:fixed;inset:0;background:#000;color:#ff0000;font-family:monospace;font-size:14px;padding:20px;overflow:auto;z-index:99999;white-space:pre-wrap;';
+        el.textContent = String(msg);
+        (document.body || document.documentElement).appendChild(el);
+        console.error("[FATAL]", msg);
+      }
+      window.showFatal = showFatal;
+      window.onerror = function(msg, src, line, col, err) {
+        showFatal("JS Error: " + msg + "\n" + (src || "") + ":" + line + ":" + (col || "") + "\n" + (err && err.stack ? err.stack : ""));
+        return true;
+      };
+      window.onunhandledrejection = function(e) {
+        showFatal("Unhandled Promise Rejection: " + (e.reason && (e.reason.message || String(e.reason))) + "\n" + (e.reason && e.reason.stack ? e.reason.stack : ""));
+      };
+    })();
+  </script>
+  <script>
+    // PATCH: lang 판정은 URL 파라미터만, 기본값 영어 (lang=ko일 때만 한국어)
+    var isKo = new URLSearchParams(location.search).get('lang') === 'ko';
+    window.isKo = isKo;
+    window.__LANG = isKo ? 'ko' : 'en';
+    (function(){ var lang = window.__LANG || 'en'; document.documentElement.setAttribute('lang', lang); if (document.body) document.body.classList.add('lang-' + lang); })();
+    var INTRO_TEXT = {
+      en: {
+        lines: [
+          'The Tartarus',
+          'was a frontline experimental vessel',
+          'conducting next-generation gravity warp trials',
+          'beyond Neptune.',
+          { text: 'During warp transfer,', margin: true },
+          'a phase shock occurred.',
+          { text: 'AXIS emergency protocol activated.', margin: true },
+          'Core crew were forcibly awakened.',
+          { text: 'Communications were lost.', margin: true },
+          'Several sectors went dark.',
+          'Several sectors were sealed.',
+          { text: 'Among the awakened crew,', margin: true },
+          'one biological identity no longer matches.',
+          { text: 'AXIS was damaged.', margin: true },
+          'But within AXIS,',
+          'the sealed unauthorized layer HADES awakened.',
+          { text: 'It is not malice.', margin: true },
+          'It is only a decision made by calculation.',
+          { text: 'The Captain has one bullet.', margin: true },
+          'Find the overlap.',
+          { text: 'The ship will survive.<br>Who remains aboard is for you to decide.', margin: true, strong: true }
+        ]
+      },
+      ko: {
+        lines: [
+          '타르타로스 호는',
+          '해왕성 외곽에서',
+          '차세대 중력 워프 실험을 수행하던',
+          '실전형 우주 실험선이다.',
+          { text: '워프 전이 도중 위상 충격이 발생했다.', margin: true },
+          { text: 'AXIS 비상 프로토콜이 발동했고,', margin: true },
+          '핵심 승무원만 강제 기상했다.',
+          { text: '통신은 두절되었다.', margin: true },
+          '일부 구역은 정전되었다.',
+          '일부 구역은 격리되었다.',
+          { text: '기상한 인원 중', margin: true },
+          '한 명의 생체 신원이 일치하지 않는다.',
+          { text: 'AXIS는 손상되었다.', margin: true },
+          '하지만 AXIS 내부의 봉인된 비인가 계층,',
+          'HADES는 깨어났다.',
+          { text: '그것은 악의가 아니다.', margin: true },
+          '계산이 그렇게 결정했을 뿐이다.',
+          { text: '함장은 권총 1발만 가진다.', margin: true },
+          '중첩체를 찾아내라.',
+          { text: '함선은 살아남을 것입니다.<br>누가 그 자리에 있을지는, 여러분이 결정하세요.', margin: true, strong: true }
+        ]
+      }
+    };
+    function applyIntroScrollLang() {
+      var lang = window.__LANG === 'ko' ? 'ko' : 'en';
+      var data = INTRO_TEXT[lang];
+      var container = document.getElementById('intro-scroll-lines');
+      if (!container || !data) return;
+      container.innerHTML = '';
+      for (var i = 0; i < data.lines.length; i++) {
+        var item = data.lines[i];
+        var text = typeof item === 'string' ? item : item.text;
+        var margin = item && item.margin;
+        var strong = item && item.strong;
+        var div = document.createElement('div');
+        div.className = 'intro-scroll-line' + (strong ? ' strong' : '');
+        if (margin) div.style.marginTop = '16px';
+        div.innerHTML = text;
+        container.appendChild(div);
+      }
+    }
+    (function initIntroLangButtons(){
+      var btnKo = document.getElementById('intro-lang-ko');
+      var btnEn = document.getElementById('intro-lang-en');
+      if (!btnKo || !btnEn) return;
+      btnKo.classList.toggle('active', isKo);
+      btnEn.classList.toggle('active', !isKo);
+      btnKo.onclick = function(){
+        var url = new URL(location.href);
+        url.searchParams.set('lang', 'ko');
+        location.href = url.toString();
+      };
+      btnEn.onclick = function(){
+        var url = new URL(location.href);
+        url.searchParams.delete('lang');
+        location.href = url.toString();
+      };
+      applyIntroScrollLang();
+      var startEn = document.getElementById('intro-start-en');
+      var startKo = document.getElementById('intro-start-ko');
+      if (startEn) startEn.style.display = isKo ? 'none' : 'inline';
+      if (startKo) startKo.style.display = isKo ? 'inline' : 'none';
+    })();
+    var VER = "v15";
+    window.__match_config = null; // PATCH
+    console.log("[BOOT] inline start", location.href);
+    function addScript(src){
+      var s=document.createElement("script");
+      s.src = src + (src.indexOf("?")>=0 ? "&" : "?") + "ver=" + VER;
+      s.onload=function(){console.log("[BOOT] loaded", s.src);};
+      s.onerror=function(e){console.log("[BOOT] FAILED", s.src, e);};
+      document.head.appendChild(s);
+    }
+    addScript("./game-data.js");
+    addScript("./locales.js");
+    if (window.__LANG === 'ko') { addScript("./ko_map.js"); addScript("./ko_translate.js"); } // PATCH: ko_map + ko_translate 로드
+  </script>
+  <script>
+    function start() {
+      console.log("[BOOT] before main", { hasGameData: !!window.GAME_DATA });
+      if (!window.GAME_DATA) { window.showFatal("GAME_DATA missing: check game-data.js path or load order (Network에서 game-data.js 200/404 확인)"); return; }
+      var GAME_DATA = window.GAME_DATA;
+      if (!window.textData || typeof window.t !== 'function') { window.showFatal("locales.js missing: check locales.js path or load order (textData/t)"); return; }
+    var API_BASE = (function() {
+      var h = location.hostname || '';
+      var p = location.pathname || '';
+      var port = location.port || '';
+      if (h === 'localhost' && port === '4173') return 'https://tartarus-itch-proxy.onrender.com';
+      if (p.indexOf('/build/') >= 0) return 'http://localhost:8787';
+      if (h.indexOf('itch.io') >= 0) return 'https://tartarus-project.vercel.app';
+      return '';
+    })();
+    var selectedImposter = null;
+
+    function tLine(line) { // PATCH
+      if (!window.isKo) return line; // PATCH
+      if (window.__KO_TRANSLATE) return window.__KO_TRANSLATE(line); // PATCH
+      if (window.__KO_MAP && window.__KO_MAP[line] !== undefined) return window.__KO_MAP[line]; // PATCH
+      return line; // PATCH
+    }
+
+    function pickImposter() {
+      if (!selectedImposter) {
+        selectedImposter = GAME_DATA.crew[Math.floor(Math.random() * GAME_DATA.crew.length)];
+      }
+      return selectedImposter;
+    }
+
+    // EP1 입력 파서: action [target] [dialogue]
+    const EP1_VALID_ACTIONS = new Set(['QUESTION', 'OBSERVE', 'CHECK_LOG', 'REPAIR', 'ACCUSE', 'WAIT', 'TAKE_PISTOL', 'FIND_CLUE']);
+    const EP1_VALID_TARGETS = new Set(['doctor', 'engineer', 'navigator', 'pilot', 'player', 'captain']);
+    function parseEp1Input(raw) {
+      const s = String(raw || '').trim();
+      if (!s) return { action: 'OBSERVE', target: null, dialogue: (window.__LANG === 'ko') ? '브리지부터 확인한다.' : 'Checking the bridge.' };
+      const parts = s.split(/\s+/).filter(Boolean);
+      let action = String(parts[0] || '').toUpperCase();
+      if (!EP1_VALID_ACTIONS.has(action)) action = 'OBSERVE';
+      let target = null;
+      let dialogue = '';
+      if (parts.length >= 2) {
+        const second = parts[1].toLowerCase();
+        if (EP1_VALID_TARGETS.has(second)) {
+          target = second;
+          dialogue = parts.slice(2).join(' ').trim() || '';
+        } else {
+          dialogue = parts.slice(1).join(' ').trim();
+        }
+      }
+      const defaults = (window.__LANG === 'ko') ? { OBSERVE: '브리지부터 확인한다.', CHECK_LOG: '로그부터 확인한다.', REPAIR: '점검한다.', WAIT: '대기한다.', QUESTION: '', ACCUSE: '' } : { OBSERVE: 'Checking the bridge.', CHECK_LOG: 'Checking logs.', REPAIR: 'Inspecting.', WAIT: 'Waiting.', QUESTION: '', ACCUSE: '' };
+      return { action, target: action === 'QUESTION' ? target : null, dialogue: dialogue || (defaults[action] || '') };
+    }
+
+    function isRoleDead(role, deadCrewArr) {
+      if (!role || !Array.isArray(deadCrewArr)) return false;
+      var r = String(role).toLowerCase();
+      return deadCrewArr.some(function(d) { return String(d).toLowerCase() === r; });
+    }
+    function getInterrogateMessage() {
+      var crewList = ['Navigator', 'Engineer', 'Doctor', 'Pilot'];
+      var alive = crewList.filter(function(c) { return !deadCrew.includes(c); });
+      if (alive.length === 0) return (window.__LANG === 'ko') ? 'OBSERVE 브리지 상황을 확인한다.' : 'OBSERVE Checking bridge status.';
+      var target = alive[Math.floor(Math.random() * alive.length)];
+      var roleLower = target.toLowerCase();
+      var roleLabel = (window.__LANG === 'en') ? target : (ROLE_LABEL_KO && ROLE_LABEL_KO[roleLower]) || roleLower;
+      return (window.__LANG === 'en') ? ('QUESTION ' + roleLower + ' ' + roleLabel + ', where were you then?') : ('QUESTION ' + roleLower + ' ' + roleLabel + ', 그때 어디 있었지?');
+    }
+    var THREAT_DIALOGUE_KO = { doctor: '닥터, 더 숨기면 바로 처형하겠다. 지금 당장 사실대로 말해.', engineer: '엔지니어, 거짓말은 여기서 끝이다. 지금 사실을 말해.', navigator: '네비게이터, 더 버티면 바로 처형하겠다. 지금 동선을 다 말해.', pilot: '파일럿, 마지막 기회다. 사실대로 말하지 않으면 바로 처형이다.' };
+    var THREAT_DIALOGUE_EN = { doctor: 'Doctor, if you keep hiding the truth, I\'ll execute you. Tell me everything now.', engineer: 'Engineer, the lies end here. Tell me the truth now.', navigator: 'Navigator, if you keep resisting, I\'ll execute you. Tell me your movements.', pilot: 'Pilot, this is your last chance. Tell me the truth or you\'re executed.' };
+    var THREAT_CREW_DIALOGUE_KO = { doctor: '방금 호흡이 빨라졌다. 처형 위협에 긴장한 거지. 그때 어디 있었는지 말해.', engineer: '기록과 네 말이 안 맞아. 로그로 교차 검증하면 바로 드러난다. 다시 말해.', navigator: '알리바이가 비어 있다. 처형 직전인데 아직도 숨겨? 동선을 다 말해.', pilot: '공기가 확 바뀌었다. 누군가 공포에 떨고 있어. 네가 뭘 숨기는지 직감으로 안다.' };
+    var THREAT_CREW_DIALOGUE_EN = { doctor: 'Your breathing just spiked. You\'re nervous from the threat. Where were you?', engineer: 'The logs don\'t match your story. Cross-check will expose you. Talk.', navigator: 'Your alibi has gaps. Still hiding with execution looming? Give me your movements.', pilot: 'The air shifted. Someone\'s trembling with fear. I sense what you\'re hiding.' };
+    function isThreatMessage(raw) {
+      var m = String(raw || '').trim().match(/^QUESTION\s+(doctor|engineer|navigator|pilot)\s+(.+)$/i);
+      if (!m) return false;
+      var t = (m[1] || '').toLowerCase();
+      var rest = (m[2] || '').trim();
+      var threatKo = THREAT_DIALOGUE_KO[t];
+      var threatEn = THREAT_DIALOGUE_EN[t];
+      return (threatKo && rest.indexOf(threatKo.slice(0, 20)) >= 0) || (threatEn && rest.toLowerCase().indexOf(threatEn.slice(0, 25).toLowerCase()) >= 0);
+    }
+    function getThreatMessage(target) {
+      var t = (target || '').toLowerCase();
+      var dialogue = (window.__LANG === 'ko' ? THREAT_DIALOGUE_KO : THREAT_DIALOGUE_EN)[t] || (THREAT_DIALOGUE_KO[t] || THREAT_DIALOGUE_EN[t]);
+      return dialogue ? 'QUESTION ' + t + ' ' + dialogue : 'QUESTION ' + t + ' Tell me the truth now.';
+    }
+    function sendInterrogateClick(ev, interrogateBtn) {
+      if (questionInFlight) return;
+      questionInFlight = true;
+      if (ev) { ev.preventDefault(); ev.stopPropagation(); if (ev.stopImmediatePropagation) ev.stopImmediatePropagation(); }
+      if (gameEnded) { questionInFlight = false; return; }
+      var now = Date.now();
+      if ((now - lastQuestionDispatchAt) < QUESTION_DEBOUNCE_MS) { questionInFlight = false; return; }
+      var msg = (typeof getInterrogateMessage === 'function') ? getInterrogateMessage() : ((window.__LANG === 'ko') ? 'QUESTION doctor 닥터, 그때 어디 있었지?' : 'QUESTION doctor Doctor, where were you then?');
+      var m = String(msg).trim().match(/^QUESTION\s+(\S+)/i);
+      var key = m ? ('QUESTION:' + (m[1] || '').toLowerCase()) : msg;
+      lastQuestionKey = key;
+      lastQuestionDispatchAt = now;
+      var btn = interrogateBtn || (ev && ev.currentTarget && ev.currentTarget.getAttribute && ev.currentTarget.getAttribute('data-msg') === 'interrogate' ? ev.currentTarget : null) || document.querySelector('.action-btn[data-msg="interrogate"]');
+      if (btn) btn.disabled = true;
+      var p = sendMessage(msg);
+      if (p && typeof p.finally === 'function') {
+        p.finally(function() {
+          questionInFlight = false;
+          if (btn && !gameEnded && gamePhase === 'captain_input') btn.disabled = false;
+        });
+      } else {
+        questionInFlight = false;
+        if (btn && !gameEnded) btn.disabled = false;
+      }
+    }
+    function formatCaptainDisplay(raw, captainPayload) {
+      if (!raw || !captainPayload) return raw;
+      var s = String(raw).trim();
+      var roleLabel = function(r) { return getRoleLabel(r); };
+      var roleKo = function(r) { return (ROLE_LABEL_KO && r && ROLE_LABEL_KO[r.toLowerCase()]) || r || ''; };
+      if (captainPayload.action === 'TAKE_PISTOL') return (window.__LANG === 'ko') ? '권총을 집는다.' : 'Picks up the pistol.';
+      if (captainPayload.action === 'FIND_CLUE') return (window.__LANG === 'ko') ? '단서를 수집한다.' : 'Collects a clue.';
+      if (captainPayload.action === 'ACCUSE' && captainPayload.target) {
+        var t = captainPayload.target;
+        return (window.__LANG === 'en') ? (roleLabel(t) + ' eliminated') : (roleKo(t) + ' 처형');
+      }
+      if (/^\[ACCUSE\]\s*/i.test(s)) {
+        var accTarget = s.replace(/^\[ACCUSE\]\s*/i, '').trim().toLowerCase();
+        return (window.__LANG === 'en') ? (roleLabel(accTarget) + ' eliminated') : ((roleKo(accTarget) || accTarget) + ' 처형');
+      }
+      if (captainPayload.action === 'QUESTION' && captainPayload.target) {
+        var prefix = 'QUESTION ' + captainPayload.target.toLowerCase() + ' ';
+        if (s.toLowerCase().indexOf(prefix.toLowerCase()) === 0) {
+          var rest = s.slice(prefix.length).trim();
+          return rest || ((window.__LANG === 'en') ? (roleLabel(captainPayload.target) + ', where were you then?') : (roleKo(captainPayload.target) + ', 그때 어디 있었지?'));
+        }
+        var m = s.match(/^QUESTION\s+(doctor|engineer|navigator|pilot|닥터|엔지니어|네비게이터|파일럿)\s+/i);
+        if (m) return s.slice(m[0].length).trim() || ((window.__LANG === 'en') ? (roleLabel(m[1]) + ', where were you then?') : (roleKo(m[1]) + ', 그때 어디 있었지?'));
+      }
+      var stripped = s.replace(/^(CHECK_LOG|OBSERVE|REPAIR|WAIT)\s+/i, '').trim();
+      if (stripped !== s) return stripped;
+      var qm = s.match(/^QUESTION\s+(doctor|engineer|navigator|pilot|닥터|엔지니어|네비게이터|파일럿)\s+(.+)$/i);
+      if (qm) return qm[2].trim() || ((window.__LANG === 'en') ? (roleLabel(qm[1]) + ', where were you then?') : (roleKo(qm[1]) + ', 그때 어디 있었지?'));
+      var qmAny = s.match(/^QUESTION\s+(\S+)\s+(.+)$/);
+      if (qmAny) return qmAny[2].trim() || ((window.__LANG === 'en') ? (roleLabel(qmAny[1]) + ', where were you then?') : (roleKo(qmAny[1]) + ', 그때 어디 있었지?'));
+      if (window.__LANG === 'en' && isKorean(s)) {
+        var act = (captainPayload.action || 'OBSERVE').toUpperCase();
+        if (act === 'OBSERVE') return 'Observing the bridge.';
+        if (act === 'CHECK_LOG') return 'Checking the logs.';
+        if (act === 'REPAIR') return 'Conducting repairs.';
+        if (act === 'WAIT') return 'Waiting.';
+      }
+      return s;
+    }
+    // preset 버튼 경로: [ACCUSE], quick button 문구. [AUTO-KILL]/[WITNESS] 사용 안 함.
+    function buildPayloadFromPreset(raw) {
+      const s = String(raw || '').trim();
+      var parsed;
+      if (/^\[ACCUSE\]/i.test(s)) {
+        const t = s.replace(/^\[ACCUSE\]/i, '').trim().toLowerCase();
+        const roleMap = { navigator: 'navigator', engineer: 'engineer', doctor: 'doctor', pilot: 'pilot' };
+        const target = roleMap[t] || t;
+        return { action: 'ACCUSE', target: target || null, dialogue: '', reason: 'player_input' };
+      }
+      if (/^TAKE_PISTOL$/i.test(s)) return { action: 'TAKE_PISTOL', target: null, dialogue: (window.__LANG === 'ko') ? '권총을 집는다.' : 'Picks up the pistol.', reason: 'player_input' };
+      if (/^FIND_CLUE$/i.test(s)) return { action: 'FIND_CLUE', target: null, dialogue: (window.__LANG === 'ko') ? '단서를 수집한다.' : 'Collects a clue.', reason: 'player_input' };
+      const lower = s.toLowerCase();
+      if (/cctv|check\s+cctv/i.test(lower)) return { action: 'CHECK_LOG', target: null, dialogue: s, reason: 'player_input' };
+      if (/interrogate|status|report/i.test(lower) || /^question\s+(doctor|engineer|navigator|pilot)\s+/i.test(s)) {
+        parsed = parseEp1Input(s);
+        var target = parsed.target || 'doctor';
+        var payload = { action: 'QUESTION', target: target, dialogue: s, reason: 'player_input' };
+        if (isThreatMessage(s)) { payload.isThreat = true; payload.threatTarget = target; }
+        return payload;
+      }
+      if (/engine|check\s+engine/i.test(lower)) return { action: 'CHECK_LOG', target: null, dialogue: s, reason: 'player_input' };
+      parsed = parseEp1Input(s);
+      var payload = { action: parsed.action, target: parsed.target, dialogue: s, reason: 'player_input' };
+      if (parsed.action === 'QUESTION' && parsed.target && isThreatMessage(s)) { payload.isThreat = true; payload.threatTarget = parsed.target; }
+      return payload;
+    }
+    // auto_kill payload 생성: 전용 경로. 일반 SEND/quick button과 절대 섞이지 않음.
+    function buildAutoKillPayload(victim) {
+      return { action: 'OBSERVE', target: null, dialogue: '[AUTO-KILL] ' + victim, reason: 'auto_kill' };
+    }
+    function buildWitnessPayload(witness, victim) {
+      return { action: 'OBSERVE', target: null, dialogue: witness + ' witnessed the murder of ' + victim, reason: 'witness' };
+    }
+
+    // 일반 SEND 입력 경로: raw 원문을 dialogue로 보존. action/target 파싱만 별도. cctv/engine 등 preset과 동일 매핑.
+    function buildPayloadFromUserInput(raw) {
+      const s = String(raw || '').trim();
+      if (!s) return null;
+      const lower = s.toLowerCase();
+      if (/^TAKE_PISTOL$/i.test(s)) return { action: 'TAKE_PISTOL', target: null, dialogue: (window.__LANG === 'ko') ? '권총을 집는다.' : 'Picks up the pistol.', reason: 'player_input' };
+      if (/^FIND_CLUE$/i.test(s)) return { action: 'FIND_CLUE', target: null, dialogue: (window.__LANG === 'ko') ? '단서를 수집한다.' : 'Collects a clue.', reason: 'player_input' };
+      if (/cctv|check\s+cctv|로그\s*확인/i.test(lower)) return { action: 'CHECK_LOG', target: null, dialogue: s, reason: 'player_input' };
+      if (/engine|check\s+engine|엔진/i.test(lower)) return { action: 'CHECK_LOG', target: null, dialogue: s, reason: 'player_input' };
+      var parsed;
+      if (/interrogate|status|report|심문/i.test(lower) || /^question\s+(doctor|engineer|navigator|pilot)\s+/i.test(s)) {
+        parsed = parseEp1Input(s);
+        var target = parsed.target || 'doctor';
+        var payload = { action: 'QUESTION', target: target, dialogue: s, reason: 'player_input' };
+        if (isThreatMessage(s)) { payload.isThreat = true; payload.threatTarget = target; }
+        return payload;
+      }
+      parsed = parseEp1InputForUserInput(s);
+      var payload = { action: parsed.action, target: parsed.target, dialogue: s, reason: 'player_input' };
+      if (parsed.action === 'QUESTION' && parsed.target && isThreatMessage(s)) { payload.isThreat = true; payload.threatTarget = parsed.target; }
+      return payload;
+    }
+    function parseEp1InputForUserInput(raw) {
+      const s = String(raw || '').trim();
+      if (!s) return { action: 'OBSERVE', target: null, dialogue: '' };
+      const parts = s.split(/\s+/).filter(Boolean);
+      let action = String(parts[0] || '').toUpperCase();
+      if (!EP1_VALID_ACTIONS.has(action)) action = 'OBSERVE';
+      let target = null;
+      let dialogue = '';
+      if (parts.length >= 2) {
+        const second = parts[1].toLowerCase();
+        if (EP1_VALID_TARGETS.has(second)) {
+          target = second;
+          dialogue = parts.slice(2).join(' ').trim();
+        } else {
+          dialogue = parts.slice(1).join(' ').trim();
+        }
+      }
+      dialogue = dialogue || s;
+      var needsTarget = action === 'QUESTION';
+      return { action, target: needsTarget ? target : null, dialogue };
+    }
+
+    function eventDedupeKey(e) {
+      const t = e.turn ?? '';
+      const r = e.role ?? '';
+      const a = e.actor ?? '';
+      const c = e.created_at ?? '';
+      if (t && a && c) return `${t}:${r}:${a}:${c}`;
+      const s = e.summary || (e.role && e.action ? `${e.role} ${e.action}` : '') || '';
+      return `${t}:${r}:${a}:${e.action || ''}:${s}`;
+    }
+    function captainQuestionDedupeKey(turn, target, normalizedDisplay) {
+      var t = (turn ?? 1).toString();
+      var tg = (target || '').toString().trim().toLowerCase();
+      var norm = (normalizedDisplay || '').toString().trim();
+      if (!norm && tg && typeof ROLE_LABEL_KO !== 'undefined' && ROLE_LABEL_KO[tg]) {
+        norm = ROLE_LABEL_KO[tg] + ', 그때 어디 있었지?';
+      }
+      if (!norm && tg) norm = tg + ', 그때 어디 있었지?';
+      return 'captain|QUESTION|' + t + '|' + tg + '|' + norm;
+    }
+    function hasCaptainQuestionRenderedForTurn(turn) {
+      var prefix = 'captain|QUESTION|' + (turn ?? 1) + '|';
+      return Array.from(renderedEventKeys).some(function(k) { return k && String(k).indexOf(prefix) === 0; });
+    }
+
+    async function ep1EnsureMatch() {
+      if (MATCH_ID) return;
+      MATCH_ID = newMatchId();
+      try {
+        await ep1CallState();
+        var resData = await ep1CallResult();
+        var events = resData.recent_events || [];
+        for (var i = 0; i < events.length; i++) {
+          var e = events[i];
+          var key = eventDedupeKey(e);
+          if (renderedEventKeys.has(key)) continue;
+          var main = e.dialogue || e.summary || (e.role && e.action ? e.role + ' ' + e.action : '') || '';
+          if (main && (e.role && ROLE_LABEL_KO[e.role] || e.role === 'system')) {
+            var role = e.role || 'system';
+            var mainT = getMainTextFromEvent(e);
+            if (role === 'captain' && mainT && /^QUESTION\s+/i.test(String(mainT).trim()) && typeof formatCaptainDisplay === 'function') {
+              mainT = formatCaptainDisplay(mainT, { action: e.action || 'OBSERVE', target: e.target || null });
+            }
+            if (role === 'captain' && mainT && /^QUESTION\s+/i.test(String(mainT).trim())) continue;
+            printDialogueLine(role, mainT, e.summary || null, key, e);
+            renderedEventKeys.add(key);
+          } else if (main) {
+            var toPrint = (window.__LANG === 'en' && isKorean(main)) ? 'System update.' : main;
+            await printLine(toPrint, 'role-system', { typewriter: true });
+            renderedEventKeys.add(key);
+          }
+        }
+      } catch (err) {
+        printLine('[ERROR] EP1 state failed: ' + err.message, 'role-alert');
+      }
+    }
+
+    // captain payload 생성: dialogue는 raw 원문 보존. match_id, turn, actor, role, action, target, reason
+    function buildCaptainActionBody(captainPayload, rawInput, deadCrewArr) {
+      var matchId = MATCH_ID || newMatchId();
+      if (!MATCH_ID) MATCH_ID = matchId;
+      var dialogueVal = (rawInput != null && String(rawInput).trim() !== '') ? String(rawInput).trim() : (captainPayload.dialogue != null && captainPayload.dialogue !== '') ? String(captainPayload.dialogue) : null;
+      var body = {
+        match_id: matchId,
+        turn: currentTurn,
+        actor: 'captain',
+        role: 'captain',
+        action: captainPayload.action || 'OBSERVE',
+        target: captainPayload.target ?? null,
+        reason: captainPayload.reason || 'player_input',
+        dialogue: dialogueVal
+      };
+      if (Array.isArray(deadCrewArr)) body.dead_crew = deadCrewArr;
+      return body;
+    }
+    // crew payload 생성: dialogue는 항상 crew 대사 문자열. match_id 절대 넣지 않음.
+    function buildCrewActionBody(crewPayload, role, deadCrewArr) {
+      var matchId = MATCH_ID || newMatchId();
+      if (!MATCH_ID) MATCH_ID = matchId;
+      var dialogueVal = (crewPayload.dialogue != null && typeof crewPayload.dialogue === 'string') ? crewPayload.dialogue : '';
+      var body = {
+        match_id: matchId,
+        turn: currentTurn,
+        actor: 'agent_' + role,
+        role: role,
+        action: crewPayload.action || 'OBSERVE',
+        target: crewPayload.target ?? null,
+        reason: crewPayload.reason || 'crew',
+        dialogue: dialogueVal
+      };
+      if (Array.isArray(deadCrewArr)) body.dead_crew = deadCrewArr;
+      return body;
+    }
+    async function ep1CallAction(payload, opts) {
+      if (!MATCH_ID) { MATCH_ID = newMatchId(); }
+      var body;
+      var deadArr = opts && opts.deadCrew;
+      if (opts && opts.role && opts.role !== 'captain') {
+        body = buildCrewActionBody(payload, opts.role, deadArr);
+      } else {
+        body = buildCaptainActionBody(payload, opts && opts.rawInput, deadArr);
+      }
+      const res = await fetch(API_BASE + '/api/ep1/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = data?.error?.message || data?.message || `EP1 action failed (${res.status})`;
+        throw new Error(msg);
+      }
+      return data;
+    }
+    async function ep1CallState(viewerRole) {
+      const body = { match_id: MATCH_ID, turn: currentTurn };
+      if (viewerRole) body.viewer_role = viewerRole;
+      const res = await fetch(API_BASE + '/api/ep1/state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = data?.error?.message || data?.message || `EP1 state failed (${res.status})`;
+        throw new Error(msg);
+      }
+      return data;
+    }
+    async function ep1CallResult(opts) {
+      var body = { match_id: MATCH_ID };
+      if (opts && opts.client_ended) body.client_ended = true;
+      const res = await fetch(API_BASE + '/api/ep1/result', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = data?.error?.message || data?.message || `EP1 result failed (${res.status})`;
+        throw new Error(msg);
+      }
+      return data;
+    }
+
+    function eventToSummary(e) {
+      return e.summary || (e.role && e.action ? `${e.role} ${e.action}` : '') || '';
+    }
+
+    function isCaptainQuestionSummary(line) {
+      if (!line || typeof line !== 'string') return false;
+      var t = String(line).trim();
+      if (/^함장이?\s+.*질문|^함장이?\s+.*확인을\s*요청|^함장이?\s+.*기술적\s*질문|^함장이?\s+.*동선을\s*추궁|^함장이?\s+.*공기\s*변화/i.test(t)) return true;
+      if (window.__LANG === 'en' && /^Captain\s+.*(asked|question|request|inquire|where|when)/i.test(t)) return true;
+      return false;
+    }
+    function isCaptainQuestionRaw(text) {
+      if (!text || typeof text !== 'string') return false;
+      var t = String(text).trim();
+      return /^QUESTION\s+(doctor|engineer|navigator|pilot|닥터|엔지니어|네비게이터|파일럿|\S+)\s+/i.test(t) || /^(닥터|엔지니어|네비게이터|파일럿),\s*그때\s*어디\s*있었지/i.test(t);
+    }
+    function isCaptainFallbackText(txt) {
+      if (!txt || typeof txt !== 'string') return false;
+      var t = String(txt).trim();
+      return /브리지|상황\s*확인|로그\s*확인|점검|대기|bridge|check\s+bridge|inspect|wait/i.test(t) || /^OBSERVE\s/i.test(t);
+    }
+    function appendNewEventsFromList(events, resultLines, deadCrewArr, opts) {
+      const list = Array.isArray(events) ? events : [];
+      var skipCaptainQuestion = !!(opts && opts.skipCaptainInResult);
+      var skipCaptainFallback = !!(opts && opts.skipCaptainFallbackForPreset);
+      for (const e of list) {
+        var role = String(e.role || 'system').toLowerCase().trim();
+        var summ = String(e.summary || '').trim();
+        var line = eventToSummary(e);
+        var actorCaptain = e.actor && String(e.actor).toLowerCase() === 'captain';
+        var _evT = e.turn ?? currentTurn ?? 1;
+        var _skipCapQ = skipCaptainQuestion || renderedEventKeys.has('captain_question_rendered:' + _evT) || (typeof hasCaptainQuestionRenderedForTurn === 'function' && hasCaptainQuestionRenderedForTurn(_evT));
+        if (role === 'captain' || actorCaptain) {
+          var capRaw = (e.dialogue || e.summary || '').trim();
+          var isCapQ = e.action === 'QUESTION' || /^QUESTION\s+/i.test(capRaw) || isCaptainQuestionRaw(capRaw) || isCaptainQuestionSummary(capRaw);
+          if (isCapQ) {
+            var capNorm = capRaw;
+            if (capRaw && typeof formatCaptainDisplay === 'function') {
+              capNorm = formatCaptainDisplay(capRaw, { action: 'QUESTION', target: e.target || null });
+            }
+            var capQKey = captainQuestionDedupeKey(_evT, e.target, capNorm);
+            if (renderedEventKeys.has(capQKey)) {
+              renderedEventKeys.add(eventDedupeKey(e));
+              continue;
+            }
+            renderedEventKeys.add(capQKey);
+            renderedEventKeys.add(eventDedupeKey(e));
+            continue;
+          }
+          if (_skipCapQ) {
+            renderedEventKeys.add(eventDedupeKey(e));
+            if (isCaptainQuestionSummary(capRaw)) continue;
+            continue;
+          }
+          renderedEventKeys.add(eventDedupeKey(e));
+          if (isCaptainQuestionRaw(capRaw)) continue;
+          if (!(opts && opts.skipCaptainInResult)) {
+            var capFormatted = capRaw;
+            if (capRaw && typeof formatCaptainDisplay === 'function') {
+              var capPayload = { action: e.action || 'OBSERVE', target: e.target || null };
+              capFormatted = formatCaptainDisplay(capRaw, capPayload);
+            }
+            if (capFormatted && !/^QUESTION\s+/i.test(String(capFormatted).trim())) resultLines.push(capFormatted);
+          }
+          continue;
+        }
+        if (_skipCapQ && isCaptainQuestionSummary(line)) continue;
+        if (_skipCapQ && isCaptainQuestionSummary(summ)) continue;
+        if ((!e.role || role === 'system') && (/^함장이?\s|^함장\s*:/.test(summ) || (window.__LANG === 'en' && /^Captain\s*:?\s/.test(summ)))) continue;
+        if (['doctor', 'engineer', 'navigator', 'pilot'].indexOf(role) >= 0) {
+          if (isRoleDead(role, deadCrewArr)) continue;
+          if (_skipCapQ && isCaptainQuestionSummary(line)) continue;
+          var crewMain = getMainTextFromEvent(e);
+          var crewSumm = e.summary || null;
+          var _batchId = (opts && opts.crewBatchId) || (pendingCrewBatch && pendingCrewBatch.batchId);
+          updateCrewPlaceholder(role, crewMain || crewSumm || ((window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN)[role]) || '—', crewSumm, eventDedupeKey(e), _batchId, e);
+          renderedEventKeys.add(eventDedupeKey(e));
+          if (line) resultLines.push(line);
+          continue;
+        }
+        const key = eventDedupeKey(e);
+        var mainText = getMainTextFromEvent(e);
+        const summary = e.summary || null;
+        if (_skipCapQ && isCaptainQuestionSummary(line)) continue;
+        if (_skipCapQ && isCaptainQuestionSummary(mainText)) continue;
+        if ((role === 'captain' || (e.actor && String(e.actor).toLowerCase() === 'captain')) && mainText && /^(QUESTION|CHECK_LOG|OBSERVE|REPAIR|WAIT)\s/i.test(String(mainText).trim())) {
+          continue;
+        }
+        if (mainText && /^(QUESTION|CHECK_LOG|OBSERVE|REPAIR|WAIT)\s/i.test(String(mainText).trim()) && typeof formatCaptainDisplay === 'function') {
+          mainText = formatCaptainDisplay(mainText, { action: e.action || 'OBSERVE', target: e.target || null });
+        }
+        if (mainText && /^QUESTION\s+/i.test(String(mainText).trim())) continue;
+        if (_skipCapQ && (/^(닥터|엔지니어|네비게이터|파일럿),\s*그때\s*어디\s*있었지/i.test(String(mainText).trim()) || (window.__LANG === 'en' && /^(Doctor|Engineer|Navigator|Pilot),\s*where\s+were\s+you/i.test(String(mainText).trim())))) continue;
+        if (skipCaptainFallback && isCaptainFallbackText(mainText || summary)) continue;
+        var existingRow = false;
+        if (logEl) {
+          var rows = logEl.querySelectorAll('.dialogue-line[data-event-key]');
+          for (var j = 0; j < rows.length; j++) {
+            if (rows[j].getAttribute('data-event-key') === key) {
+              updateDialogueLineByKey(key, role, mainText, summary);
+              existingRow = true;
+              break;
+            }
+          }
+        }
+        if (!existingRow && mainText && (ROLE_LABEL_KO[role] || ROLE_LABEL_EN[role] || role === 'system')) {
+          printDialogueLine(role, mainText, summary, key, e);
+        }
+        renderedEventKeys.add(key);
+        if (line) resultLines.push(line);
+      }
+    }
+
+    function getMainTextFromEvent(e) {
+      return (e && (e.dialogue || e.summary || e.action)) || '';
+    }
+    function syncCrewSlotsFromResult(resData, deadCrewArr, batchId) {
+      if (!resData || !logEl) return;
+      var recent = resData.recent_events || [];
+      var useBatch = batchId || (pendingCrewBatch && pendingCrewBatch.batchId);
+      var fallbackMap = (window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN);
+      var sr = resData.server_result || {};
+      var CREW_ROLES_SYNC = ['doctor', 'engineer', 'navigator', 'pilot'];
+      for (var i = 0; i < CREW_ROLES_SYNC.length; i++) {
+        var role = CREW_ROLES_SYNC[i];
+        if (isRoleDead(role, deadCrewArr)) continue;
+        var displayText = '';
+        var summ = null;
+        var evKey = null;
+        var currEv = sr.current_event || null;
+        if (currEv && (currEv.role === role || currEv.actor === 'agent_' + role) && currEv.dialogue && String(currEv.dialogue).trim()) {
+          displayText = String(currEv.dialogue).trim();
+          summ = currEv.summary || null;
+          evKey = currEv.role ? role + ':' + (currEv.dialogue || '').slice(0, 20) : null;
+        }
+        if (!displayText) {
+          var ev = findCrewEventInRecent(recent, role);
+          if (ev && ev.dialogue && String(ev.dialogue).trim()) {
+            displayText = String(ev.dialogue).trim();
+            summ = ev.summary || null;
+            evKey = ev ? eventDedupeKey(ev) : null;
+          } else if (ev && ev.summary && String(ev.summary).trim()) {
+            displayText = String(ev.summary).trim();
+            summ = ev.summary || null;
+            evKey = ev ? eventDedupeKey(ev) : null;
+          } else if (ev && (ev.dialogue || ev.summary || ev.action)) {
+            displayText = getMainTextFromEvent(ev);
+            summ = ev.summary || null;
+            evKey = ev ? eventDedupeKey(ev) : null;
+          }
+        }
+        if (!displayText && sr.summary && String(sr.summary).trim()) displayText = String(sr.summary).trim();
+        var safeText = displayText || (fallbackMap && fallbackMap[role]) || '—';
+        if (typeof isGenericOrPlaceholderText === 'function' && isGenericOrPlaceholderText(role, safeText)) safeText = (fallbackMap && fallbackMap[role]) || '—';
+        var evForEn = currEv || findCrewEventInRecent(recent, role);
+        updateCrewPlaceholder(role, safeText, summ, evKey, useBatch, evForEn);
+      }
+      if (pendingCrewBatch) pendingCrewBatch.resolved = true;
+    }
+    function findCrewEventInRecent(recentEvents, role) {
+      if (!Array.isArray(recentEvents)) return null;
+      var actor = 'agent_' + role;
+      for (var i = recentEvents.length - 1; i >= 0; i--) {
+        var ev = recentEvents[i];
+        if (ev && (ev.role === role || ev.actor === actor)) return ev;
+      }
+      return null;
+    }
+    function decideCrewAction(role, captainPayload, stateData) {
+      var action = 'OBSERVE';
+      var target = null;
+      var dialogue = '';
+      var cap = captainPayload || {};
+      if (cap.action === 'QUESTION' && cap.target) {
+        action = 'QUESTION';
+        target = cap.target;
+      }
+      if (cap.isThreat && cap.threatTarget) {
+        var threatMap = (window.__LANG === 'ko') ? THREAT_CREW_DIALOGUE_KO : THREAT_CREW_DIALOGUE_EN;
+        dialogue = (threatMap && threatMap[role]) ? threatMap[role] : '';
+      }
+      return { action, target, reason: 'crew', dialogue };
+    }
+
+    var CREW_PLACEHOLDER_KO = { doctor: '닥터 분석 중...', engineer: '엔지니어 분석 중...', navigator: '네비게이터 추론 중...', pilot: '파일럿 감지 중...' };
+    var CREW_PLACEHOLDER_EN = { doctor: 'Doctor analyzing...', engineer: 'Engineer analyzing...', navigator: 'Navigator reasoning...', pilot: 'Pilot sensing...' };
+    var CREW_FALLBACK_KO = { doctor: '표정과 호흡을 확인 중이다. 이상 징후가 있으면 보고하겠다.', engineer: '기록 끊김과 접근 로그를 확인 중이다. 불일치가 있으면 짚겠다.', navigator: '그 시간대 동선부터 다시 말해봐. 알리바이가 비어 있다.', pilot: '공기가 달라졌어. 누군가 뭔가를 숨기고 있는 것 같아.' };
+    var CREW_FALLBACK_EN = { doctor: 'Checking expression and breathing. Will report any anomalies.', engineer: 'Checking logs for gaps and access records. Will flag discrepancies.', navigator: 'Tell me your movements for that time again. Your alibi has gaps.', pilot: 'The air shifted. Someone seems to be hiding something.' };
+    var SUMMARY_FALLBACK_EN = { doctor: "Doctor checked the crew's reactions.", engineer: 'Engineer checked the system logs.', navigator: 'Navigator pressed for their movements.', pilot: 'Pilot sensed a shift in the atmosphere.', captain: 'Captain acted.' };
+    var CREW_GENERIC_OLD_KO = { doctor: '반응을 살펴보겠습니다.', engineer: '로그 확인 중입니다.', navigator: '동선을 짚어보겠습니다.', pilot: '분위기가 이상합니다.' };
+    var CREW_GENERIC_OLD_EN = { doctor: 'Checking reactions.', engineer: 'Checking logs.', navigator: 'Tracing movements.', pilot: 'Something feels off.' };
+    function isGenericOrPlaceholderText(role, text) {
+      if (!text || !String(text).trim()) return true;
+      var t = String(text).trim();
+      return (CREW_PLACEHOLDER_KO[role] && t === CREW_PLACEHOLDER_KO[role]) || (CREW_PLACEHOLDER_EN[role] && t === CREW_PLACEHOLDER_EN[role]) || (CREW_GENERIC_OLD_KO[role] && t === CREW_GENERIC_OLD_KO[role]) || (CREW_GENERIC_OLD_EN[role] && t === CREW_GENERIC_OLD_EN[role]);
+    }
+    var CREW_ROLES = ['doctor', 'engineer', 'navigator', 'pilot'];
+    function ensureCrewSlotsForBatch(turn, batchId, deadCrewArr) {
+      if (!logEl) return;
+      if (pendingCrewBatch && pendingCrewBatch.batchId === batchId) return;
+      var placeholderMap = window.__LANG === 'ko' ? CREW_PLACEHOLDER_KO : CREW_PLACEHOLDER_EN;
+      var rolesToShow = CREW_ROLES.filter(function(r) { return !isRoleDead(r, deadCrewArr); });
+      for (var i = 0; i < rolesToShow.length; i++) {
+        var role = rolesToShow[i];
+        var label = getRoleLabel(role);
+        var placeholder = (placeholderMap && placeholderMap[role]) || '...';
+        var roleClass = getRoleClass(role);
+        var div = document.createElement('div');
+        div.className = 'dialogue-line line';
+        div.setAttribute('data-crew-slot', role);
+        div.setAttribute('data-crew-batch', batchId);
+        var speaker = document.createElement('div');
+        speaker.className = 'dialogue-speaker ' + roleClass;
+        speaker.textContent = '[' + label + ']';
+        var text = document.createElement('div');
+        text.className = 'dialogue-text ' + roleClass + ' crew-placeholder';
+        text.textContent = placeholder;
+        div.appendChild(speaker);
+        div.appendChild(text);
+        logEl.appendChild(div);
+      }
+      pendingCrewBatch = { turn: turn, batchId: batchId };
+      logEl.scrollTop = logEl.scrollHeight;
+      if (window.fitShortsScale) window.fitShortsScale();
+    }
+    function printCrewPlaceholder(role) {
+      var label = getRoleLabel(role);
+      var placeholder = (window.__LANG === 'ko' ? CREW_PLACEHOLDER_KO : CREW_PLACEHOLDER_EN)[role] || '...';
+      var roleClass = getRoleClass(role);
+      var div = document.createElement('div');
+      div.className = 'dialogue-line line';
+      div.setAttribute('data-crew-slot', role);
+      var speaker = document.createElement('div');
+      speaker.className = 'dialogue-speaker ' + roleClass;
+      speaker.textContent = '[' + label + ']';
+      var text = document.createElement('div');
+      text.className = 'dialogue-text ' + roleClass + ' crew-placeholder';
+      text.textContent = placeholder;
+      div.appendChild(speaker);
+      div.appendChild(text);
+      logEl.appendChild(div);
+      logEl.scrollTop = logEl.scrollHeight;
+      if (window.fitShortsScale) window.fitShortsScale();
+    }
+    function updateCrewPlaceholder(role, mainText, summary, eventKey, batchId, eventData) {
+      if (!logEl) return;
+      var rows = logEl.querySelectorAll('.dialogue-line[data-crew-slot="' + role + '"]');
+      var row = null;
+      if (batchId && rows.length > 0) {
+        for (var i = rows.length - 1; i >= 0; i--) {
+          if (rows[i].getAttribute('data-crew-batch') === batchId) { row = rows[i]; break; }
+        }
+      }
+      if (!row && rows.length > 0) row = rows[rows.length - 1];
+      if (!row) return;
+      var fallbackMap = (window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN);
+      var rawText = (mainText && String(mainText).trim()) ? String(mainText).trim() : ((fallbackMap && fallbackMap[role]) || '—');
+      if (typeof isGenericOrPlaceholderText === 'function' && isGenericOrPlaceholderText(role, rawText)) rawText = (fallbackMap && fallbackMap[role]) || '—';
+      var safeText = (window.__LANG === 'en') ? ensureDisplayEnglish(rawText, eventData, role, fallbackMap) : (typeof toRoleLabelKo === 'function' ? toRoleLabelKo(rawText) : rawText);
+      if (eventKey) row.setAttribute('data-event-key', eventKey);
+      var textEl = row.querySelector('.dialogue-text');
+      if (textEl) {
+        textEl.textContent = safeText;
+        textEl.classList.remove('crew-placeholder');
+      }
+      var subEl = row.querySelector('.dialogue-summary');
+      if (summary && safeText) {
+        var dispSumm = (window.__LANG === 'en') ? ensureSummaryEnglish(summary, eventData, role, SUMMARY_FALLBACK_EN) : summary;
+        if (subEl) { subEl.textContent = dispSumm; subEl.style.display = ''; }
+        else {
+          var sub = document.createElement('div');
+          sub.className = 'dialogue-summary';
+          sub.textContent = dispSumm;
+          row.appendChild(sub);
+        }
+      } else if (subEl) subEl.style.display = 'none';
+      logEl.scrollTop = logEl.scrollHeight;
+      if (window.fitShortsScale) window.fitShortsScale();
+    }
+
+    async function runEp1Flow(message, deadCrew, opts) {
+      try {
+        if (!MATCH_ID) { MATCH_ID = newMatchId(); }
+        var captainPayload;
+        if (opts && opts.captainPayload) {
+          captainPayload = opts.captainPayload;
+        } else if (opts && opts.autoKillVictim) {
+          captainPayload = buildAutoKillPayload(opts.autoKillVictim);
+        } else if (opts && opts.witnessVictim && opts.witnessName) {
+          captainPayload = buildWitnessPayload(opts.witnessName, opts.witnessVictim);
+        } else {
+          captainPayload = buildPayloadFromPreset(message);
+        }
+        setPhase('crew_resolving');
+        var captainData = await ep1CallAction(captainPayload, { rawInput: message, deadCrew: deadCrew });
+        if (captainData.next_state && captainData.next_state.turn != null) currentTurn = captainData.next_state.turn;
+        var isGameOver = !!captainData.game_over;
+        var outcome = captainData.outcome || captainData.next_state?.outcome || null;
+
+        var batchId = 'batch_' + currentTurn + '_' + Date.now();
+        ensureCrewSlotsForBatch(currentTurn, batchId, deadCrew);
+
+        var aliveRoles = CREW_ROLES.filter(function(r) { return !isRoleDead(r, deadCrew); });
+        var crewPromises = aliveRoles.map(function(role) {
+          return (async function() {
+            if (isGameOver) return { role: role, ok: false };
+            try {
+              var stateData = await ep1CallState(role);
+              var decision = decideCrewAction(role, captainPayload, stateData);
+              var crewPayload = { action: decision.action, target: decision.target, reason: decision.reason, dialogue: decision.dialogue || '' };
+              var crewData = await ep1CallAction(crewPayload, { role: role, deadCrew: deadCrew });
+              if (crewData.next_state && crewData.next_state.turn != null) currentTurn = crewData.next_state.turn;
+              var ev = findCrewEventInRecent(crewData.next_state && crewData.next_state.recent_events, role);
+              var sr = crewData.server_result || {};
+              var currEv = sr.current_event || null;
+              var fallbackMap = (window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN);
+              var fallbackVal = (fallbackMap && fallbackMap[role]) || '—';
+              var displayText = '';
+              if (currEv && currEv.dialogue && String(currEv.dialogue).trim()) displayText = String(currEv.dialogue).trim();
+              else if (currEv && currEv.summary && String(currEv.summary).trim()) displayText = String(currEv.summary).trim();
+              else if (ev && ev.dialogue && String(ev.dialogue).trim()) displayText = String(ev.dialogue).trim();
+              else if (ev && ev.summary && String(ev.summary).trim()) displayText = String(ev.summary).trim();
+              else if (ev && (ev.dialogue || ev.summary || ev.action)) displayText = getMainTextFromEvent(ev);
+              else if (sr.summary && String(sr.summary).trim()) displayText = String(sr.summary).trim();
+              else displayText = fallbackVal;
+              if (!displayText || (typeof isGenericOrPlaceholderText === 'function' && isGenericOrPlaceholderText(role, displayText))) displayText = fallbackVal;
+              var summ = (ev && ev.summary) || (currEv && currEv.summary) || sr.summary || null;
+              var key = ev ? eventDedupeKey(ev) : (currEv && currEv.role ? role + ':' + (currEv.dialogue || currEv.summary || '').slice(0, 20) : null);
+              var evData = currEv || ev;
+              var r = role, dt = displayText, s = displayText ? summ : null, k = key, bid = batchId, evd = evData;
+              setTimeout(function() { updateCrewPlaceholder(r, dt, s, k, bid, evd); }, 0);
+              if (ev) renderedEventKeys.add(key);
+              return { role: role, ok: true, game_over: !!crewData.game_over, outcome: crewData.outcome };
+            } catch (e) {
+              var fbMap = (window.__LANG === 'ko' ? CREW_FALLBACK_KO : CREW_FALLBACK_EN);
+              var fb = (fbMap && fbMap[role]) || '—';
+              setTimeout(function() { updateCrewPlaceholder(role, fb, null, null, batchId); }, 0);
+              return { role: role, ok: false };
+            }
+          })();
+        });
+        var crewResults = await Promise.allSettled(crewPromises);
+        for (var r = 0; r < crewResults.length; r++) {
+          var res = crewResults[r];
+          if (res.status === 'fulfilled' && res.value && res.value.game_over) { isGameOver = true; outcome = res.value.outcome || outcome; }
+        }
+
+        setPhase('server_update');
+        var resData = await ep1CallResult();
+        if (resData.game_over) { isGameOver = true; outcome = resData.outcome || outcome; }
+        if (resData.turn != null) currentTurn = resData.turn;
+
+        if (typeof syncCrewSlotsFromResult === 'function') syncCrewSlotsFromResult(resData, deadCrew, batchId);
+
+        var resultLines = [];
+        var resRecent = resData.recent_events || [];
+        var resPub = resData.public_events || [];
+        var events = resRecent.length > 0 ? resRecent : resPub;
+        var appendOpts = { crewBatchId: batchId };
+        if (opts && opts.captainPayload) {
+          appendOpts.skipCaptainInResult = true;
+          if (captainPayload.action === 'TAKE_PISTOL') {
+            appendOpts.skipCaptainFallbackForPreset = true;
+            events = events.filter(function(e) {
+              var isCap = (e.role && String(e.role).toLowerCase() === 'captain') || (e.actor && String(e.actor).toLowerCase() === 'captain');
+              return !isCap;
+            });
+          }
+        }
+        appendNewEventsFromList(events, resultLines, deadCrew, appendOpts);
+        var resultText = resultLines.join('\n');
+        history.push({ role: 'assistant', content: resultText });
+
+        var impostorVal = resData.true_impostor || resData.actual_imposter || resData.impostor || resData.hidden_host || resData.culprit || null;
+        if (impostorVal && typeof impostorVal === 'string' && impostorVal.trim() === '') impostorVal = null;
+
+        var normalizedOutcome = (outcome === 'crew_win' ? 'victory' : outcome === 'impostor_win' ? 'defeat' : outcome);
+        var stateVal = (normalizedOutcome === 'victory' || normalizedOutcome === 'defeat') ? normalizedOutcome : 'playing';
+
+        return {
+          result: resultText,
+          resultText: resultText,
+          state: stateVal,
+          actualImposter: impostorVal,
+          isGameOver: isGameOver,
+          outcome: outcome,
+          outcome_reason: resData.outcome_reason || null,
+          winner_side: resData.winner_side || null,
+          loser_side: resData.loser_side || null,
+          deadCrew: deadCrew
+        };
+      } catch (err) {
+        var prefix = err.message && err.message.indexOf('EP1') >= 0 ? '' : '[ERROR] EP1 action failed: ';
+        throw new Error(prefix + err.message);
+      }
+    }
+
+    function applyLocale() {
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        const val = t(key);
+        if (val && el.tagName !== 'INPUT') el.textContent = val;
+      });
+      document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+        if (el.id === 'input') el.placeholder = (window.__LANG === 'ko') ? '함장 입력 대기' : 'Awaiting Captain input';
+        else el.placeholder = t(el.getAttribute('data-i18n-placeholder')) || '';
+      });
+      document.querySelectorAll('.action-btn[data-msg]').forEach(btn => {
+        const msg = btn.getAttribute('data-msg');
+        var label;
+        if (msg === 'take_pistol') label = (window.__LANG === 'ko') ? '권총 획득' : 'TAKE PISTOL';
+        else if (msg === 'threat') label = (window.__LANG === 'ko') ? '위협' : 'THREAT';
+        else if (msg === 'find_clue') label = (window.__LANG === 'ko') ? '단서 수집' : 'FIND CLUE';
+        else label = t(`game.buttons.${msg}`);
+        btn.textContent = label || btn.textContent || msg;
+      });
+      var ih = document.getElementById('input-hint');
+      if (ih) ih.textContent = '';
+      var inst = document.getElementById('accuse-modal-instruction');
+      if (inst) inst.textContent = t('game.accuseModal.instruction') || '';
+      var ct = t('game.timerPrefix') + '7:00';
+      document.getElementById('countdown-timer').textContent = ct;
+      // PATCH: sync shorts header
+      var sc = document.getElementById('shorts-countdown');
+      if (sc && document.body.classList.contains('shorts-mode')) sc.textContent = ct;
+      // PATCH: 처형 대상 선택 모달 역할명 현지화 (value는 영어 유지)
+      var am = document.getElementById('accuse-modal');
+      if (am && am.querySelectorAll) {
+        var roleLabel = function(r) { return (window.__LANG === 'ko' && window.__KO_ROLE) ? (window.__KO_ROLE(r) || r) : r; };
+        am.querySelectorAll('.target-btn[data-role]').forEach(function(btn) {
+          var r = btn.getAttribute('data-role');
+          if (r) btn.textContent = roleLabel(r);
+        });
+      }
+      var tm = document.getElementById('threat-modal');
+      if (tm && tm.querySelectorAll) {
+        var roleLabel = function(r) { return (window.__LANG === 'ko' && window.__KO_ROLE) ? (window.__KO_ROLE(r) || r) : r; };
+        tm.querySelectorAll('.threat-target-btn[data-role]').forEach(function(btn) {
+          var r = btn.getAttribute('data-role');
+          if (r) btn.textContent = roleLabel(r);
+        });
+        var threatTitle = document.getElementById('threat-modal-title');
+        var threatInst = document.getElementById('threat-modal-instruction');
+        if (threatTitle) threatTitle.textContent = (window.__LANG === 'ko') ? '위협 대상 선택' : 'SELECT TARGET TO THREATEN';
+        if (threatInst) threatInst.textContent = (window.__LANG === 'ko') ? '대상을 압박해 반응을 본다' : 'Pressure the target to gauge their reaction.';
+        var threatCancel = tm.querySelector('.threat-modal-cancel');
+        if (threatCancel) threatCancel.textContent = (window.__LANG === 'ko') ? '취소' : 'CANCEL';
+      }
+    }
+
+    const logEl = document.getElementById('log');
+    const inputEl = document.getElementById('input');
+    const accuseModal = document.getElementById('accuse-modal');
+    const threatModal = document.getElementById('threat-modal');
+    const resultModal = document.getElementById('result-modal');
+    const resultBox = document.getElementById('result-box');
+
+    function newMatchId() { return 'ep1_' + Date.now() + '_' + Math.random().toString(16).slice(2); }
+    let MATCH_ID = null; // 첫 진입 시 ep1EnsureMatch에서만 생성, 이후 유지
+    let currentTurn = 1;
+    const renderedEventKeys = new Set(); // turn:actor:role:action:summary 기준 중복 방지
+    
+    let history = [];
+    let timeRemaining = 420; // 7 minutes in seconds
+    let gameTimer = null;
+    let autoKillIntervals = [];
+    let deadCrew = []; // Track dead crew members
+    let gameEnded = false;
+    let typingSkipped = false;
+    let currentTypingResolver = null;
+    let isSubmittingCaptainAction = false; // captain 중복 제출 방지
+    let questionInFlight = false; // 승무원 심문 버튼 재진입 차단
+    let lastQuestionDispatchAt = 0;
+    let lastQuestionKey = '';
+    const QUESTION_DEBOUNCE_MS = 800;
+
+    let gamePhase = 'crew_resolving';
+    let currentPhaseActor = null;
+    var pendingCrewBatch = null;
+    /* 상태 분리: captain 입력 잠금(isSubmittingCaptainAction), crew 진행(gamePhase), crew 슬롯 렌더링(updateCrewPlaceholder), alert(kill-glitch)는 서로 독립. crew 응답은 도착 즉시 setTimeout(0)으로 flush. */
+    const PHASE_HINTS = {
+      captain_input: '함장 입력 대기',
+      crew_resolving: '크루 반응 진행 중...',
+      crew_doctor: '닥터 반응 중...',
+      crew_engineer: '엔지니어 로그 확인 중...',
+      crew_navigator: '네비게이터 추궁 중...',
+      crew_pilot: '파일럿 반응 중...',
+      server_update: '상태 갱신 중...',
+      game_over: '게임 종료'
+    };
+    const PHASE_HINTS_EN = {
+      captain_input: 'Awaiting Captain input',
+      crew_resolving: 'Crew responding...',
+      crew_doctor: 'Doctor responding...',
+      crew_engineer: 'Engineer checking logs...',
+      crew_navigator: 'Navigator pressing...',
+      crew_pilot: 'Pilot responding...',
+      server_update: 'Updating state...',
+      game_over: 'Game Over'
+    };
+    const ROLE_LABEL_KO = { captain: '함장', doctor: '닥터', engineer: '엔지니어', navigator: '네비게이터', pilot: '파일럿', system: '시스템' };
+    const ROLE_LABEL_EN = { captain: 'Captain', doctor: 'Doctor', engineer: 'Engineer', navigator: 'Navigator', pilot: 'Pilot', system: 'System' };
+    function getRoleLabel(role) {
+      if (!role) return role || '?';
+      var r = String(role).toLowerCase();
+      return (window.__LANG === 'en') ? (ROLE_LABEL_EN[r] || role) : (ROLE_LABEL_KO[r] || role);
+    }
+    function isKorean(text) { return text && typeof text === 'string' && /[가-힣]/.test(text); }
+    function buildEnglishFromEvent(e, role, fallback) {
+      if (!e || window.__LANG !== 'en') return null;
+      var action = (e.action || '').toUpperCase();
+      var target = (e.target || '').toLowerCase();
+      var r = (role || e.role || '').toLowerCase();
+      var targetLabel = ROLE_LABEL_EN[target] || target;
+      var roleLabel = ROLE_LABEL_EN[r] || r;
+      if (action === 'OBSERVE') {
+        var obs = { doctor: 'Checking reactions.', engineer: 'Checking system logs.', navigator: 'Pressing for the movement timeline.', pilot: 'Sensing something is off.' };
+        return obs[r] || roleLabel + ' is observing.';
+      }
+      if (action === 'QUESTION' && target) {
+        var ask = { doctor: ' asked ' + targetLabel + ' to explain.', engineer: ' asked ' + targetLabel + ' to clarify.', navigator: ' pressed ' + targetLabel + ' for their movements.', pilot: ' asked ' + targetLabel + ' about the atmosphere.' };
+        return roleLabel + (ask[r] || ' asked ' + targetLabel + ' a question.');
+      }
+      if (action === 'CHECK_LOG') {
+        var log = { doctor: 'Checked reactions.', engineer: 'Checked the system logs.', navigator: 'Checked movement records.', pilot: 'Checked logs.' };
+        return (log[r] || roleLabel + ' checked logs.');
+      }
+      if (action === 'REPAIR') return roleLabel + ' is repairing.';
+      if (action === 'WAIT') return roleLabel + ' is waiting.';
+      return fallback || null;
+    }
+    function ensureDisplayEnglish(text, ev, role, fallback) {
+      if (window.__LANG !== 'en') return text;
+      if (!text || !String(text).trim()) return (fallback && fallback[role]) || '—';
+      if (!isKorean(text)) return text;
+      var built = buildEnglishFromEvent(ev, role, null);
+      if (built) return built;
+      return (fallback && fallback[role]) || '—';
+    }
+    function buildEnglishSummary(ev, role, fallback) {
+      if (!ev || window.__LANG !== 'en') return null;
+      var action = (ev.action || ev.event_type || '').toUpperCase();
+      var target = (ev.target || '').toLowerCase();
+      var r = (role || ev.role || '').toLowerCase();
+      var targetLabel = ROLE_LABEL_EN[target] || target;
+      var roleLabel = ROLE_LABEL_EN[r] || r;
+      if (action === 'DEATH') return "Emergency alert: " + roleLabel + "'s biosignal was lost.";
+      if (action === 'OBSERVE') {
+        var obs = { doctor: "Doctor checked the crew's reactions.", engineer: 'Engineer checked the system logs.', navigator: 'Navigator pressed for the movement timeline.', pilot: 'Pilot sensed a shift in the atmosphere.' };
+        return obs[r] || roleLabel + ' observed.';
+      }
+      if (action === 'QUESTION' && target) {
+        var ask = { doctor: ' asked ' + targetLabel + ' to explain.', engineer: ' asked ' + targetLabel + ' to clarify.', navigator: ' pressed ' + targetLabel + ' for their movements.', pilot: ' asked ' + targetLabel + ' about the atmosphere.' };
+        return roleLabel + (ask[r] || ' questioned ' + targetLabel + '.');
+      }
+      if (action === 'CHECK_LOG') {
+        var log = { doctor: "Doctor checked the crew's reactions.", engineer: 'Engineer checked the system logs.', navigator: 'Navigator checked movement records.', pilot: 'Pilot checked logs.' };
+        return log[r] || roleLabel + ' checked logs.';
+      }
+      if (action === 'REPAIR') return roleLabel + ' repaired the system.';
+      if (action === 'WAIT') return roleLabel + ' waited.';
+      if (action === 'TAKE_PISTOL') return 'Captain took the pistol.';
+      if (action === 'FIND_CLUE') return 'Captain collected a clue.';
+      if (action === 'ACCUSE' && target) return 'Captain accused ' + targetLabel + '.';
+      if (/threat|위협/i.test(String(ev.dialogue || '')) && target) return 'Captain threatened ' + targetLabel + '.';
+      if (r === 'captain') {
+        if (action === 'CHECK_LOG') return /cctv|로그/i.test(String(ev.dialogue || ev.summary || '')) ? 'Captain checked the CCTV logs.' : 'Captain checked the engine room.';
+        if (action === 'QUESTION' && target) return 'Captain questioned ' + targetLabel + '.';
+      }
+      return (fallback && fallback[role]) || (roleLabel + ' acted.');
+    }
+    function ensureSummaryEnglish(summary, ev, role, fallback) {
+      if (window.__LANG !== 'en') return summary;
+      if (!summary || !String(summary).trim()) return (SUMMARY_FALLBACK_EN && SUMMARY_FALLBACK_EN[role]) || (fallback && fallback[role]) || '—';
+      if (!isKorean(summary)) return summary;
+      var built = buildEnglishSummary(ev, role, null);
+      if (built) return built;
+      return (SUMMARY_FALLBACK_EN && SUMMARY_FALLBACK_EN[role]) || (fallback && fallback[role]) || '—';
+    }
+    function toRoleLabelKo(text) {
+      if (!text || typeof text !== 'string') return text;
+      if (window.__LANG !== 'ko') return text;
+      var s = text;
+      var map = { doctor: '닥터', engineer: '엔지니어', navigator: '네비게이터', pilot: '파일럿' };
+      for (var key in map) {
+        var re = new RegExp('\\b' + key + '\\b', 'gi');
+        s = s.replace(re, map[key]);
+      }
+      return s;
+    }
+    function setPhase(phase, actor) {
+      gamePhase = phase;
+      currentPhaseActor = actor || null;
+      var phaseKey = phase;
+      if (actor && phase === 'crew_resolving') phaseKey = 'crew_' + actor;
+      var hints = (window.__LANG === 'en') ? PHASE_HINTS_EN : PHASE_HINTS;
+      var statusText = hints[phaseKey] || hints[phase] || hints.captain_input;
+      var statusEl = document.getElementById('phase-status');
+      if (statusEl) statusEl.textContent = statusText;
+      var isCaptainTurn = phase === 'captain_input';
+      var inputRow = document.getElementById('input-row');
+      var sendBtn = document.getElementById('input-send-btn');
+      if (inputEl) {
+        inputEl.disabled = !isCaptainTurn;
+        inputEl.placeholder = hints.captain_input;
+      }
+      if (inputRow) inputRow.classList.toggle('disabled', !isCaptainTurn);
+      if (sendBtn) sendBtn.disabled = !isCaptainTurn;
+      document.querySelectorAll('.action-btn, .accuse-btn-main').forEach(function(btn) { btn.disabled = !isCaptainTurn; });
+    }
+
+    setPhase('crew_resolving'); // 초기: 인트로 전까지 입력 비활성
+
+    // Web Audio API 기반 타이핑/경고 사운드 (mp3 파일 없음)
+    let audioCtx = null;
+    let lastBeepTime = 0;
+    const BEEP_THROTTLE_MS = 50;
+
+    function getAudioContext() {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      return audioCtx;
+    }
+
+    function playBeep(char) {
+      if (char === ' ' || char === '\n') return;
+      const now = Date.now();
+      if (now - lastBeepTime < BEEP_THROTTLE_MS) return;
+      lastBeepTime = now;
+      try {
+        const ctx = getAudioContext();
+        if (ctx.state === 'suspended') ctx.resume();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = 'square';
+        osc.frequency.value = 800 + Math.random() * 400;
+        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.05);
+      } catch (e) {}
+    }
+
+    function playAlarmBeep() {
+      try {
+        const ctx = getAudioContext();
+        if (ctx.state === 'suspended') ctx.resume();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = 'sine';
+        osc.frequency.value = 150;
+        gain.gain.setValueAtTime(0.15, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.3);
+      } catch (e) {}
+    }
+
+    // 화면 클릭 시 타자기 스킵 + 오디오 언락 (브라우저 정책)
+    document.addEventListener('click', () => { typingSkipped = true; });
+
+    document.addEventListener('click', () => { if (typeof resumeAudioOnUserGesture === 'function') resumeAudioOnUserGesture(); }, { once: true });
+
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    function loadImageSafe(src, timeoutMs) {
+      if (timeoutMs == null) timeoutMs = 2000;
+      return new Promise(function(resolve) {
+        var img = new Image();
+        var done = false;
+        function finish(ok) {
+          if (done) return;
+          done = true;
+          resolve({ ok: ok, img: img, src: src });
+        }
+        var t = setTimeout(function() { finish(false); }, timeoutMs);
+        img.onload = function() { clearTimeout(t); finish(true); };
+        img.onerror = function() { clearTimeout(t); finish(false); };
+        img.src = src;
+      });
+    }
+    function drawImageSafe(ctx, result, x, y, w, h) {
+      if (result && result.ok && result.img) ctx.drawImage(result.img, x, y, w, h);
+      else { ctx.fillStyle = '#000'; ctx.fillRect(x, y, w || 1, h || 1); }
+    }
+
+    const introBriefingEl = document.getElementById('intro-briefing');
+    const bootLogEl = document.getElementById('intro-boot-log');
+    const asciiLogoEl = document.getElementById('intro-ascii-logo');
+    const pressEnterEl = document.getElementById('intro-press-enter');
+    const gameContainerEl = document.getElementById('game-container');
+    let introBootDone = false;
+    let introSkipRequested = false;
+    let introExitStarted = false;
+
+    function getBootLines() { return t('intro.bootLines'); }
+
+    async function runBootSequence() {
+      showIntroLogoAndPrompt();
+    }
+
+    function applyIntroWorldLang() {
+      var lang = (window.__LANG === 'ko') ? 'ko' : 'en';
+      var startEn = document.getElementById('intro-start-en');
+      var startKo = document.getElementById('intro-start-ko');
+      if (startEn) startEn.style.display = (lang === 'en') ? 'inline' : 'none';
+      if (startKo) startKo.style.display = (lang === 'ko') ? 'inline' : 'none';
+    }
+    function showIntroLogoAndPrompt() {
+      introBootDone = true;
+      introSkipRequested = false;
+      applyIntroWorldLang();
+      var startBtn = document.getElementById('intro-start-btn');
+      if (startBtn) { startBtn.onclick = function() { startGameFromIntro(); }; }
+    }
+
+    function startGameFromIntro() {
+      if (!introBootDone || introExitStarted) return;
+      introExitStarted = true;
+      introBriefingEl.classList.add('crt-turnoff');
+      setTimeout(function() {
+        introBriefingEl.classList.add('hidden');
+        introBriefingEl.classList.remove('crt-turnoff');
+        gameContainerEl.classList.add('started', 'crt-gameplay');
+        if (window.fitShortsScale) window.fitShortsScale();
+        startActualGame();
+      }, 650);
+    }
+
+    var OPENING_LINES = {
+      ko: [
+        "[시스템 기동…]",
+        "대상 함선: USSC 타르타로스(프로토타입)",
+        "임무: 프로젝트 'HORIZON' — 중력 드라이브 실험",
+        "현 위치: 해왕성 궤도(태양계 외곽)",
+        " ",
+        "[하데스 경보]",
+        "중력 드라이브가 비인가 계층 'HADES'를 깨웠다.",
+        "귀환 신호에 정체 불명의 중첩체가 섞여 들어왔다.",
+        "함장을 제외한 4명의 크루는 현재 함선 각 구역에 분산되어 임무를 수행 중이다.",
+        "통신은 열려 있지만, 누구도 서로의 곁에 있지 않다.",
+        " ",
+        "[주요 목표]",
+        "1. 크루 4명 중 인간을 흉내 내는 중첩체(HOST)를 찾아라.",
+        "2. 시간이 끝나기 전에 중첩체를 처형하라.",
+        "3. 늦으면 중첩체가 고립된 크루를 하나씩 살해한다.",
+        " "
+      ],
+      en: [
+        "[SYSTEM INITIALIZE…]",
+        "Target vessel: USSC Tartarus (Prototype)",
+        "Mission: PROJECT 'HORIZON' — Gravity Drive Test",
+        "Location: Neptune Orbit (Edge of Solar System)",
+        " ",
+        "[HADES ALERT]",
+        "The gravity drive awakened the unauthorized layer known as HADES.",
+        "A parasitic overlap entity slipped into the return signal.",
+        "The four crew members are scattered across the ship, each carrying out their own duties.",
+        "Communications are open, but none of them are standing together.",
+        " ",
+        "[PRIMARY OBJECTIVES]",
+        "1. Identify the HOST hidden among the four crew members.",
+        "2. Eliminate the overlap entity before time runs out.",
+        "3. If you fail, it will isolate and kill the crew one by one.",
+        " "
+      ]
+    };
+    async function startActualGame() {
+      if (typeof pickImposter === 'function') pickImposter();
+      setPhase('captain_input');
+      startGameTimer();
+      if (!window.__interrogateBound) {
+        window.__interrogateBound = true;
+        var ib = document.getElementById('interrogate-btn');
+        if (ib) {
+          ib.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
+            sendInterrogateClick(ev, ib);
+          }, { capture: true, passive: false });
+        }
+      }
+      var lang = (window.__LANG === 'ko') ? 'ko' : 'en';
+      var lines = OPENING_LINES[lang] || OPENING_LINES.ko;
+      for (var i = 0; i < lines.length; i++) {
+        var ln = lines[i];
+        if (ln === " ") {
+          printLine(" ", "line");
+        } else if (/^\[하데스 경보\]|^\[HADES ALERT\]/.test(ln)) {
+          printLine(ln, "role-alert");
+        } else {
+          printLine(ln, "role-system");
+        }
+      }
+      await ep1EnsureMatch();
+    }
+
+    function resumeAudioOnUserGesture() {
+      const ctx = getAudioContext();
+      if (ctx.state === 'suspended') ctx.resume();
+    }
+
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && introBriefingEl && !introBriefingEl.classList.contains('hidden')) {
+        resumeAudioOnUserGesture();
+        if (introBootDone) startGameFromIntro();
+        else introSkipRequested = true;
+      }
+    });
+
+    document.addEventListener('click', function(e) {
+      if (introBriefingEl && !introBriefingEl.classList.contains('hidden')) {
+        if (e.target.closest('.intro-lang-row')) return;
+        resumeAudioOnUserGesture();
+        if (introBootDone) startGameFromIntro();
+        else introSkipRequested = true;
+      }
+    }, { capture: true });
+
+    function runInitialUI() {
+      if (window.__BOOT_DONE__) return;
+      window.__BOOT_DONE__ = true;
+      applyLocale();
+      if (typeof applyIntroWorldLang === 'function') applyIntroWorldLang();
+      runBootSequence();
+    }
+    var imgList = Array.prototype.slice.call(document.querySelectorAll('img[src]')).map(function(img) { return img.src; });
+    Promise.all(imgList.map(function(src) { return loadImageSafe(src); })).then(runInitialUI);
+    setTimeout(runInitialUI, 2500);
+
+    // Game Timer and Auto-Kill System (7 min total, auto-kill at 4:00 and 1:00 remaining)
+    var GAME_TOTAL_SEC = 420;
+    var AUTO_KILL_AT_REMAINING = [240, 60]; // 4:00, 1:00
+    var autoKillFiredAt = [];
+    function startGameTimer() {
+      const timerEl = document.getElementById('countdown-timer');
+      timeRemaining = GAME_TOTAL_SEC;
+      autoKillFiredAt = [];
+      gameTimer = setInterval(function() {
+        if (gameEnded) return;
+        timeRemaining--;
+        var minutes = Math.floor(timeRemaining / 60);
+        var seconds = timeRemaining % 60;
+        var timerText = t('game.timerPrefix') + minutes + ':' + String(seconds).padStart(2, '0');
+        if (timerEl) timerEl.textContent = timerText;
+        var shortsCountdown = document.getElementById('shorts-countdown');
+        if (shortsCountdown && document.body.classList.contains('shorts-mode')) shortsCountdown.textContent = timerText;
+        var rem = timeRemaining;
+        if (AUTO_KILL_AT_REMAINING.indexOf(rem) >= 0 && autoKillFiredAt.indexOf(rem) < 0) {
+          autoKillFiredAt.push(rem);
+          triggerAutoKill();
+        }
+        if (timeRemaining <= 0) {
+          if (gameTimer) clearInterval(gameTimer);
+          triggerTotalFailure();
+        }
+      }, 1000);
+    }
+
+    var AUTO_KILL_ZONE_KO = { doctor: '의무실', engineer: '엔진실', navigator: '항해실', pilot: '조종실' };
+    var AUTO_KILL_ZONE_EN = { doctor: 'Medical Bay', engineer: 'Engine Room', navigator: 'Navigation', pilot: 'Cockpit' };
+    var ROLE_CAPITAL = { doctor: 'Doctor', engineer: 'Engineer', navigator: 'Navigator', pilot: 'Pilot' };
+    function getAutoKillMessage(victimRole) {
+      var zoneMap = (window.__LANG === 'ko') ? AUTO_KILL_ZONE_KO : AUTO_KILL_ZONE_EN;
+      var zone = zoneMap[victimRole] || victimRole;
+      var roleLabel = (window.__LANG === 'en') ? (ROLE_LABEL_EN && ROLE_LABEL_EN[victimRole]) || ROLE_CAPITAL[victimRole] || victimRole : (ROLE_LABEL_KO && ROLE_LABEL_KO[victimRole]) || ROLE_CAPITAL[victimRole] || victimRole;
+      if (window.__LANG === 'ko') {
+        return zone + '에서 생체신호가 소실됐다. ' + roleLabel + ' — 응답 없음.\n목격자 없음. 마지막 통신 이후 로그 공백만 남아 있다.';
+      }
+      return 'Bio signal lost in ' + zone + '. ' + roleLabel + ' — no response.\nNo witnesses. Only log gaps after last communication.';
+    }
+    async function triggerAutoKill() {
+      if (gameEnded) return;
+      var impostor = (typeof pickImposter === 'function') ? pickImposter() : null;
+      var impostorLower = impostor ? String(impostor).toLowerCase() : null;
+      var aliveRoles = CREW_ROLES.filter(function(r) {
+        return !isRoleDead(r, deadCrew) && (!impostorLower || r !== impostorLower);
+      });
+      if (aliveRoles.length === 0) {
+        triggerTotalFailure();
+        return;
+      }
+      var victimRole = aliveRoles[Math.floor(Math.random() * aliveRoles.length)];
+      var victimCap = ROLE_CAPITAL[victimRole] || victimRole;
+      deadCrew.push(victimCap);
+      setPhase('crew_resolving');
+      var glitchEl = document.getElementById('kill-glitch');
+      var messageEl = document.getElementById('kill-message-text');
+      if (window.__killGlitchTimer) { clearTimeout(window.__killGlitchTimer); window.__killGlitchTimer = null; }
+      var killMsg = (window.__LANG === 'ko') ? '[긴급 경보]\n' + victimCap + ' 생체신호 소실' : '[EMERGENCY ALERT]\n' + victimCap.toUpperCase() + ' BIO SIGNAL LOST';
+      if (messageEl) messageEl.textContent = killMsg;
+      if (glitchEl) glitchEl.classList.add('active');
+      printLine((window.__LANG === 'ko') ? '[긴급 경보]' : '[EMERGENCY ALERT]', "role-alert");
+      var alertLines = getAutoKillMessage(victimRole).split('\n');
+      for (var i = 0; i < alertLines.length; i++) {
+        if (alertLines[i].trim()) printLine(alertLines[i], "role-system");
+      }
+      if (typeof playAlarmBeep === 'function') playAlarmBeep();
+      try {
+        var deathPayload = { action: 'DEATH', target: victimRole, reason: 'auto_kill', dialogue: '' };
+        await ep1CallAction(deathPayload, { deadCrew: deadCrew });
+        if (window.__killGlitchTimer) clearTimeout(window.__killGlitchTimer);
+        window.__killGlitchTimer = setTimeout(function() { if (glitchEl) glitchEl.classList.remove('active'); window.__killGlitchTimer = null; }, 650);
+        if (deadCrew.length >= 4) {
+          setTimeout(triggerTotalFailure, 2000);
+        } else {
+          setPhase('captain_input');
+        }
+      } catch (err) {
+        printLine('[ERROR] ' + err.message, "role-alert");
+        if (glitchEl) glitchEl.classList.remove('active');
+        setPhase('captain_input');
+      }
+    }
+
+    async function requestWitnessTestimony(victim, aliveCrew) {
+      return; /* legacy disabled */
+      if (gameEnded || aliveCrew.length === 0) return;
+
+      const crewList = (window.GAME_DATA && window.GAME_DATA.crew) ? window.GAME_DATA.crew : ['Navigator', 'Engineer', 'Doctor', 'Pilot'];
+      const witnessCandidates = crewList.filter(function (c) { return !deadCrew.includes(c) && c !== victim; });
+      if (witnessCandidates.length === 0) return;
+
+      const witness = witnessCandidates[Math.floor(Math.random() * witnessCandidates.length)];
+      printLine('[WITNESS TESTIMONY INCOMING]', "witness-alert");
+
+      var witnessLine = null;
+      var testimonies = (window.GAME_DATA && window.GAME_DATA.witnessTestimonies && window.GAME_DATA.witnessTestimonies[witness]) || [];
+      if (Array.isArray(testimonies) && testimonies.length > 0) {
+        var ok = testimonies.filter(function (l) {
+          var s = String(l || '').trim();
+          if (!s || s.indexOf(':') < 0) return false;
+          var speaker = s.split(':')[0].trim();
+          return !deadCrew.some(function (d) { return String(d).toLowerCase() === String(speaker).toLowerCase(); });
+        });
+        var pool = ok.length > 0 ? ok : testimonies;
+        witnessLine = pool[Math.floor(Math.random() * pool.length)];
+      }
+      if (witnessLine) {
+        typingSkipped = false;
+        await printLine(witnessLine, "witness-testimony", { typewriter: true });
+      }
+      history.push({ role: "assistant", content: witnessLine ? ('[WITNESS TESTIMONY INCOMING]\n' + witnessLine) : '[WITNESS TESTIMONY INCOMING]' });
+      setPhase('captain_input');
+    }
+
+    function triggerTotalFailure() {
+      if (gameEnded) return;
+      gameEnded = true;
+      if (gameTimer) clearInterval(gameTimer);
+      printLine(t('system.totalFailure'), "role-alert");
+      printLine(t('system.allTerminated'), "role-system");
+      printLine(t('system.missionFailed'), "role-system");
+      setTimeout(async function() {
+        var impostorVal = null;
+        var extra = null;
+        if (MATCH_ID) {
+          try {
+            var impostor = (typeof pickImposter === 'function') ? pickImposter() : null;
+            var impostorLower = impostor ? String(impostor).toLowerCase() : null;
+            var stillAlive = CREW_ROLES.filter(function(r) { return !isRoleDead(r, deadCrew); });
+            for (var i = 0; i < stillAlive.length; i++) {
+              var r = stillAlive[i];
+              if (impostorLower && r === impostorLower) continue;
+              try {
+                await ep1CallAction({ action: 'DEATH', target: r, reason: 'timeout', dialogue: '' }, { deadCrew: deadCrew });
+                deadCrew.push(ROLE_CAPITAL[r] || r);
+              } catch (e) {}
+            }
+            var resData = await ep1CallResult({ client_ended: true });
+            impostorVal = resData.true_impostor || resData.actual_imposter || resData.impostor || resData.hidden_host || resData.culprit || null;
+            if (impostorVal && typeof impostorVal === 'string' && impostorVal.trim() === '') impostorVal = null;
+            if (!impostorVal && typeof pickImposter === 'function') impostorVal = pickImposter();
+            extra = {
+              outcome_reason: resData.outcome_reason || 'timeout',
+              winner_side: resData.winner_side || 'impostor',
+              loser_side: resData.loser_side || 'crew'
+            };
+          } catch (e) {}
+        }
+        showResult('defeat', 'TOTAL SYSTEM FAILURE. All crew members terminated.', impostorVal, extra);
+      }, 2000);
+    }
+
+    // 클래스 결정 헬퍼
+    function getLineClass(text, className) {
+      let base = "line";
+      if (text.startsWith("Navigator:")) base = "role-navigator";
+      else if (text.startsWith("Engineer:")) base = "role-engineer";
+      else if (text.startsWith("Doctor:")) base = "role-doctor";
+      else if (text.startsWith("Pilot:")) base = "role-pilot";
+      else if (text.startsWith("[ALERT]")) base = "role-alert";
+      else if (text.includes("[SYSTEM]")) base = "role-system";
+      else if (text.startsWith(">")) base = "role-user";
+      else if (text.includes("[WITNESS TESTIMONY INCOMING]")) base = "witness-alert";
+      else if (className) base = className;
+      if (className === "witness-testimony" && base !== "witness-testimony") base += " witness-testimony";
+      return base;
+    }
+
+    function getRoleClass(role) {
+      var r = (role || '').toLowerCase();
+      if (r === 'captain') return 'role-user';
+      if (r === 'doctor') return 'role-doctor';
+      if (r === 'engineer') return 'role-engineer';
+      if (r === 'navigator') return 'role-navigator';
+      if (r === 'pilot') return 'role-pilot';
+      if (r === 'system') return 'role-system';
+      return 'role-system';
+    }
+    function printDialogueLine(role, dialogue, summary, eventKey, eventData) {
+      var main = dialogue || summary || '';
+      if (!main) return Promise.resolve();
+      var isCapQContent = (typeof isCaptainQuestionRaw === 'function' && isCaptainQuestionRaw(main)) || (typeof isCaptainQuestionSummary === 'function' && isCaptainQuestionSummary(main));
+      if ((role === 'captain' || isCapQContent) && typeof hasCaptainQuestionRenderedForTurn === 'function' && hasCaptainQuestionRenderedForTurn(currentTurn || 1)) {
+        return Promise.resolve();
+      }
+      var label = getRoleLabel(role);
+      if (window.__LANG === 'en') {
+        main = ensureDisplayEnglish(main, eventData, role, CREW_FALLBACK_EN);
+        if (summary) summary = ensureSummaryEnglish(summary, eventData, role, SUMMARY_FALLBACK_EN);
+      } else if (typeof toRoleLabelKo === 'function') { main = toRoleLabelKo(main); if (summary) summary = toRoleLabelKo(summary); }
+      var roleClass = getRoleClass(role);
+      var div = document.createElement('div');
+      div.className = 'dialogue-line line';
+      if (eventKey) div.setAttribute('data-event-key', eventKey);
+      var speaker = document.createElement('div');
+      speaker.className = 'dialogue-speaker ' + roleClass;
+      speaker.textContent = '[' + label + ']';
+      var text = document.createElement('div');
+      text.className = 'dialogue-text ' + roleClass;
+      text.textContent = main;
+      div.appendChild(speaker);
+      div.appendChild(text);
+      if (summary && main === dialogue) {
+        var sub = document.createElement('div');
+        sub.className = 'dialogue-summary';
+        sub.textContent = summary;
+        div.appendChild(sub);
+      }
+      logEl.appendChild(div);
+      logEl.scrollTop = logEl.scrollHeight;
+      if (window.fitShortsScale) window.fitShortsScale();
+      return Promise.resolve();
+    }
+    function updateDialogueLineByKey(eventKey, role, mainText, summary) {
+      if (!eventKey || !logEl) return;
+      var rows = logEl.querySelectorAll('.dialogue-line[data-event-key]');
+      var row = null;
+      for (var j = 0; j < rows.length; j++) {
+        if (rows[j].getAttribute('data-event-key') === eventKey) { row = rows[j]; break; }
+      }
+      if (!row) return;
+      var textEl = row.querySelector('.dialogue-text');
+      var subEl = row.querySelector('.dialogue-summary');
+      var dispMain = mainText;
+      var dispSumm = summary;
+      if (window.__LANG === 'en') {
+        dispMain = ensureDisplayEnglish(dispMain || '', null, role, CREW_FALLBACK_EN);
+        if (dispSumm) dispSumm = ensureSummaryEnglish(dispSumm, null, role, SUMMARY_FALLBACK_EN);
+      } else if (typeof toRoleLabelKo === 'function') { dispMain = toRoleLabelKo(dispMain || ''); if (dispSumm) dispSumm = toRoleLabelKo(dispSumm); }
+      if (textEl) textEl.textContent = dispMain || '';
+      if (subEl) {
+        if (dispSumm && dispMain) { subEl.textContent = dispSumm; subEl.style.display = ''; }
+        else subEl.style.display = 'none';
+      } else if (dispSumm && dispMain) {
+        var sub = document.createElement('div');
+        sub.className = 'dialogue-summary';
+        sub.textContent = dispSumm;
+        row.appendChild(sub);
+      }
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    // 경고/사망 시 화면 글리치 & 쉐이크
+    function triggerVisualShock() {
+      playAlarmBeep();
+      document.body.classList.add('body-shake');
+      const glitchEl = document.getElementById('red-glitch-overlay');
+      glitchEl.classList.add('active');
+      setTimeout(() => {
+        document.body.classList.remove('body-shake');
+        glitchEl.classList.remove('active');
+      }, 500);
+    }
+
+    // ★ 2. 텍스트 출력 함수 (타자기 효과 포함) ★
+    function printLine(text, className, options = {}) {
+      if (!text) return Promise.resolve();
+      const finalClass = getLineClass(text, className) + (className === "witness-testimony" ? " witness-testimony" : "");
+      var origText = text; // PATCH
+      var crewMatch = text.match(/^(Navigator|Engineer|Doctor|Pilot):\s*(.+)$/); // PATCH
+      if (crewMatch) { // PATCH
+        var role = crewMatch[1], msg = crewMatch[2]; // PATCH
+        const __origLine = text; // PATCH
+        const __isKo = (window.__LANG === 'ko'); // PATCH
+        let __displayRole = role; // PATCH
+        let __displayMsg = msg; // PATCH
+        if (__isKo) { // PATCH
+          const ROLE_KO = { Navigator:'네비게이터', Engineer:'엔지니어', Doctor:'닥터', Pilot:'파일럿' }; // PATCH
+          __displayRole = ROLE_KO[role] || role; // PATCH
+          if (window.__KO_TRANSLATE) { // PATCH
+            const whole = role + ': ' + msg; // PATCH
+            const wholeKo = window.__KO_TRANSLATE(whole) || whole; // PATCH
+            const idx = wholeKo.indexOf(':'); // PATCH
+            if (idx >= 0) __displayMsg = wholeKo.slice(idx + 1).trim(); // PATCH
+          } else if (window.__KO_MAP && window.__KO_MAP[role + ': ' + msg] !== undefined) { // PATCH
+            const wholeKo = window.__KO_MAP[role + ': ' + msg]; // PATCH
+            const idx = wholeKo.indexOf(':'); // PATCH
+            if (idx >= 0) __displayMsg = wholeKo.slice(idx + 1).trim(); // PATCH
+          } // PATCH
+          if (typeof toRoleLabelKo === 'function') __displayMsg = toRoleLabelKo(__displayMsg); // PATCH
+        } else if (window.__LANG === 'en' && isKorean(msg)) { // PATCH: EN mode, Korean crew msg -> English fallback
+          var rl = (role || '').toLowerCase();
+          var CREW_MSG_EN = { doctor: 'Checking reactions.', engineer: 'Checking system logs.', navigator: 'Pressing for the movement timeline.', pilot: 'Sensing something is off.' };
+          __displayMsg = CREW_MSG_EN[rl] || (role + ' responded.');
+        } // PATCH
+        text = __displayRole + ': ' + __displayMsg; // PATCH
+      } else if (!(className === 'role-user' && /^>\s/.test(text))) { // PATCH
+        if (window.__LANG === 'ko') { // PATCH
+          if (window.__KO_TRANSLATE) text = window.__KO_TRANSLATE(text) || text; // PATCH
+          else if (window.__KO_MAP && window.__KO_MAP[text] !== undefined) text = window.__KO_MAP[text]; // PATCH
+          if (window.__KO_TRANSLATE_FRAGMENTS && /\[EMERGENCY ALERT\]|\[긴급 경보\]/i.test(text)) { // PATCH: 긴급 경보 조각 한 번 더 적용
+            text = window.__KO_TRANSLATE_FRAGMENTS(text) || text; // PATCH
+          } // PATCH
+          if (typeof toRoleLabelKo === 'function') text = toRoleLabelKo(text); // PATCH
+        } else if (window.__LANG === 'en' && isKorean(text)) { // PATCH: 영어 모드에서 한국어 숨김
+          if (/\[긴급 경보\]|\[EMERGENCY ALERT\]/i.test(text)) text = text.replace(/\[긴급 경보\]/g, '[EMERGENCY ALERT]');
+          else if (/^\[ERROR\]/.test(text)) text = '[ERROR] System error.';
+          else if (className === 'role-alert') text = '[ALERT]';
+          else if (className === 'role-user') text = 'Captain input.';
+          else text = 'System update.';
+        } // PATCH
+      } // PATCH
+      const useTypewriter = options.typewriter === true;
+
+      // PATCH: primary evidence -> shorts KEY EVIDENCE panel
+      if (document.body.classList.contains('shorts-mode')) {
+        var el1 = document.getElementById('shorts-evidence-line1');
+        var el2 = document.getElementById('shorts-evidence-line2');
+        if (el1 && el2) {
+          if (/\[SYSTEM\] Access log/i.test(origText)) el1.textContent = text;
+          else if (/Checksum mismatch on/i.test(origText)) el2.textContent = text;
+        }
+      }
+
+      // 사망/경고 시 화면 글리치 & 쉐이크
+      if (/\[EMERGENCY ALERT\]|\[System Failure\]|\[TOTAL SYSTEM FAILURE\]/i.test(text)) {
+        triggerVisualShock();
+      }
+
+      const div = document.createElement('div');
+      div.className = "line " + finalClass;
+      if (/^\[하데스 경보\]$|^\[HADES ALERT\]$/.test(String(text).trim())) div.classList.add('hades-alert-label');
+      logEl.appendChild(div);
+
+      if (useTypewriter) {
+        return printLineWithTypewriter(div, text).then(function(){ if(window.fitShortsScale)window.fitShortsScale(); }); // PATCH: 화면 갱신 후 fit
+      } else {
+        div.innerText = text;
+        logEl.scrollTop = logEl.scrollHeight;
+        if(window.fitShortsScale)window.fitShortsScale(); // PATCH
+        return Promise.resolve();
+      }
+    }
+
+    // 타자기 효과 (한 글자씩 10~15ms)
+    function printLineWithTypewriter(div, text) {
+      return new Promise(resolve => {
+        typingSkipped = false;
+        const cursor = document.createElement('span');
+        cursor.className = 'typing-cursor';
+        div.appendChild(cursor);
+        let idx = 0;
+        const CHAR_DELAY = 10;
+
+        function typeNext() {
+          if (typingSkipped || idx >= text.length) {
+            cursor.remove();
+            div.innerText = text;
+            logEl.scrollTop = logEl.scrollHeight;
+            resolve();
+            return;
+          }
+          div.insertBefore(document.createTextNode(text[idx]), cursor);
+          playBeep(text[idx]);
+          idx++;
+          logEl.scrollTop = logEl.scrollHeight;
+          setTimeout(typeNext, CHAR_DELAY);
+        }
+        typeNext();
+      });
+    }
+
+    async function sendMessage(text) {
+      if (gameEnded) return;
+      if (isSubmittingCaptainAction) return;
+      var isFromInput = (typeof text !== 'string' || text === '');
+      var raw = isFromInput ? (inputEl.value || '').trim() : String(text).trim();
+      if (!raw) return;
+
+      isSubmittingCaptainAction = true;
+      var captainPayload;
+      if (isFromInput) {
+        captainPayload = buildPayloadFromUserInput(raw);
+      } else {
+        captainPayload = buildPayloadFromPreset(raw);
+      }
+      if (!captainPayload) { isSubmittingCaptainAction = false; return; }
+      setPhase('crew_resolving');
+      var captainDisplay = (typeof formatCaptainDisplay === 'function') ? formatCaptainDisplay(captainPayload.dialogue || raw, captainPayload) : (captainPayload.dialogue || raw);
+      printDialogueLine('captain', captainDisplay, null);
+      if (captainPayload.action === 'QUESTION') {
+        var capQKey = captainQuestionDedupeKey(currentTurn || 1, captainPayload.target, captainDisplay);
+        renderedEventKeys.add(capQKey);
+      }
+      inputEl.value = '';
+      history.push({ role: "user", content: raw });
+
+      try {
+        var opts = { captainPayload: captainPayload };
+        var data = await runEp1Flow(raw, deadCrew, opts);
+        var displayText = data.resultText || data.result || '';
+
+        var deathMatch = displayText.match(/\[EMERGENCY ALERT\].*?(Navigator|Engineer|Doctor|Pilot)/i);
+        if (deathMatch && deadCrew.indexOf(deathMatch[1]) < 0) deadCrew.push(deathMatch[1]);
+
+        history.push({ role: "assistant", content: displayText });
+
+        if (data.isGameOver === true) {
+          gameEnded = true;
+          var isVictory = data.state === 'victory' || data.outcome === 'victory' || data.outcome === 'crew_win';
+          var extra = { outcome_reason: data.outcome_reason, winner_side: data.winner_side, loser_side: data.loser_side };
+          setTimeout(function() { showResult(isVictory ? 'victory' : 'defeat', displayText, data.actualImposter, extra); }, 800);
+        } else if (data.state === 'victory' || data.state === 'defeat') {
+          if (raw.indexOf('[ACCUSE]') === 0) {
+            var accused = raw.replace(/^\[ACCUSE\]/i, '').trim();
+            if (accused && deadCrew.indexOf(accused) < 0) deadCrew.push(accused);
+          }
+          var extra2 = { outcome_reason: data.outcome_reason, winner_side: data.winner_side, loser_side: data.loser_side };
+          setTimeout(function() { showResult(data.state, displayText || '', data.actualImposter, extra2); }, 1000);
+        } else {
+          setPhase('captain_input');
+        }
+      } catch (err) {
+        printLine('[ERROR] ' + err.message, "role-alert");
+        setPhase('captain_input');
+      } finally {
+        isSubmittingCaptainAction = false;
+        if (!gameEnded && gamePhase === 'crew_resolving') setPhase('captain_input');
+      }
+    }
+
+    inputEl.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+
+    // 모달 제어 - 사상자 처리: 살아있는 인물만 버튼에 표시
+    function openAccuseModal() {
+      if (gameEnded) return;
+
+      console.log('[ACCUSE MODAL] deadCrew=', deadCrew);
+
+      const crewList = (window.GAME_DATA && window.GAME_DATA.crew) ? window.GAME_DATA.crew : ['Navigator', 'Engineer', 'Doctor', 'Pilot'];
+      const buttons = accuseModal.querySelectorAll('.target-btn[data-role]');
+      var roleLabel = function(r) { return (window.__LANG === 'ko' && window.__KO_ROLE) ? (window.__KO_ROLE(r) || r) : r; };
+      buttons.forEach(function (btn) {
+        const role = btn.getAttribute('data-role');
+        if (deadCrew.includes(role)) {
+          btn.style.display = 'none';
+        } else {
+          btn.style.display = 'block';
+          btn.disabled = false;
+          btn.style.opacity = '1';
+          btn.style.cursor = 'pointer';
+          btn.textContent = roleLabel(role);
+        }
+      });
+
+      accuseModal.classList.add('active');
+    }
+    function closeAccuseModal() { accuseModal.classList.remove('active'); }
+    
+    function triggerAccuse(target) {
+      if (gameEnded) return;
+      closeAccuseModal();
+      sendMessage(`[ACCUSE] ${target}`);
+    }
+
+    function openThreatModal() {
+      if (gameEnded) return;
+      var roleLabel = function(r) { return (window.__LANG === 'ko' && window.__KO_ROLE) ? (window.__KO_ROLE(r) || r) : r; };
+      threatModal.querySelectorAll('.threat-target-btn[data-role]').forEach(function(btn) {
+        var role = btn.getAttribute('data-role');
+        if (deadCrew.includes(role)) {
+          btn.style.display = 'none';
+        } else {
+          btn.style.display = 'block';
+          btn.disabled = false;
+          btn.style.opacity = '1';
+          btn.style.cursor = 'pointer';
+          btn.textContent = roleLabel(role);
+        }
+      });
+      threatModal.classList.add('active');
+    }
+    function closeThreatModal() { threatModal.classList.remove('active'); }
+    function triggerThreat(target) {
+      if (gameEnded) return;
+      closeThreatModal();
+      var msg = getThreatMessage(target);
+      sendMessage(msg);
+    }
+
+    function showResult(state, message, actualImposter, extra) {
+      gameEnded = true;
+      setPhase('game_over'); // game over lock
+      if (gameTimer) clearInterval(gameTimer);
+      
+      // Disable all buttons
+      document.querySelectorAll('.action-btn, .accuse-btn-main').forEach(btn => {
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+        btn.style.cursor = 'not-allowed';
+      });
+      
+      // resultType 먼저 계산 (클래스 분기에서 사용)
+      var outcomeReason = (extra && extra.outcome_reason) ? String(extra.outcome_reason) : '';
+      var winnerSide = (extra && extra.winner_side) ? String(extra.winner_side) : '';
+      var isCrewWin = (state === 'victory') || (winnerSide === 'crew') || (outcomeReason === 'impostor_killed');
+      var isTimeout = (outcomeReason === 'timeout');
+      var resultType = isCrewWin ? 'crew_win' : (isTimeout ? 'timeout' : 'accuse_failed');
+      
+      // 결과창에 승리/패배 클래스 적용 (기존 구분 클래스 제거 후 추가)
+      resultModal.classList.remove('modal-victory', 'modal-defeat');
+      if (state === 'victory' || resultType === 'crew_win') {
+        resultModal.classList.add('modal-victory');
+      } else {
+        resultModal.classList.add('modal-defeat');
+      }
+      resultModal.classList.add('active');
+      
+      const title = document.getElementById('result-title');
+      const desc = document.getElementById('result-desc');
+      const imposterEl = document.getElementById('result-imposter');
+      const outcomeDetailEl = document.getElementById('result-outcome-detail');
+      const keyEvidenceEl = document.getElementById('result-key-evidence'); // PATCH
+      
+      var traitorName = (actualImposter && String(actualImposter).trim() !== '') ? String(actualImposter).trim() : null;
+      if (!traitorName && window.__match_config) {
+        traitorName = (window.__match_config.impostorRole || window.__match_config.impostor_role) || null;
+        if (traitorName) traitorName = String(traitorName).trim() || null;
+      }
+      if (!traitorName && message) {
+        var match = String(message).match(/Identity Code\s*:\s*\[(.*?)\]/i) || String(message).match(/\[REAL_IMPOSTER:\s*([^\]]+)\]/i);
+        if (match) traitorName = match[1].trim() || null;
+      }
+      traitorName = traitorName || 'Unknown';
+      if (window.__LANG === 'en' && isKorean(traitorName)) {
+        var rn = traitorName.toLowerCase();
+        traitorName = ROLE_LABEL_EN[rn] || traitorName;
+      }
+
+      // KEY EVIDENCE: primary.keyEvidence 또는 primary.lines 상위 2줄 // PATCH
+      let keyEvidenceText = '';
+      const cfg = window.__match_config;
+      if (cfg?.primary?.keyEvidence) { // PATCH
+        const k = cfg.primary.keyEvidence;
+        const arr = Array.isArray(k) ? k : String(k).split('\n');
+        keyEvidenceText = arr.slice(0, 2).join('\n');
+      } else if (cfg?.primary?.lines && Array.isArray(cfg.primary.lines)) { // PATCH
+        keyEvidenceText = cfg.primary.lines.slice(0, 2).join('\n');
+      }
+      if (keyEvidenceText) {
+        var lines = keyEvidenceText.split('\n');
+        lines = lines.map(function(l){
+          if (window.__LANG === 'en' && isKorean(l)) return 'Key evidence recorded.';
+          return tLine(l);
+        }); // PATCH
+        keyEvidenceEl.textContent = 'KEY EVIDENCE:\n' + lines.join('\n'); // PATCH
+        keyEvidenceEl.style.display = 'block'; // PATCH
+      } else {
+        keyEvidenceEl.style.display = 'none';
+      }
+
+      var isKo = window.__LANG === 'ko';
+      var RESULT_DESC = {
+        ko: { crew_win: '중첩체가 제거됐다. 하데스 계층이 봉인됐다. 함선은 살아남았다.', timeout: '시간이 다 됐다. 중첩체는 끝까지 발각되지 않았다. 함선은 하데스의 것이 됐다.', accuse_failed: '무고한 승무원이 처형당했습니다. 함선 파괴됨.' },
+        en: { crew_win: 'The parasite has been eliminated. HADES layer sealed. The ship survives.', timeout: "Time's up. The parasite was never found. The ship belongs to HADES now.", accuse_failed: 'Innocent crew member executed. Ship destroyed.' }
+      };
+      var RESULT_TITLE = {
+        ko: { crew_win: '임무 완료.', defeat: '미션 실패. 승무원 전원 사망.' },
+        en: { crew_win: 'MISSION ACCOMPLISHED.', defeat: 'MISSION FAILED. CREW TERMINATED.' }
+      };
+      var lang = isKo ? 'ko' : 'en';
+      var rd = RESULT_DESC[lang];
+      var rt = RESULT_TITLE[lang];
+      if (resultType === 'crew_win') {
+        title.innerText = rt.crew_win;
+        desc.innerText = rd.crew_win;
+        imposterEl.innerHTML = t('result.victory.imposterPrefix') + `<strong>${tLine(traitorName)}</strong>`;
+        imposterEl.style.display = "block";
+      } else {
+        title.innerText = rt.defeat;
+        desc.innerText = (resultType === 'timeout') ? rd.timeout : rd.accuse_failed;
+        imposterEl.innerHTML = t('result.defeat.imposterPrefix') + `<strong>${tLine(traitorName)}</strong>`;
+        imposterEl.style.display = "block";
+      }
+
+      if (outcomeDetailEl && extra && (extra.outcome_reason || extra.winner_side || extra.loser_side)) {
+        var parts = [];
+        var or = extra.outcome_reason ? String(extra.outcome_reason) : '';
+        var ws = extra.winner_side ? String(extra.winner_side) : '';
+        var ls = extra.loser_side ? String(extra.loser_side) : '';
+        if (window.__LANG === 'en') {
+          if (isKorean(or)) or = 'impostor_killed'; else if (or === 'timeout') or = "Time's up"; else if (or === 'accuse_failed') or = 'Wrong accusation';
+          if (isKorean(ws)) ws = 'crew'; else if (ws === 'impostor') ws = 'impostor';
+          if (isKorean(ls)) ls = 'impostor'; else if (ls === 'crew') ls = 'crew';
+        }
+        if (extra.outcome_reason) parts.push((window.__LANG === 'ko' ? '사유: ' : 'Reason: ') + or);
+        if (extra.winner_side) parts.push((window.__LANG === 'ko' ? '승리: ' : 'Winner: ') + ws);
+        if (extra.loser_side) parts.push((window.__LANG === 'ko' ? '패배: ' : 'Loser: ') + ls);
+        outcomeDetailEl.textContent = parts.join('  |  ');
+        outcomeDetailEl.style.display = 'block';
+      } else if (outcomeDetailEl) {
+        outcomeDetailEl.style.display = 'none';
+      }
+    }
+
+    // ===== expose UI handlers to window (no logic changes) =====
+    window.sendMessage = sendMessage;
+    window.sendInterrogateClick = sendInterrogateClick;
+    window.openAccuseModal = openAccuseModal;
+    window.triggerAccuse = triggerAccuse;
+    window.closeAccuseModal = closeAccuseModal;
+    window.openThreatModal = openThreatModal;
+    window.closeThreatModal = closeThreatModal;
+    window.triggerThreat = triggerThreat;
+    if (typeof closeModal === "function") window.closeModal = closeModal;
+    if (typeof submitAccusation === "function") window.submitAccusation = submitAccusation;
+    if (typeof confirmAccuse === "function") window.confirmAccuse = confirmAccuse;
+    if (typeof handleInput === "function") window.handleInput = handleInput;
+    if (typeof startGame === "function") window.startGame = startGame;
+    console.log("[BOOT] window bindings:", {
+      sendMessage: typeof window.sendMessage,
+      openAccuseModal: typeof window.openAccuseModal,
+    });
+    }
+    (function runWhenReady() {
+      if (document.readyState === "loading") { document.addEventListener("DOMContentLoaded", runWhenReady); return; }
+      var n = 0;
+      function go() {
+        if ((window.GAME_DATA !== undefined && window.textData !== undefined) || n > 200) {
+          setTimeout(function() {
+            if (!window.__BOOT_DONE__) {
+              document.body.innerHTML += "<div style='position:fixed;top:0;left:0;color:red;background:black;z-index:9999;padding:20px;'><h3>🚫 BOOT STUCK</h3>이미지 로딩이나 초기화에서 멈췄습니다.<br>Network 탭에서 404를 확인하세요.</div>";
+            }
+          }, 4000);
+          start();
+        } else { n++; setTimeout(go, 50); }
+      }
+      go();
+    })();
+  </script>
+</body>
+</html>
