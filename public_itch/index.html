@@ -1097,15 +1097,7 @@
       if (!window.GAME_DATA) { window.showFatal("GAME_DATA missing: check game-data.js path or load order (Network에서 game-data.js 200/404 확인)"); return; }
       var GAME_DATA = window.GAME_DATA;
       if (!window.textData || typeof window.t !== 'function') { window.showFatal("locales.js missing: check locales.js path or load order (textData/t)"); return; }
-    var API_BASE = (function() {
-      var h = location.hostname || '';
-      var p = location.pathname || '';
-      var port = location.port || '';
-      if (h === 'localhost' && port === '4173') return 'https://tartarus-itch-proxy.onrender.com';
-      if (p.indexOf('/build/') >= 0) return 'http://localhost:8787';
-      if (h.indexOf('itch.io') >= 0) return 'https://tartarus-project.vercel.app';
-      return '';
-    })();
+    var API_BASE = 'https://tartarus-itch-proxy.onrender.com';
     var selectedImposter = null;
 
     function tLine(line) { // PATCH
