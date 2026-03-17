@@ -1860,7 +1860,8 @@
         if (val && el.tagName !== 'INPUT') el.textContent = val;
       });
       document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
-        el.placeholder = t(el.getAttribute('data-i18n-placeholder')) || '';
+        if (el.id === 'input') el.placeholder = (window.__LANG === 'ko') ? '함장 입력 대기' : 'Awaiting Captain input';
+        else el.placeholder = t(el.getAttribute('data-i18n-placeholder')) || '';
       });
       document.querySelectorAll('.action-btn[data-msg]').forEach(btn => {
         const msg = btn.getAttribute('data-msg');
@@ -1872,7 +1873,7 @@
         btn.textContent = label || btn.textContent || msg;
       });
       var ih = document.getElementById('input-hint');
-      if (ih) ih.textContent = t('game.inputHint') || '';
+      if (ih) ih.textContent = '';
       var inst = document.getElementById('accuse-modal-instruction');
       if (inst) inst.textContent = t('game.accuseModal.instruction') || '';
       var ct = t('game.timerPrefix') + '7:00';
@@ -2059,7 +2060,7 @@
       var sendBtn = document.getElementById('input-send-btn');
       if (inputEl) {
         inputEl.disabled = !isCaptainTurn;
-        inputEl.placeholder = statusText;
+        inputEl.placeholder = hints.captain_input;
       }
       if (inputRow) inputRow.classList.toggle('disabled', !isCaptainTurn);
       if (sendBtn) sendBtn.disabled = !isCaptainTurn;
