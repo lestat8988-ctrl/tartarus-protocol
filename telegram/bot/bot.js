@@ -10,6 +10,11 @@ const ep1Engine = require('../../core/engine/ep1Engine');
 const intentParser = require('../../core/nlu/intentParser');
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const LOG = process.env.BOT_LOG !== '0';
+
+function log(tag, msg, data) {
+  if (LOG) console.log('[bot]', tag, msg, data != null ? JSON.stringify(data) : '');
+}
 
 /**
  * /start 처리
@@ -31,6 +36,7 @@ async function handleStart(playerId, opts = {}) {
   const timer = ep1Engine.getTimerStatus ? ep1Engine.getTimerStatus(match, opts.now) : { remaining_sec: 420 };
   const mins = Math.floor((timer.remaining_sec || 420) / 60);
   const secs = (timer.remaining_sec || 420) % 60;
+  log('START', 'ok', { playerId, matchId, remaining_sec: timer.remaining_sec });
   return (
     'Tartarus Protocol v1\n\n' +
     'You are the Captain. Find the imposter before time runs out.\n\n' +
@@ -64,6 +70,7 @@ async function handleTextMessage(playerId, text, opts = {}) {
   if (!match) return 'Match not found. Send /start to begin.';
 
   if (match.game_state?.game_over) {
+    log('GAME_OVER', 'blocked', { playerId, matchId, outcome: match.game_state.outcome });
     return 'Game over. Outcome: ' + (match.game_state.outcome || 'unknown') + '. Send /start for new game.';
   }
 
@@ -103,7 +110,10 @@ async function handleTextMessage(playerId, text, opts = {}) {
     reply += '\n⏱ ' + m + ':' + String(s).padStart(2, '0') + ' left';
   }
   if (result.game_over && result.outcome) {
+    log('GAME_OVER', 'ended', { playerId, matchId, outcome: result.outcome });
     reply += '\n\n[GAME OVER] ' + result.outcome;
+  } else {
+    log('ACTION', 'ok', { playerId, matchId, action: parsed.intent_type, target: parsed.target });
   }
   const recent = (updated?.events || []).slice(-3);
   if (recent.length > 0) {
@@ -121,6 +131,7 @@ async function handleTextMessage(playerId, text, opts = {}) {
  */
 async function routeMessage(playerId, text, opts = {}) {
   const t = String(text || '').trim();
+  log('ROUTE', 'in', { playerId, text: t.slice(0, 50) });
   if (t === '/start') return handleStart(playerId, opts);
   return handleTextMessage(playerId, t, opts);
 }
