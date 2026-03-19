@@ -23,3 +23,5 @@ logs/
 tartarus_logs.jsonl
 payload.json
 *.jsonl
+_itch_test/
+_zip_check/
