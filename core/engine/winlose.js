@@ -48,7 +48,7 @@ function resolveOutcome(ctx) {
   const { accusedRole, impostorRole, deadRoles = [], remainingSec } = ctx;
 
   if (isTimeout(remainingSec)) {
-    return { outcome: 'timeout', winner: null, loser_reason: 'timeout' };
+    return { outcome: 'impostor_win', winner: 'impostor', loser_reason: 'timeout' };
   }
   if (isCrewWin(accusedRole, impostorRole)) {
     return { outcome: 'crew_win', winner: 'crew', loser_reason: null };

@@ -14,23 +14,32 @@ const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 /**
  * /start 처리
  * @param {string} playerId - telegram user id
+ * @param {object} opts - { game_total_sec?, now? } 테스트용
  * @returns {Promise<string>}
  */
-async function handleStart(playerId) {
+async function handleStart(playerId, opts = {}) {
   const player = await playerStore.getPlayer(playerId);
   let matchId = player?.match_id;
   if (!matchId) {
-    const match = await matchStore.getOrCreateMatch('match_' + playerId + '_' + Date.now(), {});
+    const match = await matchStore.getOrCreateMatch('match_' + playerId + '_' + Date.now(), {
+      game_total_sec: opts.game_total_sec
+    });
     matchId = match.match_id;
     await playerStore.setPlayer(playerId, { match_id: matchId, role: 'captain' });
   }
+  const match = await matchStore.getMatch(matchId);
+  const timer = ep1Engine.getTimerStatus ? ep1Engine.getTimerStatus(match, opts.now) : { remaining_sec: 420 };
+  const mins = Math.floor((timer.remaining_sec || 420) / 60);
+  const secs = (timer.remaining_sec || 420) % 60;
   return (
     'Tartarus Protocol v1\n\n' +
     'You are the Captain. Find the imposter before time runs out.\n\n' +
     'Commands:\n' +
     '- /start : Start or resume\n' +
     '- Type freely: "네비게이터 어디 있었어", "로그 보여줘", "닥터 의심"\n\n' +
-    'Match: ' + matchId
+    'Match: ' + matchId + '\n' +
+    'Time left: ' + mins + ':' + String(secs).padStart(2, '0') + '\n' +
+    (match?.deadline_at ? 'Deadline: ' + match.deadline_at : '')
   );
 }
 
@@ -38,9 +47,10 @@ async function handleStart(playerId) {
  * 일반 텍스트 입력 처리
  * @param {string} playerId - telegram user id
  * @param {string} text - 사용자 입력
+ * @param {object} opts - { now? } 테스트용 시각 주입
  * @returns {Promise<string>}
  */
-async function handleTextMessage(playerId, text) {
+async function handleTextMessage(playerId, text, opts = {}) {
   // 1. player → match
   let player = await playerStore.getPlayer(playerId);
   let matchId = player?.match_id;
@@ -54,7 +64,7 @@ async function handleTextMessage(playerId, text) {
   if (!match) return 'Match not found. Send /start to begin.';
 
   if (match.game_state?.game_over) {
-    return 'Game over. Outcome: ' + (match.game_state.outcome || 'unknown');
+    return 'Game over. Outcome: ' + (match.game_state.outcome || 'unknown') + '. Send /start for new game.';
   }
 
   // 2. parse intent
@@ -66,8 +76,8 @@ async function handleTextMessage(playerId, text) {
     target: parsed.target
   };
 
-  // 3. engine apply
-  const result = await ep1Engine.applyAction(match, action);
+  // 3. engine apply (opts.now for test)
+  const result = await ep1Engine.applyAction(match, action, opts);
   if (!result.ok) {
     return 'Error: ' + (result.error || 'unknown');
   }
@@ -83,9 +93,19 @@ async function handleTextMessage(playerId, text) {
     }
   }
 
-  // 5. 응답 조립
+  // 5. 응답 조립 (remaining_sec, game_over, outcome 포함)
+  const updated = await matchStore.getMatch(matchId);
   let reply = result.summary || 'Captain acted.';
-  const recent = (match.events || []).slice(-3);
+  const rem = result.remaining_sec ?? updated?.game_state?.remaining_sec;
+  if (rem != null) {
+    const m = Math.floor(rem / 60);
+    const s = rem % 60;
+    reply += '\n⏱ ' + m + ':' + String(s).padStart(2, '0') + ' left';
+  }
+  if (result.game_over && result.outcome) {
+    reply += '\n\n[GAME OVER] ' + result.outcome;
+  }
+  const recent = (updated?.events || []).slice(-3);
   if (recent.length > 0) {
     reply += '\n\nRecent: ' + recent.map((e) => (e.type || e.role) + (e.target ? '→' + e.target : '')).join(', ');
   }
@@ -96,12 +116,13 @@ async function handleTextMessage(playerId, text) {
  * 메시지 라우팅 (텔레그램 메시지 또는 로컬 테스트)
  * @param {string} playerId
  * @param {string} text
+ * @param {object} opts - { now?, game_total_sec? } 테스트용
  * @returns {Promise<string>}
  */
-async function routeMessage(playerId, text) {
+async function routeMessage(playerId, text, opts = {}) {
   const t = String(text || '').trim();
-  if (t === '/start') return handleStart(playerId);
-  return handleTextMessage(playerId, t);
+  if (t === '/start') return handleStart(playerId, opts);
+  return handleTextMessage(playerId, t, opts);
 }
 
 /**
@@ -112,15 +133,6 @@ function initBot() {
     console.warn('[bot] TELEGRAM_BOT_TOKEN not set. Use routeMessage(playerId, text) for local test.');
     return null;
   }
-  // const TelegramBot = require('node-telegram-bot-api');
-  // const bot = new TelegramBot(BOT_TOKEN, { polling: true });
-  // bot.on('message', async (msg) => {
-  //   const chatId = msg.chat?.id;
-  //   const text = msg.text || '';
-  //   const playerId = String(msg.from?.id || chatId);
-  //   const reply = await routeMessage(playerId, text);
-  //   await bot.sendMessage(chatId, reply);
-  // });
   console.log('[bot] Telegram bot ready (SDK not connected). Use routeMessage for test.');
   return {};
 }
@@ -141,7 +153,6 @@ async function handleWebhook(req, res) {
   try {
     const reply = await routeMessage(playerId, text);
     if (BOT_TOKEN && chatId) {
-      // await bot.sendMessage(chatId, reply);
       res.status(200).json({ ok: true });
     } else {
       res.status(200).json({ reply });
