@@ -16,16 +16,15 @@ async function getPlayer(telegramId) {
 }
 
 /**
- * @param {string} telegramId
- * @param {string} matchId
- * @param {string} role - captain | doctor | engineer | navigator | pilot
+ * @param {string} playerId
+ * @param {object} data - { match_id, role?, joined_at? }
  * @returns {Promise<void>}
  */
-async function setPlayer(telegramId, matchId, role) {
-  players.set(telegramId, {
-    match_id: matchId,
-    role: role,
-    joined_at: new Date().toISOString()
+async function setPlayer(playerId, data) {
+  players.set(playerId, {
+    match_id: data.match_id,
+    role: data.role || 'captain',
+    joined_at: data.joined_at || new Date().toISOString()
   });
 }
 
