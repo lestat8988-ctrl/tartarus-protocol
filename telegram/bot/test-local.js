@@ -306,7 +306,7 @@ async function main() {
     console.log('  deadline - /start 후 deadline_at, remaining_sec 출력');
     console.log('  time    - 타임아웃 시뮬레이션 (10초 게임, 15초 후)');
     console.log('  autokill - 자동살해 시뮬레이션 (5분 게임, 90초 경과)');
-    console.log('  verify  - 규칙 엔진 명시적 검증 (PASS/FAIL)');
+    console.log('  verify  - 규칙 엔진 검증 (PASS/FAIL)');
     console.log('  all     - 위 모든 테스트 + 검증 실행');
   }
 }
