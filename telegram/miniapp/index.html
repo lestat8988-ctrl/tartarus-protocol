@@ -200,10 +200,7 @@
     </section>
 
     <section class="log-panel" id="log-panel">
-      <div class="log-entry">[00:00] System: Tartarus Protocol initialized.</div>
-      <div class="log-entry">[00:02] Captain: Questioned Navigator. No anomalies.</div>
-      <div class="log-entry">[00:05] System: CCTV log accessed. 3 entries found.</div>
-      <div class="log-entry">[00:08] Alert: Bio signal fluctuation in Medical Bay.</div>
+      <div class="log-entry" id="log-init">[--] Connecting...</div>
     </section>
 
     <section class="action-panel">
@@ -231,38 +228,136 @@
 
   <script>
     (function() {
-      const actionBtns = document.querySelectorAll('.action-btn');
+      var API_BASE = (typeof location !== 'undefined' && location.origin === 'http://localhost:8788') ? '' : 'http://localhost:8788';
+      const PLAYER_KEY = 'tartarus_miniapp_playerId';
+
+      const statusMatchId = document.getElementById('status-match-id');
+      const statusTime = document.getElementById('status-time');
+      const statusLocation = document.getElementById('status-location');
+      const statusThreat = document.getElementById('status-threat');
+      const logPanel = document.getElementById('log-panel');
+      const logInit = document.getElementById('log-init');
       const freeInput = document.getElementById('free-input');
       const sendBtn = document.getElementById('send-btn');
-      const logPanel = document.getElementById('log-panel');
+      const actionBtns = document.querySelectorAll('.action-btn');
       const episodeUnlockBtn = document.getElementById('episode-unlock-btn');
 
-      actionBtns.forEach(function(btn) {
-        btn.addEventListener('click', function() {
-          const action = this.dataset.action || this.textContent;
-          console.log('[Tartarus MiniApp] action:', action);
-        });
-      });
+      function getPlayerId() {
+        let id = localStorage.getItem(PLAYER_KEY);
+        if (!id) {
+          id = 'miniapp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+          localStorage.setItem(PLAYER_KEY, id);
+        }
+        return id;
+      }
+
+      function formatTime(sec) {
+        if (sec == null || sec < 0) return '--:--';
+        var m = Math.floor(sec / 60);
+        var s = Math.floor(sec % 60);
+        return m + ':' + String(s).padStart(2, '0');
+      }
 
       function appendLog(text, isError) {
+        if (logInit && logInit.parentNode) logInit.remove();
         const entry = document.createElement('div');
         entry.className = 'log-entry' + (isError ? ' error' : '');
-        const ts = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        var ts = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         entry.textContent = '[' + ts + '] ' + text;
         logPanel.appendChild(entry);
         logPanel.scrollTop = logPanel.scrollHeight;
       }
 
+      function updateStatus(state) {
+        if (!state) return;
+        if (state.match_id) statusMatchId.textContent = state.match_id;
+        statusTime.textContent = formatTime(state.remaining_sec);
+        statusLocation.textContent = state.location || 'Bridge';
+        var gs = state.game_state || {};
+        if (gs.game_over && gs.outcome) {
+          statusThreat.textContent = 'GAME OVER';
+          statusThreat.classList.add('threat');
+        } else {
+          statusThreat.textContent = (gs.dead_roles && gs.dead_roles.length > 0) ? 'ELEVATED' : 'NOMINAL';
+        }
+      }
+
+      function applyEvents(events) {
+        if (!events || !events.length) return;
+        events.forEach(function(ev) {
+          var label = (ev.type || ev.role) + (ev.target ? ' -> ' + ev.target : '');
+          appendLog(label, false);
+        });
+      }
+
+      function doStart() {
+        var playerId = getPlayerId();
+        fetch(API_BASE + '/api/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ playerId: playerId })
+        })
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.ok) {
+              updateStatus({ match_id: data.match_id, remaining_sec: data.remaining_sec, game_state: data.game_state });
+              if (data.events && data.events.length) applyEvents(data.events);
+              else appendLog('System: Tartarus Protocol initialized.', false);
+            } else {
+              appendLog('Error: ' + (data.error || 'unknown'), true);
+            }
+          })
+          .catch(function(err) {
+            appendLog('Connection failed. Start: node telegram/bot/bot.js', true);
+          });
+      }
+
+      function doMessage(text) {
+        var playerId = getPlayerId();
+        fetch(API_BASE + '/api/message', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ playerId: playerId, text: text })
+        })
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.ok) {
+              updateStatus({ remaining_sec: data.remaining_sec, game_state: data.match_state });
+              appendLog(data.summary || 'Captain acted.', false);
+              if (data.recent_events && data.recent_events.length) applyEvents(data.recent_events);
+            } else {
+              appendLog('Error: ' + (data.error || 'unknown'), true);
+            }
+          })
+          .catch(function(err) {
+            appendLog('Connection failed: ' + err.message, true);
+          });
+      }
+
+      doStart();
+
       sendBtn.addEventListener('click', function() {
-        const text = (freeInput.value || '').trim();
+        var text = (freeInput.value || '').trim();
         if (!text) return;
-        console.log('[Tartarus MiniApp] free input:', text);
-        appendLog('Captain: ' + text, false);
+        doMessage(text);
         freeInput.value = '';
       });
 
       freeInput.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') sendBtn.click();
+      });
+
+      actionBtns.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var action = this.dataset.action || '';
+          if (action === 'question') {
+            doMessage('네비게이터 어디 있었어');
+          } else if (action === 'cctv') {
+            doMessage('로그 보여줘');
+          } else {
+            console.log('[Tartarus MiniApp] action:', action);
+          }
+        });
       });
 
       episodeUnlockBtn.addEventListener('click', function() {

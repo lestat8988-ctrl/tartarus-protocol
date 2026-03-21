@@ -2,12 +2,18 @@
  * telegram/bot/bot.js - 텔레그램 봇 진입점
  * bot → parser → engine → state 저장 흐름 연결.
  * BOT TOKEN 없이도 handleTextMessage()로 로컬 테스트 가능.
+ * 로컬 개발용 HTTP API (포트 8788) 지원.
  */
 
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const matchStore = require('../../core/state/matchStore');
 const playerStore = require('../../core/state/playerStore');
 const ep1Engine = require('../../core/engine/ep1Engine');
 const intentParser = require('../../core/nlu/intentParser');
+
+const API_PORT = 8788;
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const LOG = process.env.BOT_LOG !== '0';
@@ -137,6 +143,84 @@ async function routeMessage(playerId, text, opts = {}) {
 }
 
 /**
+ * API용 /start 상태 반환
+ * @param {string} playerId
+ * @returns {Promise<object>}
+ */
+async function getStartStateApi(playerId) {
+  let player = await playerStore.getPlayer(playerId);
+  let matchId = player?.match_id;
+  if (!matchId) {
+    const match = await matchStore.getOrCreateMatch('match_' + playerId + '_' + Date.now(), {});
+    matchId = match.match_id;
+    await playerStore.setPlayer(playerId, { match_id: matchId, role: 'captain' });
+  }
+  const match = await matchStore.getMatch(matchId);
+  const timer = ep1Engine.getTimerStatus ? ep1Engine.getTimerStatus(match) : { remaining_sec: 420 };
+  return {
+    ok: true,
+    match_id: matchId,
+    remaining_sec: timer.remaining_sec ?? 420,
+    game_state: match?.game_state || {},
+    deadline_at: match?.deadline_at,
+    events: match?.events || []
+  };
+}
+
+/**
+ * API용 메시지 처리 (구조화된 결과 반환)
+ * @param {string} playerId
+ * @param {string} text
+ * @param {object} opts - { now? }
+ * @returns {Promise<object>}
+ */
+async function processMessageApi(playerId, text, opts = {}) {
+  let player = await playerStore.getPlayer(playerId);
+  let matchId = player?.match_id;
+  if (!matchId) {
+    const match = await matchStore.getOrCreateMatch('match_' + playerId + '_' + Date.now(), {});
+    matchId = match.match_id;
+    await playerStore.setPlayer(playerId, { match_id: matchId, role: 'captain' });
+  }
+  const match = await matchStore.getMatch(matchId);
+  if (!match) return { ok: false, error: 'Match not found' };
+
+  if (match.game_state?.game_over) {
+    return {
+      ok: true,
+      summary: `Game over. Outcome: ${match.game_state.outcome || 'unknown'}`,
+      game_over: true,
+      outcome: match.game_state.outcome,
+      remaining_sec: 0,
+      events: [],
+      match_state: { ...match.game_state }
+    };
+  }
+
+  const parsed = intentParser.parse(text);
+  const action = { actor: 'captain', role: 'captain', action: parsed.intent_type, target: parsed.target };
+  const result = await ep1Engine.applyAction(match, action, opts);
+  if (!result.ok) return { ok: false, error: result.error || 'unknown' };
+
+  await matchStore.updateMatch(matchId, { ...result.next_state, turn: (match.turn || 1) + 1 });
+  if (result.events?.length > 0) {
+    for (const ev of result.events) await matchStore.appendEvent(matchId, ev);
+  }
+
+  const updated = await matchStore.getMatch(matchId);
+  return {
+    ok: true,
+    summary: result.summary || 'Captain acted.',
+    remaining_sec: result.remaining_sec ?? 0,
+    game_over: result.game_over || false,
+    outcome: result.outcome || null,
+    events: result.events || [],
+    recent_events: (updated?.events || []).slice(-5),
+    match_state: updated?.game_state || {}
+  };
+}
+
+/**
  * 봇 초기화 (텔레그램 SDK 연결 시 사용)
  */
 function initBot() {
@@ -175,44 +259,155 @@ async function handleWebhook(req, res) {
 }
 
 /**
+ * 로컬 개발용 HTTP API 서버 (포트 8788)
+ * TELEGRAM_BOT_TOKEN 없어도 실행됨.
+ */
+function createLocalApiServer() {
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type'
+  };
+
+  const server = http.createServer(async (req, res) => {
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, corsHeaders);
+      res.end();
+      return;
+    }
+    Object.entries(corsHeaders).forEach(([k, v]) => res.setHeader(k, v));
+    res.setHeader('Content-Type', 'application/json');
+
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    await new Promise((resolve) => req.on('end', resolve));
+
+    const url = new URL(req.url || '/', 'http://localhost');
+    const route = url.pathname;
+
+    try {
+      if ((route === '/' || route === '/miniapp' || route === '/index.html') && req.method === 'GET') {
+        const miniappPath = path.join(__dirname, '..', 'miniapp', 'index.html');
+        const html = fs.readFileSync(miniappPath, 'utf8');
+        res.setHeader('Content-Type', 'text/html');
+        res.writeHead(200);
+        res.end(html);
+        return;
+      }
+
+      if (route === '/health' && req.method === 'GET') {
+        res.writeHead(200);
+        res.end(JSON.stringify({ ok: true, service: 'telegram-bot-local-api' }));
+        return;
+      }
+
+      if (route === '/api/start' && req.method === 'POST') {
+        const data = body ? JSON.parse(body) : {};
+        const playerId = data.playerId || 'miniapp_' + Date.now();
+        const state = await getStartStateApi(playerId);
+        res.writeHead(200);
+        res.end(JSON.stringify({ ok: true, playerId, ...state }));
+        return;
+      }
+
+      if (route === '/api/state' && req.method === 'GET') {
+        const playerId = url.searchParams.get('playerId');
+        if (!playerId) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ ok: false, error: 'playerId required' }));
+          return;
+        }
+        const player = await playerStore.getPlayer(playerId);
+        const matchId = player?.match_id;
+        if (!matchId) {
+          res.writeHead(200);
+          res.end(JSON.stringify({ ok: true, match_id: null, game_state: null }));
+          return;
+        }
+        const match = await matchStore.getMatch(matchId);
+        const timer = ep1Engine.getTimerStatus ? ep1Engine.getTimerStatus(match) : { remaining_sec: 420 };
+        res.writeHead(200);
+        res.end(JSON.stringify({
+          ok: true,
+          match_id: matchId,
+          remaining_sec: timer.remaining_sec ?? 420,
+          game_state: match?.game_state || {},
+          events: match?.events || []
+        }));
+        return;
+      }
+
+      if (route === '/api/message' && req.method === 'POST') {
+        const data = body ? JSON.parse(body) : {};
+        const playerId = data.playerId;
+        const text = data.text || '';
+        if (!playerId) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ ok: false, error: 'playerId required' }));
+          return;
+        }
+        const result = await processMessageApi(playerId, text);
+        res.writeHead(200);
+        res.end(JSON.stringify(result));
+        return;
+      }
+
+      res.writeHead(404);
+      res.end(JSON.stringify({ ok: false, error: 'Not found' }));
+    } catch (err) {
+      console.error('[bot] API error:', err);
+      res.writeHead(500);
+      res.end(JSON.stringify({ ok: false, error: String(err.message) }));
+    }
+  });
+
+  return server;
+}
+
+/**
  * 실행 진입점: node telegram/bot/bot.js
- * polling 모드로 텔레그램 봇 런타임 시작.
+ * 로컬 API 서버 항상 시작, Telegram polling은 토큰 있을 때만.
  */
 if (require.main === module) {
   require('dotenv').config();
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) {
-    console.error('[bot] ERROR: TELEGRAM_BOT_TOKEN not set.');
-    console.error('[bot] Set env: TELEGRAM_BOT_TOKEN=xxx or add to .env file.');
-    process.exit(1);
-  }
 
-  const TelegramBot = require('node-telegram-bot-api');
-  const bot = new TelegramBot(token, { polling: true });
-
-  console.log('[bot] bot runtime starting');
-  console.log('[bot] token detected');
-  console.log('[bot] polling started');
-
-  bot.on('message', async (msg) => {
-    const chatId = msg.chat?.id;
-    const text = msg.text;
-    if (!text || !chatId) return;
-    const playerId = String(msg.from?.id ?? chatId);
-    try {
-      const reply = await routeMessage(playerId, text);
-      await bot.sendMessage(chatId, reply);
-    } catch (err) {
-      console.error('[bot] message error:', err.message || err);
-      try {
-        await bot.sendMessage(chatId, 'Error: ' + (err.message || 'unknown'));
-      } catch (_) {}
-    }
+  const apiServer = createLocalApiServer();
+  apiServer.listen(API_PORT, () => {
+    console.log('[bot] local API server listening on http://localhost:' + API_PORT);
   });
+
+  let bot = null;
+  if (token) {
+    const TelegramBot = require('node-telegram-bot-api');
+    bot = new TelegramBot(token, { polling: true });
+    console.log('[bot] bot runtime starting');
+    console.log('[bot] token detected');
+    console.log('[bot] polling started');
+
+    bot.on('message', async (msg) => {
+      const chatId = msg.chat?.id;
+      const text = msg.text;
+      if (!text || !chatId) return;
+      const playerId = String(msg.from?.id ?? chatId);
+      try {
+        const reply = await routeMessage(playerId, text);
+        await bot.sendMessage(chatId, reply);
+      } catch (err) {
+        console.error('[bot] message error:', err.message || err);
+        try {
+          await bot.sendMessage(chatId, 'Error: ' + (err.message || 'unknown'));
+        } catch (_) {}
+      }
+    });
+  } else {
+    console.log('[bot] TELEGRAM_BOT_TOKEN not set - polling disabled, API only');
+  }
 
   const shutdown = () => {
     console.log('[bot] shutting down...');
-    bot.stopPolling?.();
+    apiServer.close();
+    if (bot) bot.stopPolling?.();
     process.exit(0);
   };
   process.on('SIGINT', shutdown);
@@ -224,5 +419,7 @@ module.exports = {
   handleStart,
   handleTextMessage,
   routeMessage,
-  handleWebhook
+  handleWebhook,
+  getStartStateApi,
+  processMessageApi
 };
