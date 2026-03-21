@@ -2,12 +2,273 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Tartarus Protocol - Telegram</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Tartarus Protocol - Mini App</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; height: 100%; }
+    body {
+      background: #0a0a0a;
+      color: #2aef2a;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+    #app {
+      min-height: 100vh;
+      max-width: 480px;
+      margin: 0 auto;
+      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+      padding: 12px;
+    }
+
+    /* Header */
+    .header {
+      text-align: center;
+      padding: 12px 0;
+      border-bottom: 1px solid #2aef2a33;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 1.4rem;
+      font-weight: 600;
+      letter-spacing: 2px;
+    }
+    .subheader {
+      margin-top: 4px;
+      font-size: 0.75rem;
+      color: #2aef2a88;
+    }
+
+    /* Status card */
+    .status-card {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin: 12px 0;
+      padding: 12px;
+      background: #111;
+      border: 1px solid #2aef2a22;
+      border-radius: 4px;
+    }
+    .status-item {
+      font-size: 0.7rem;
+      color: #2aef2a99;
+    }
+    .status-value {
+      font-size: 0.85rem;
+      color: #2aef2a;
+      margin-top: 2px;
+    }
+    .status-value.threat { color: #ef2a2a; }
+
+    /* Log panel */
+    .log-panel {
+      flex: 1;
+      min-height: 140px;
+      max-height: 180px;
+      overflow-y: auto;
+      padding: 12px;
+      margin: 12px 0;
+      background: #0d0d0d;
+      border: 1px solid #2aef2a22;
+      border-radius: 4px;
+      font-size: 0.8rem;
+    }
+    .log-entry {
+      margin-bottom: 6px;
+      padding-left: 8px;
+      border-left: 2px solid #2aef2a44;
+    }
+    .log-entry.error { border-color: #ef2a2a44; }
+
+    /* Action buttons */
+    .action-panel {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      margin: 12px 0;
+    }
+    .action-btn {
+      padding: 12px;
+      background: #111;
+      border: 1px solid #2aef2a55;
+      border-radius: 4px;
+      color: #2aef2a;
+      font-family: inherit;
+      font-size: 0.85rem;
+      cursor: pointer;
+      text-align: center;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .action-btn:active { background: #1a2a1a; }
+    @media (max-width: 360px) {
+      .action-panel { grid-template-columns: 1fr; }
+    }
+
+    /* Input area */
+    .input-area {
+      display: flex;
+      gap: 8px;
+      margin: 12px 0;
+      padding-bottom: 12px;
+    }
+    .input-area input {
+      flex: 1;
+      padding: 14px 12px;
+      background: #111;
+      border: 1px solid #2aef2a55;
+      border-radius: 4px;
+      color: #2aef2a;
+      font-family: inherit;
+      font-size: 0.9rem;
+    }
+    .input-area input::placeholder { color: #2aef2a44; }
+    .input-area button {
+      padding: 14px 18px;
+      background: #1a3a1a;
+      border: 1px solid #2aef2a;
+      border-radius: 4px;
+      color: #2aef2a;
+      font-family: inherit;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .input-area button:active { background: #2a4a2a; }
+
+    /* Episode lock section */
+    .episode-section {
+      padding: 12px;
+      margin-top: auto;
+      background: #0d0d0d;
+      border: 1px solid #2aef2a22;
+      border-radius: 4px;
+    }
+    .episode-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      font-size: 0.85rem;
+    }
+    .episode-row.locked { color: #666; opacity: 0.8; }
+    .episode-row.available { color: #2aef2a; }
+    .episode-unlock-btn {
+      width: 100%;
+      margin-top: 12px;
+      padding: 14px;
+      background: #1a1a1a;
+      border: 1px dashed #2aef2a55;
+      border-radius: 4px;
+      color: #2aef2a99;
+      font-family: inherit;
+      font-size: 0.9rem;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .episode-unlock-btn:active { background: #222; }
+  </style>
 </head>
 <body>
   <div id="app">
-    <p>Telegram Miniapp placeholder. UI will be connected later.</p>
+    <header class="header">
+      <h1>Tartarus Protocol</h1>
+      <p class="subheader">Telegram Mini App Prototype</p>
+    </header>
+
+    <section class="status-card">
+      <div class="status-item">
+        Match ID
+        <div class="status-value" id="status-match-id">match_dummy_001</div>
+      </div>
+      <div class="status-item">
+        Remaining Time
+        <div class="status-value" id="status-time">6:42</div>
+      </div>
+      <div class="status-item">
+        Current Location
+        <div class="status-value" id="status-location">Bridge</div>
+      </div>
+      <div class="status-item">
+        Threat Level
+        <div class="status-value threat" id="status-threat">ELEVATED</div>
+      </div>
+    </section>
+
+    <section class="log-panel" id="log-panel">
+      <div class="log-entry">[00:00] System: Tartarus Protocol initialized.</div>
+      <div class="log-entry">[00:02] Captain: Questioned Navigator. No anomalies.</div>
+      <div class="log-entry">[00:05] System: CCTV log accessed. 3 entries found.</div>
+      <div class="log-entry">[00:08] Alert: Bio signal fluctuation in Medical Bay.</div>
+    </section>
+
+    <section class="action-panel">
+      <button class="action-btn" data-action="question">승무원 심문</button>
+      <button class="action-btn" data-action="cctv">CCTV 로그 확인</button>
+      <button class="action-btn" data-action="engine">엔진실 확인</button>
+      <button class="action-btn" data-action="pistol">권총 획득</button>
+      <button class="action-btn" data-action="threat">위협</button>
+      <button class="action-btn" data-action="clue">단서 수집</button>
+      <button class="action-btn" data-action="execute" style="grid-column: 1 / -1;">처형 프로토콜 실행</button>
+    </section>
+
+    <section class="input-area">
+      <input type="text" id="free-input" placeholder="자유 입력..." maxlength="200" />
+      <button type="button" id="send-btn">전송</button>
+    </section>
+
+    <section class="episode-section">
+      <div class="episode-row available">Episode 1: Free / Available</div>
+      <div class="episode-row locked">Episode 2: Locked</div>
+      <div class="episode-row locked">Episode 3: Locked</div>
+      <button class="episode-unlock-btn" id="episode-unlock-btn">Unlock Episode Pass</button>
+    </section>
   </div>
+
+  <script>
+    (function() {
+      const actionBtns = document.querySelectorAll('.action-btn');
+      const freeInput = document.getElementById('free-input');
+      const sendBtn = document.getElementById('send-btn');
+      const logPanel = document.getElementById('log-panel');
+      const episodeUnlockBtn = document.getElementById('episode-unlock-btn');
+
+      actionBtns.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          const action = this.dataset.action || this.textContent;
+          console.log('[Tartarus MiniApp] action:', action);
+        });
+      });
+
+      function appendLog(text, isError) {
+        const entry = document.createElement('div');
+        entry.className = 'log-entry' + (isError ? ' error' : '');
+        const ts = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        entry.textContent = '[' + ts + '] ' + text;
+        logPanel.appendChild(entry);
+        logPanel.scrollTop = logPanel.scrollHeight;
+      }
+
+      sendBtn.addEventListener('click', function() {
+        const text = (freeInput.value || '').trim();
+        if (!text) return;
+        console.log('[Tartarus MiniApp] free input:', text);
+        appendLog('Captain: ' + text, false);
+        freeInput.value = '';
+      });
+
+      freeInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') sendBtn.click();
+      });
+
+      episodeUnlockBtn.addEventListener('click', function() {
+        console.log('[Tartarus MiniApp] Unlock Episode Pass (placeholder)');
+      });
+    })();
+  </script>
 </body>
 </html>
