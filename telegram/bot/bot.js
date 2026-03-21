@@ -174,6 +174,51 @@ async function handleWebhook(req, res) {
   }
 }
 
+/**
+ * 실행 진입점: node telegram/bot/bot.js
+ * polling 모드로 텔레그램 봇 런타임 시작.
+ */
+if (require.main === module) {
+  require('dotenv').config();
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) {
+    console.error('[bot] ERROR: TELEGRAM_BOT_TOKEN not set.');
+    console.error('[bot] Set env: TELEGRAM_BOT_TOKEN=xxx or add to .env file.');
+    process.exit(1);
+  }
+
+  const TelegramBot = require('node-telegram-bot-api');
+  const bot = new TelegramBot(token, { polling: true });
+
+  console.log('[bot] bot runtime starting');
+  console.log('[bot] token detected');
+  console.log('[bot] polling started');
+
+  bot.on('message', async (msg) => {
+    const chatId = msg.chat?.id;
+    const text = msg.text;
+    if (!text || !chatId) return;
+    const playerId = String(msg.from?.id ?? chatId);
+    try {
+      const reply = await routeMessage(playerId, text);
+      await bot.sendMessage(chatId, reply);
+    } catch (err) {
+      console.error('[bot] message error:', err.message || err);
+      try {
+        await bot.sendMessage(chatId, 'Error: ' + (err.message || 'unknown'));
+      } catch (_) {}
+    }
+  });
+
+  const shutdown = () => {
+    console.log('[bot] shutting down...');
+    bot.stopPolling?.();
+    process.exit(0);
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+}
+
 module.exports = {
   initBot,
   handleStart,
