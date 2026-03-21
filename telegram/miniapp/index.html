@@ -19,8 +19,8 @@
       min-height: 100vh;
       max-width: 480px;
       margin: 0 auto;
-      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
       padding: 12px;
+      padding-bottom: 24px;
     }
 
     /* Header */
@@ -41,11 +41,27 @@
       color: #2aef2a88;
     }
 
+    /* Outcome badge (game over) */
+    .outcome-badge {
+      margin: 8px 0 12px;
+      padding: 10px 14px;
+      text-align: center;
+      font-size: 0.95rem;
+      font-weight: 600;
+      letter-spacing: 1px;
+      border-radius: 4px;
+      display: none;
+    }
+    .outcome-badge.visible { display: block; }
+    .outcome-badge.crew_win { background: #0d2a0d; border: 1px solid #2aef2a; color: #2aef2a; }
+    .outcome-badge.impostor_win { background: #2a0d0d; border: 1px solid #ef2a2a; color: #ef2a2a; }
+    .outcome-badge.accuse_failed { background: #2a1a0d; border: 1px solid #ef8a2a; color: #ef8a2a; }
+
     /* Status card */
     .status-card {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 8px;
+      gap: 10px 12px;
       margin: 12px 0;
       padding: 12px;
       background: #111;
@@ -53,28 +69,41 @@
       border-radius: 4px;
     }
     .status-item {
-      font-size: 0.7rem;
+      font-size: 0.68rem;
       color: #2aef2a99;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
     }
     .status-value {
       font-size: 0.85rem;
       color: #2aef2a;
-      margin-top: 2px;
+      margin-top: 3px;
+      word-break: break-all;
+    }
+    .status-value.match-id {
+      font-size: 0.75rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
     }
     .status-value.threat { color: #ef2a2a; }
+    .status-value.nominal { color: #2aef2a; }
+    .status-item.full-width { grid-column: 1 / -1; }
 
     /* Log panel */
     .log-panel {
-      flex: 1;
       min-height: 140px;
-      max-height: 180px;
+      max-height: 200px;
       overflow-y: auto;
+      overflow-x: hidden;
       padding: 12px;
       margin: 12px 0;
       background: #0d0d0d;
       border: 1px solid #2aef2a22;
       border-radius: 4px;
       font-size: 0.8rem;
+      -webkit-overflow-scrolling: touch;
     }
     .log-entry {
       margin-bottom: 6px;
@@ -103,6 +132,11 @@
       -webkit-tap-highlight-color: transparent;
     }
     .action-btn:active { background: #1a2a1a; }
+    .action-btn.locked {
+      opacity: 0.5;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
     @media (max-width: 360px) {
       .action-panel { grid-template-columns: 1fr; }
     }
@@ -139,6 +173,12 @@
       -webkit-tap-highlight-color: transparent;
     }
     .input-area button:active { background: #2a4a2a; }
+    .input-area.disabled input,
+    .input-area.disabled button {
+      opacity: 0.5;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
 
     /* Episode lock section */
     .episode-section {
@@ -180,14 +220,16 @@
       <p class="subheader">Telegram Mini App Prototype</p>
     </header>
 
+    <div class="outcome-badge" id="outcome-badge"></div>
+
     <section class="status-card">
-      <div class="status-item">
+      <div class="status-item full-width">
         Match ID
-        <div class="status-value" id="status-match-id">match_dummy_001</div>
+        <div class="status-value match-id" id="status-match-id" title="">--</div>
       </div>
       <div class="status-item">
         Remaining Time
-        <div class="status-value" id="status-time">6:42</div>
+        <div class="status-value" id="status-time">--:--</div>
       </div>
       <div class="status-item">
         Current Location
@@ -195,7 +237,15 @@
       </div>
       <div class="status-item">
         Threat Level
-        <div class="status-value threat" id="status-threat">ELEVATED</div>
+        <div class="status-value" id="status-threat">NOMINAL</div>
+      </div>
+      <div class="status-item full-width" id="status-outcome-wrap" style="display:none;">
+        Outcome
+        <div class="status-value" id="status-outcome">--</div>
+      </div>
+      <div class="status-item full-width" id="status-dead-wrap" style="display:none;">
+        Dead Roles
+        <div class="status-value" id="status-dead">--</div>
       </div>
     </section>
 
@@ -203,7 +253,7 @@
       <div class="log-entry" id="log-init">[--] Connecting...</div>
     </section>
 
-    <section class="action-panel">
+    <section class="action-panel" id="action-panel">
       <button class="action-btn" data-action="question">승무원 심문</button>
       <button class="action-btn" data-action="cctv">CCTV 로그 확인</button>
       <button class="action-btn" data-action="engine">엔진실 확인</button>
@@ -213,7 +263,7 @@
       <button class="action-btn" data-action="execute" style="grid-column: 1 / -1;">처형 프로토콜 실행</button>
     </section>
 
-    <section class="input-area">
+    <section class="input-area" id="input-area">
       <input type="text" id="free-input" placeholder="자유 입력..." maxlength="200" />
       <button type="button" id="send-btn">전송</button>
     </section>
@@ -235,12 +285,21 @@
       const statusTime = document.getElementById('status-time');
       const statusLocation = document.getElementById('status-location');
       const statusThreat = document.getElementById('status-threat');
+      const statusOutcomeWrap = document.getElementById('status-outcome-wrap');
+      const statusOutcome = document.getElementById('status-outcome');
+      const statusDeadWrap = document.getElementById('status-dead-wrap');
+      const statusDead = document.getElementById('status-dead');
+      const outcomeBadge = document.getElementById('outcome-badge');
       const logPanel = document.getElementById('log-panel');
       const logInit = document.getElementById('log-init');
       const freeInput = document.getElementById('free-input');
       const sendBtn = document.getElementById('send-btn');
+      const inputArea = document.getElementById('input-area');
+      const actionPanel = document.getElementById('action-panel');
       const actionBtns = document.querySelectorAll('.action-btn');
       const episodeUnlockBtn = document.getElementById('episode-unlock-btn');
+
+      var isGameOver = false;
 
       function getPlayerId() {
         let id = localStorage.getItem(PLAYER_KEY);
@@ -258,28 +317,64 @@
         return m + ':' + String(s).padStart(2, '0');
       }
 
+      function truncateMatchId(id) {
+        if (!id || id.length <= 20) return id;
+        return id.slice(0, 10) + '...' + id.slice(-8);
+      }
+
       function appendLog(text, isError) {
         if (logInit && logInit.parentNode) logInit.remove();
-        const entry = document.createElement('div');
+        var entry = document.createElement('div');
         entry.className = 'log-entry' + (isError ? ' error' : '');
         var ts = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         entry.textContent = '[' + ts + '] ' + text;
-        logPanel.appendChild(entry);
-        logPanel.scrollTop = logPanel.scrollHeight;
+        if (logPanel) logPanel.appendChild(entry);
+        if (logPanel) logPanel.scrollTop = logPanel.scrollHeight;
+      }
+
+      function setGameOverLock(locked) {
+        isGameOver = !!locked;
+        if (inputArea) inputArea.classList.toggle('disabled', locked);
+        if (actionPanel) {
+          actionBtns.forEach(function(b) {
+            b.classList.toggle('locked', locked);
+          });
+        }
       }
 
       function updateStatus(state) {
         if (!state) return;
-        if (state.match_id) statusMatchId.textContent = state.match_id;
+        var gs = state.game_state || {};
+
+        if (state.match_id) {
+          var short = truncateMatchId(state.match_id);
+          statusMatchId.textContent = short;
+          statusMatchId.title = state.match_id;
+        }
         statusTime.textContent = formatTime(state.remaining_sec);
         statusLocation.textContent = state.location || 'Bridge';
-        var gs = state.game_state || {};
+
         if (gs.game_over && gs.outcome) {
           statusThreat.textContent = 'GAME OVER';
+          statusThreat.classList.remove('nominal');
           statusThreat.classList.add('threat');
+          setGameOverLock(true);
+
+          outcomeBadge.textContent = gs.outcome.toUpperCase().replace(/_/g, ' ');
+          outcomeBadge.className = 'outcome-badge visible ' + (gs.outcome || '').replace(/-/g, '_');
+          if (statusOutcomeWrap) { statusOutcomeWrap.style.display = 'block'; statusOutcome.textContent = gs.outcome; }
         } else {
           statusThreat.textContent = (gs.dead_roles && gs.dead_roles.length > 0) ? 'ELEVATED' : 'NOMINAL';
+          statusThreat.classList.toggle('threat', (gs.dead_roles && gs.dead_roles.length > 0));
+          statusThreat.classList.toggle('nominal', !(gs.dead_roles && gs.dead_roles.length > 0));
+          setGameOverLock(false);
+          outcomeBadge.classList.remove('visible');
+          if (statusOutcomeWrap) statusOutcomeWrap.style.display = 'none';
         }
+
+        if (gs.dead_roles && gs.dead_roles.length > 0) {
+          if (statusDeadWrap) { statusDeadWrap.style.display = 'block'; statusDead.textContent = gs.dead_roles.join(', '); }
+        } else if (statusDeadWrap) statusDeadWrap.style.display = 'none';
       }
 
       function applyEvents(events) {
@@ -313,6 +408,7 @@
       }
 
       function doMessage(text) {
+        if (isGameOver) return;
         var playerId = getPlayerId();
         fetch(API_BASE + '/api/message', {
           method: 'POST',
@@ -337,6 +433,7 @@
       doStart();
 
       sendBtn.addEventListener('click', function() {
+        if (isGameOver) return;
         var text = (freeInput.value || '').trim();
         if (!text) return;
         doMessage(text);
@@ -349,6 +446,7 @@
 
       actionBtns.forEach(function(btn) {
         btn.addEventListener('click', function() {
+          if (isGameOver) return;
           var action = this.dataset.action || '';
           if (action === 'question') {
             doMessage('네비게이터 어디 있었어');
