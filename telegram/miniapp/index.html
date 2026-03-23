@@ -53,9 +53,9 @@
       display: none;
     }
     .outcome-badge.visible { display: block; }
-    .outcome-badge.crew_win { background: #0d2a0d; border: 1px solid #2aef2a; color: #2aef2a; }
-    .outcome-badge.impostor_win { background: #2a0d0d; border: 1px solid #ef2a2a; color: #ef2a2a; }
-    .outcome-badge.accuse_failed { background: #2a1a0d; border: 1px solid #ef8a2a; color: #ef8a2a; }
+    .outcome-badge.crew_win { background: #0a3a0a; border: 2px solid #2aef2a; color: #4aff4a; box-shadow: 0 0 12px rgba(42,239,42,0.3); }
+    .outcome-badge.impostor_win { background: #3a0a0a; border: 2px solid #ef2a2a; color: #ff4a4a; box-shadow: 0 0 12px rgba(239,42,42,0.3); }
+    .outcome-badge.accuse_failed { background: #3a1a0a; border: 2px solid #ef8a2a; color: #ffaa4a; box-shadow: 0 0 12px rgba(239,138,42,0.25); }
 
     /* Status card */
     .status-card {
@@ -74,6 +74,7 @@
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
+    .status-item > span { display: block; }
     .status-value {
       font-size: 0.85rem;
       color: #2aef2a;
@@ -133,9 +134,11 @@
     }
     .action-btn:active { background: #1a2a1a; }
     .action-btn.locked {
-      opacity: 0.5;
+      opacity: 0.4;
       cursor: not-allowed;
       pointer-events: none;
+      border-color: #2aef2a22;
+      color: #2aef2a66;
     }
     @media (max-width: 360px) {
       .action-panel { grid-template-columns: 1fr; }
@@ -175,9 +178,43 @@
     .input-area button:active { background: #2a4a2a; }
     .input-area.disabled input,
     .input-area.disabled button {
-      opacity: 0.5;
+      opacity: 0.4;
       cursor: not-allowed;
       pointer-events: none;
+      border-color: #2aef2a22;
+    }
+    .input-area.disabled input { color: #2aef2a66; }
+    .input-area.disabled input::placeholder { color: #2aef2a44; }
+
+    /* Restart button (game over only) */
+    .restart-section {
+      display: none;
+      margin: 16px 0 24px;
+      padding: 12px 0;
+    }
+    .restart-section.visible { display: block; }
+    .restart-btn {
+      width: 100%;
+      padding: 16px 20px;
+      background: linear-gradient(180deg, #1a4a1a 0%, #0d2a0d 100%);
+      border: 1px solid #2aef2a;
+      border-radius: 6px;
+      color: #2aef2a;
+      font-family: inherit;
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: 1px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .restart-btn:active { background: #2a5a2a; }
+
+    @media (max-width: 480px) {
+      .action-panel { gap: 10px; margin: 14px 0; }
+      .action-btn { padding: 14px; min-height: 48px; }
+      .input-area { gap: 10px; margin: 14px 0; }
+      .restart-section { margin: 18px 0 28px; }
+      .restart-btn { padding: 18px 24px; min-height: 52px; }
     }
 
     /* Episode lock section */
@@ -211,40 +248,203 @@
       -webkit-tap-highlight-color: transparent;
     }
     .episode-unlock-btn:active { background: #222; }
+
+    /* Intro screen */
+    #intro-screen {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      background: #000 url(./assets/tartarus-ship-neptune.png) center center no-repeat;
+      background-size: cover;
+      padding: 16px;
+      overflow-y: auto;
+    }
+    #intro-screen::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      background: linear-gradient(180deg, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.6) 40%, rgba(0,0,0,0.85) 100%);
+      pointer-events: none;
+    }
+    #intro-screen .intro-lore,
+    #intro-screen .intro-bottom { position: relative; z-index: 1; }
+    #intro-screen.hidden { display: none; }
+    .intro-lore {
+      flex: 1;
+      padding: 12px 0;
+      font-size: 0.85rem;
+      line-height: 1.7;
+      color: #2aef2a;
+    }
+    .intro-lore .lore-line { margin-bottom: 8px; color: #2aef2a; }
+    .intro-lore .lore-spacer { height: 12px; margin-bottom: 12px; }
+    .intro-lore .lore-alert { font-weight: 600; color: #2aef2a; }
+    .intro-lore .lore-section-title { font-weight: 600; color: #2aef2a; margin-top: 4px; }
+    .intro-bottom {
+      margin-top: auto;
+      padding: 20px 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+    .intro-init-btn {
+      padding: 16px 28px;
+      background: #0d2a0d;
+      border: 2px solid #2aef2a;
+      border-radius: 6px;
+      color: #2aef2a;
+      font-family: inherit;
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: 2px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .intro-init-btn:active { background: #1a3a1a; }
+    .intro-lang-row { display: flex; gap: 12px; }
+    .intro-lang-btn {
+      padding: 8px 16px;
+      background: transparent;
+      border: 1px solid #2aef2a55;
+      border-radius: 4px;
+      color: #2aef2a99;
+      font-family: inherit;
+      font-size: 0.85rem;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .intro-lang-btn.active { border-color: #2aef2a; color: #2aef2a; background: #1a2a1a; }
+    .intro-lang-btn:active { background: #1a2a1a; }
+
+    /* Game screen (visible after init) */
+    #game-screen { display: none; min-height: 100vh; }
+    #game-screen.visible { display: block; }
+
+    /* Hades / Objectives sections */
+    .hud-section {
+      margin: 8px 0;
+      padding: 10px 12px;
+      background: #0d0d0d;
+      border: 1px solid #2aef2a22;
+      border-radius: 4px;
+    }
+    .hud-section-title { font-size: 0.72rem; color: #2aef2a; font-weight: 600; letter-spacing: 1px; margin-bottom: 6px; }
+    .hud-section-body { font-size: 0.78rem; color: #2aef2a99; line-height: 1.5; }
+
+    /* Execute protocol modal */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.85);
+      padding: 16px;
+    }
+    .modal-overlay.visible { display: flex; }
+    .modal-box {
+      width: 100%;
+      max-width: 360px;
+      background: #111;
+      border: 1px solid #2aef2a55;
+      border-radius: 8px;
+      padding: 20px;
+    }
+    .modal-title { font-size: 1rem; font-weight: 600; color: #2aef2a; margin-bottom: 8px; text-align: center; }
+    .modal-instruction { font-size: 0.8rem; color: #2aef2a99; margin-bottom: 16px; text-align: center; line-height: 1.4; }
+    .modal-targets { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+    .modal-target-btn {
+      padding: 14px;
+      background: #1a1a1a;
+      border: 1px solid #2aef2a55;
+      border-radius: 4px;
+      color: #2aef2a;
+      font-family: inherit;
+      font-size: 0.9rem;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .modal-target-btn.selected { border-color: #2aef2a; background: #1a3a1a; }
+    .modal-target-btn:active { background: #222; }
+    .modal-actions { display: flex; gap: 10px; }
+    .modal-actions button {
+      flex: 1;
+      padding: 14px;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .modal-cancel { background: #333; border: 1px solid #666; color: #ccc; }
+    .modal-confirm { background: #1a3a1a; border: 1px solid #2aef2a; color: #2aef2a; }
+    @media (max-width: 480px) {
+      .modal-box { padding: 24px; }
+      .modal-target-btn { padding: 16px; min-height: 48px; }
+    }
   </style>
 </head>
 <body>
   <div id="app">
+    <!-- Intro screen -->
+    <div id="intro-screen">
+      <div class="intro-lore" id="intro-lore"></div>
+      <div class="intro-bottom">
+        <button type="button" class="intro-init-btn" id="intro-init-btn">[ SYSTEM INITIALIZE ]</button>
+        <div class="intro-lang-row">
+          <button type="button" class="intro-lang-btn" id="intro-lang-ko" data-lang="ko">한국어</button>
+          <button type="button" class="intro-lang-btn active" id="intro-lang-en" data-lang="en">ENGLISH</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Game screen -->
+    <div id="game-screen">
     <header class="header">
       <h1>Tartarus Protocol</h1>
-      <p class="subheader">Telegram Mini App Prototype</p>
+      <p class="subheader" id="hud-countdown">TIME UNTIL TOTAL SHIP COLLAPSE : --:--</p>
     </header>
 
     <div class="outcome-badge" id="outcome-badge"></div>
 
+    <section class="hud-section">
+      <div class="hud-section-title" id="hades-title">[HADES ALERT]</div>
+      <div class="hud-section-body" id="hades-body">The gravity drive awakened the unauthorized layer known as HADES. A parasitic overlap entity slipped into the return signal.</div>
+    </section>
+    <section class="hud-section">
+      <div class="hud-section-title" id="objectives-title">[PRIMARY OBJECTIVES]</div>
+      <div class="hud-section-body" id="objectives-body">1. Identify the HOST hidden among the four crew members. 2. Eliminate the overlap entity before time runs out. 3. If you fail, it will isolate and kill the crew one by one.</div>
+    </section>
+
     <section class="status-card">
       <div class="status-item full-width">
-        Match ID
+        <span id="label-match-id">Match ID</span>
         <div class="status-value match-id" id="status-match-id" title="">--</div>
       </div>
       <div class="status-item">
-        Remaining Time
+        <span id="label-remaining">Remaining Time</span>
         <div class="status-value" id="status-time">--:--</div>
       </div>
       <div class="status-item">
-        Current Location
+        <span id="label-location">Current Location</span>
         <div class="status-value" id="status-location">Bridge</div>
       </div>
       <div class="status-item">
-        Threat Level
+        <span id="label-threat">Threat Level</span>
         <div class="status-value" id="status-threat">NOMINAL</div>
       </div>
       <div class="status-item full-width" id="status-outcome-wrap" style="display:none;">
-        Outcome
+        <span id="label-outcome">Outcome</span>
         <div class="status-value" id="status-outcome">--</div>
       </div>
       <div class="status-item full-width" id="status-dead-wrap" style="display:none;">
-        Dead Roles
+        <span id="label-dead">Dead Roles</span>
         <div class="status-value" id="status-dead">--</div>
       </div>
     </section>
@@ -268,19 +468,170 @@
       <button type="button" id="send-btn">전송</button>
     </section>
 
+    <section class="restart-section" id="restart-section">
+      <button type="button" class="restart-btn" id="restart-btn">새 매치 시작</button>
+    </section>
+
     <section class="episode-section">
       <div class="episode-row available">Episode 1: Free / Available</div>
       <div class="episode-row locked">Episode 2: Locked</div>
       <div class="episode-row locked">Episode 3: Locked</div>
       <button class="episode-unlock-btn" id="episode-unlock-btn">Unlock Episode Pass</button>
     </section>
+    </div><!-- #game-screen -->
+  </div>
+
+  <!-- Execute protocol modal -->
+  <div class="modal-overlay" id="execute-modal">
+    <div class="modal-box">
+      <div class="modal-title" id="execute-modal-title">처형 대상 선택</div>
+      <div class="modal-instruction" id="execute-modal-instruction">처형 대상 1명을 선택하십시오. 탄환은 1발뿐입니다.</div>
+      <div class="modal-targets">
+        <button type="button" class="modal-target-btn" data-target="doctor" id="target-doctor">닥터</button>
+        <button type="button" class="modal-target-btn" data-target="engineer" id="target-engineer">엔지니어</button>
+        <button type="button" class="modal-target-btn" data-target="navigator" id="target-navigator">네비게이터</button>
+        <button type="button" class="modal-target-btn" data-target="pilot" id="target-pilot">파일럿</button>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="modal-cancel" id="execute-cancel">취소</button>
+        <button type="button" class="modal-confirm" id="execute-confirm">확정</button>
+      </div>
+    </div>
   </div>
 
   <script>
     (function() {
       var API_BASE = (typeof location !== 'undefined' && location.origin === 'http://localhost:8788') ? '' : 'http://localhost:8788';
       const PLAYER_KEY = 'tartarus_miniapp_playerId';
+      const LANG_KEY = 'tartarus_miniapp_lang';
 
+      var screen = 'intro';
+      var lang = localStorage.getItem(LANG_KEY) || 'en';
+
+      /* Vercel public/index.html OPENING_LINES와 동일한 내용/흐름 */
+      var OPENING_LINES = {
+        ko: [
+          '[시스템 기동…]',
+          '대상 함선: USSC 타르타로스(프로토타입)',
+          '임무: 프로젝트 \'HORIZON\' — 중력 드라이브 실험',
+          '현 위치: 해왕성 궤도(태양계 외곽)',
+          ' ',
+          '[하데스 경보]',
+          '중력 드라이브가 비인가 계층 \'HADES\'를 깨웠다.',
+          '귀환 신호에 정체 불명의 중첩체가 섞여 들어왔다.',
+          '함장을 제외한 4명의 크루는 현재 함선 각 구역에 분산되어 임무를 수행 중이다.',
+          '통신은 열려 있지만, 누구도 서로의 곁에 있지 않다.',
+          ' ',
+          '[주요 목표]',
+          '1. 크루 4명 중 인간을 흉내 내는 중첩체(HOST)를 찾아라.',
+          '2. 시간이 끝나기 전에 중첩체를 처형하라.',
+          '3. 늦으면 중첩체가 고립된 크루를 하나씩 살해한다.',
+          ' '
+        ],
+        en: [
+          '[SYSTEM INITIALIZE…]',
+          'Target vessel: USSC Tartarus (Prototype)',
+          'Mission: PROJECT \'HORIZON\' — Gravity Drive Test',
+          'Location: Neptune Orbit (Edge of Solar System)',
+          ' ',
+          '[HADES ALERT]',
+          'The gravity drive awakened the unauthorized layer known as HADES.',
+          'A parasitic overlap entity slipped into the return signal.',
+          'The four crew members are scattered across the ship, each carrying out their own duties.',
+          'Communications are open, but none of them are standing together.',
+          ' ',
+          '[PRIMARY OBJECTIVES]',
+          '1. Identify the HOST hidden among the four crew members.',
+          '2. Eliminate the overlap entity before time runs out.',
+          '3. If you fail, it will isolate and kill the crew one by one.',
+          ' '
+        ]
+      };
+
+      /* Vercel public/locales.js, public/index.html 기준 내용 */
+      var GAME_LABELS = {
+        ko: {
+          countdown: '함선 붕괴까지',
+          hadesTitle: '[하데스 경보]',
+          hadesBody: '중력 드라이브가 비인가 계층 \'HADES\'를 깨웠다. 귀환 신호에 정체 불명의 중첩체가 섞여 들어왔다. 함장을 제외한 4명의 크루는 현재 함선 각 구역에 분산되어 임무를 수행 중이다. 통신은 열려 있지만, 누구도 서로의 곁에 있지 않다.',
+          objectivesTitle: '[주요 목표]',
+          objectivesBody: '1. 크루 4명 중 인간을 흉내 내는 중첩체(HOST)를 찾아라. 2. 시간이 끝나기 전에 중첩체를 처형하라. 3. 늦으면 중첩체가 고립된 크루를 하나씩 살해한다.',
+          matchId: 'Match ID',
+          remaining: 'Remaining Time',
+          location: '현재 위치',
+          threat: '위협도',
+          outcome: 'Outcome',
+          deadRoles: 'Dead Roles',
+          question: '승무원 심문',
+          cctv: 'CCTV 로그 확인',
+          engine: '엔진실 확인',
+          pistol: '권총 획득',
+          threatBtn: '위협',
+          clue: '단서 수집',
+          execute: '[ 처형 프로토콜 실행 (ACCUSE) ]',
+          freeInput: '명령 입력...',
+          gameOverPlaceholder: '게임 종료됨',
+          send: '전송',
+          restart: '시스템 재부팅',
+          executeModalTitle: '처형 대상 선택',
+          executeModalInstruction: '처형 대상 1명을 선택하십시오. 탄환은 1발뿐입니다.',
+          cancel: '취소',
+          confirm: '확정',
+          doctor: '닥터',
+          engineer: '엔지니어',
+          navigator: '네비게이터',
+          pilot: '파일럿'
+        },
+        en: {
+          countdown: 'TIME UNTIL TOTAL SHIP COLLAPSE',
+          hadesTitle: '[HADES ALERT]',
+          hadesBody: 'The gravity drive awakened the unauthorized layer known as HADES. A parasitic overlap entity slipped into the return signal. The four crew members are scattered across the ship, each carrying out their own duties. Communications are open, but none of them are standing together.',
+          objectivesTitle: '[PRIMARY OBJECTIVES]',
+          objectivesBody: '1. Identify the HOST hidden among the four crew members. 2. Eliminate the overlap entity before time runs out. 3. If you fail, it will isolate and kill the crew one by one.',
+          matchId: 'Match ID',
+          remaining: 'Remaining Time',
+          location: 'Current Location',
+          threat: 'Threat Level',
+          outcome: 'Outcome',
+          deadRoles: 'Dead Roles',
+          question: 'INTERROGATE CREW',
+          cctv: 'CHECK CCTV LOGS',
+          engine: 'CHECK ENGINE ROOM',
+          pistol: 'TAKE PISTOL',
+          threatBtn: 'THREAT',
+          clue: 'FIND CLUE',
+          execute: '[ INITIATE PURGE PROTOCOL (ACCUSE) ]',
+          freeInput: 'Enter command...',
+          gameOverPlaceholder: 'Game Over',
+          send: 'SEND',
+          restart: 'REBOOT SYSTEM',
+          executeModalTitle: 'SELECT TARGET FOR ELIMINATION',
+          executeModalInstruction: 'Choose one target. One bullet only. No second chance.',
+          cancel: 'CANCEL',
+          confirm: 'CONFIRM',
+          doctor: 'Doctor',
+          engineer: 'Engineer',
+          navigator: 'Navigator',
+          pilot: 'Pilot'
+        }
+      };
+
+      var ACCUSE_TEXTS = {
+        ko: { doctor: '닥터를 의심한다', engineer: '엔지니어를 의심한다', navigator: '네비게이터를 의심한다', pilot: '파일럿을 의심한다' },
+        en: { doctor: 'accuse doctor', engineer: 'accuse engineer', navigator: 'accuse navigator', pilot: 'accuse pilot' }
+      };
+
+      const introScreen = document.getElementById('intro-screen');
+      const introLore = document.getElementById('intro-lore');
+      const introInitBtn = document.getElementById('intro-init-btn');
+      const introLangKo = document.getElementById('intro-lang-ko');
+      const introLangEn = document.getElementById('intro-lang-en');
+      const gameScreen = document.getElementById('game-screen');
+      const hudCountdown = document.getElementById('hud-countdown');
+      const hadesTitle = document.getElementById('hades-title');
+      const hadesBody = document.getElementById('hades-body');
+      const objectivesTitle = document.getElementById('objectives-title');
+      const objectivesBody = document.getElementById('objectives-body');
       const statusMatchId = document.getElementById('status-match-id');
       const statusTime = document.getElementById('status-time');
       const statusLocation = document.getElementById('status-location');
@@ -298,6 +649,8 @@
       const actionPanel = document.getElementById('action-panel');
       const actionBtns = document.querySelectorAll('.action-btn');
       const episodeUnlockBtn = document.getElementById('episode-unlock-btn');
+      const restartSection = document.getElementById('restart-section');
+      const restartBtn = document.getElementById('restart-btn');
 
       var isGameOver = false;
 
@@ -332,14 +685,78 @@
         if (logPanel) logPanel.scrollTop = logPanel.scrollHeight;
       }
 
+      function getL() { return GAME_LABELS[lang] || GAME_LABELS.ko; }
+
       function setGameOverLock(locked) {
         isGameOver = !!locked;
+        var L = getL();
         if (inputArea) inputArea.classList.toggle('disabled', locked);
+        if (freeInput) freeInput.placeholder = locked ? L.gameOverPlaceholder : L.freeInput;
         if (actionPanel) {
           actionBtns.forEach(function(b) {
             b.classList.toggle('locked', locked);
           });
         }
+        if (restartSection) restartSection.classList.toggle('visible', locked);
+      }
+
+      function renderIntroScreen() {
+        var lines = OPENING_LINES[lang] || OPENING_LINES.ko;
+        if (introLore) {
+          var html = '';
+          for (var i = 0; i < lines.length; i++) {
+            var ln = lines[i];
+            if (ln === ' ') {
+              html += '<div class="lore-line lore-spacer"></div>';
+            } else if (/^\[하데스 경보\]|^\[HADES ALERT\]/.test(ln)) {
+              html += '<div class="lore-line lore-alert">' + ln + '</div>';
+            } else if (/^\[주요 목표\]|^\[PRIMARY OBJECTIVES\]/.test(ln)) {
+              html += '<div class="lore-line lore-section-title">' + ln + '</div>';
+            } else {
+              html += '<div class="lore-line">' + ln + '</div>';
+            }
+          }
+          introLore.innerHTML = html;
+        }
+        if (introInitBtn) introInitBtn.textContent = (lang === 'ko') ? '[ 시스템 기동 ]' : '[ SYSTEM INITIALIZE ]';
+        if (introLangKo) { introLangKo.classList.toggle('active', lang === 'ko'); introLangKo.textContent = '한국어'; }
+        if (introLangEn) { introLangEn.classList.toggle('active', lang === 'en'); introLangEn.textContent = 'ENGLISH'; }
+      }
+
+      function renderGameLabels() {
+        var L = getL();
+        if (hudCountdown) hudCountdown.textContent = L.countdown + ' : ' + (statusTime && statusTime.textContent ? statusTime.textContent : '--:--');
+        if (hadesTitle) hadesTitle.textContent = L.hadesTitle;
+        if (hadesBody) hadesBody.textContent = L.hadesBody;
+        if (objectivesTitle) objectivesTitle.textContent = L.objectivesTitle;
+        if (objectivesBody) objectivesBody.textContent = L.objectivesBody;
+        var labels = { 'label-match-id': L.matchId, 'label-remaining': L.remaining, 'label-location': L.location, 'label-threat': L.threat, 'label-outcome': L.outcome, 'label-dead': L.deadRoles };
+        for (var k in labels) { var el = document.getElementById(k); if (el) el.textContent = labels[k]; }
+        actionBtns.forEach(function(b) {
+          var a = b.dataset.action;
+          if (a === 'question') b.textContent = L.question;
+          else if (a === 'cctv') b.textContent = L.cctv;
+          else if (a === 'engine') b.textContent = L.engine;
+          else if (a === 'pistol') b.textContent = L.pistol;
+          else if (a === 'threat') b.textContent = L.threatBtn;
+          else if (a === 'clue') b.textContent = L.clue;
+          else if (a === 'execute') b.textContent = L.execute;
+        });
+        if (freeInput) freeInput.placeholder = isGameOver ? L.gameOverPlaceholder : L.freeInput;
+        if (sendBtn) sendBtn.textContent = L.send;
+        if (restartBtn) restartBtn.textContent = L.restart;
+        var execTitle = document.getElementById('execute-modal-title');
+        var execInst = document.getElementById('execute-modal-instruction');
+        var execCancel = document.getElementById('execute-cancel');
+        var execConfirm = document.getElementById('execute-confirm');
+        if (execTitle) execTitle.textContent = L.executeModalTitle;
+        if (execInst) execInst.textContent = L.executeModalInstruction || '';
+        if (execCancel) execCancel.textContent = L.cancel;
+        if (execConfirm) execConfirm.textContent = L.confirm;
+        ['doctor','engineer','navigator','pilot'].forEach(function(r) {
+          var btn = document.getElementById('target-' + r);
+          if (btn) btn.textContent = L[r];
+        });
       }
 
       function updateStatus(state) {
@@ -351,8 +768,10 @@
           statusMatchId.textContent = short;
           statusMatchId.title = state.match_id;
         }
-        statusTime.textContent = formatTime(state.remaining_sec);
+        var timeStr = formatTime(state.remaining_sec);
+        statusTime.textContent = timeStr;
         statusLocation.textContent = state.location || 'Bridge';
+        if (hudCountdown) hudCountdown.textContent = getL().countdown + ' : ' + timeStr;
 
         if (gs.game_over && gs.outcome) {
           statusThreat.textContent = 'GAME OVER';
@@ -373,8 +792,8 @@
         }
 
         if (gs.dead_roles && gs.dead_roles.length > 0) {
-          if (statusDeadWrap) { statusDeadWrap.style.display = 'block'; statusDead.textContent = gs.dead_roles.join(', '); }
-        } else if (statusDeadWrap) statusDeadWrap.style.display = 'none';
+          if (statusDeadWrap) { statusDeadWrap.style.display = 'block'; statusDead.textContent = gs.dead_roles.join(', '); statusDead.classList.add('threat'); }
+        } else if (statusDeadWrap) { statusDeadWrap.style.display = 'none'; statusDead.classList.remove('threat'); }
       }
 
       function applyEvents(events) {
@@ -385,12 +804,12 @@
         });
       }
 
-      function doStart() {
+      function doStart(restart) {
         var playerId = getPlayerId();
         fetch(API_BASE + '/api/start', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ playerId: playerId })
+          body: JSON.stringify({ playerId: playerId, restart: !!restart })
         })
           .then(function(r) { return r.json(); })
           .then(function(data) {
@@ -430,7 +849,63 @@
           });
       }
 
-      doStart();
+      renderIntroScreen();
+
+      introLangKo.addEventListener('click', function() {
+        lang = 'ko';
+        localStorage.setItem(LANG_KEY, lang);
+        renderIntroScreen();
+      });
+      introLangEn.addEventListener('click', function() {
+        lang = 'en';
+        localStorage.setItem(LANG_KEY, lang);
+        renderIntroScreen();
+      });
+
+      introInitBtn.addEventListener('click', function() {
+        screen = 'game';
+        if (introScreen) introScreen.classList.add('hidden');
+        if (gameScreen) gameScreen.classList.add('visible');
+        renderGameLabels();
+        doStart(false);
+      });
+
+      var executeModal = document.getElementById('execute-modal');
+      var executeCancel = document.getElementById('execute-cancel');
+      var executeConfirm = document.getElementById('execute-confirm');
+      var selectedExecuteTarget = null;
+
+      function openExecuteModal() {
+        if (isGameOver) return;
+        selectedExecuteTarget = null;
+        var L = getL();
+        document.querySelectorAll('.modal-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+        if (executeModal) executeModal.classList.add('visible');
+      }
+
+      function closeExecuteModal() {
+        if (executeModal) executeModal.classList.remove('visible');
+      }
+
+      document.querySelectorAll('.modal-target-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          selectedExecuteTarget = this.dataset.target;
+          document.querySelectorAll('.modal-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+          this.classList.add('selected');
+        });
+      });
+
+      if (executeCancel) executeCancel.addEventListener('click', closeExecuteModal);
+      if (executeConfirm) executeConfirm.addEventListener('click', function() {
+        if (!selectedExecuteTarget) return;
+        var text = ACCUSE_TEXTS[lang][selectedExecuteTarget];
+        closeExecuteModal();
+        doMessage(text);
+      });
+
+      executeModal.addEventListener('click', function(e) {
+        if (e.target === executeModal) closeExecuteModal();
+      });
 
       sendBtn.addEventListener('click', function() {
         if (isGameOver) return;
@@ -449,13 +924,24 @@
           if (isGameOver) return;
           var action = this.dataset.action || '';
           if (action === 'question') {
-            doMessage('네비게이터 어디 있었어');
+            doMessage(lang === 'ko' ? '네비게이터 어디 있었어' : 'Where was the navigator');
           } else if (action === 'cctv') {
-            doMessage('로그 보여줘');
+            doMessage(lang === 'ko' ? 'CCTV 로그를 확인한다.' : 'Checking CCTV logs.');
+          } else if (action === 'engine') {
+            doMessage(lang === 'ko' ? '엔진실 로그를 확인한다.' : 'Checking engine room logs.');
+          } else if (action === 'execute') {
+            openExecuteModal();
           } else {
             console.log('[Tartarus MiniApp] action:', action);
           }
         });
+      });
+
+      restartBtn.addEventListener('click', function() {
+        if (!isGameOver) return;
+        restartSection.classList.remove('visible');
+        appendLog('새 매치 시작 중...', false);
+        doStart(true);
       });
 
       episodeUnlockBtn.addEventListener('click', function() {

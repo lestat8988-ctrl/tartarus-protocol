@@ -145,9 +145,20 @@ async function routeMessage(playerId, text, opts = {}) {
 /**
  * API용 /start 상태 반환
  * @param {string} playerId
+ * @param {object} opts - { restart?: boolean } restart=true면 새 매치 생성
  * @returns {Promise<object>}
  */
-async function getStartStateApi(playerId) {
+async function getStartStateApi(playerId, opts = {}) {
+  if (opts.restart) {
+    const player = await playerStore.getPlayer(playerId);
+    if (player?.match_id) {
+      await playerStore.setPlayer(playerId, {
+        match_id: null,
+        role: player.role || 'captain',
+        joined_at: player.joined_at || new Date().toISOString()
+      });
+    }
+  }
   let player = await playerStore.getPlayer(playerId);
   let matchId = player?.match_id;
   if (!matchId) {
@@ -304,7 +315,8 @@ function createLocalApiServer() {
       if (route === '/api/start' && req.method === 'POST') {
         const data = body ? JSON.parse(body) : {};
         const playerId = data.playerId || 'miniapp_' + Date.now();
-        const state = await getStartStateApi(playerId);
+        const restart = !!data.restart;
+        const state = await getStartStateApi(playerId, { restart });
         res.writeHead(200);
         res.end(JSON.stringify({ ok: true, playerId, ...state }));
         return;
