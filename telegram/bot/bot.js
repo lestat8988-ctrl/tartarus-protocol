@@ -144,6 +144,7 @@ async function routeMessage(playerId, text, opts = {}) {
 
 /**
  * API용 /start 상태 반환
+ * actual_imposter: game_over=true일 때만 match.impostor_role을 포함. game_over=false면 미포함.
  * @param {string} playerId
  * @param {object} opts - { restart?: boolean } restart=true면 새 매치 생성
  * @returns {Promise<object>}
@@ -168,18 +169,27 @@ async function getStartStateApi(playerId, opts = {}) {
   }
   const match = await matchStore.getMatch(matchId);
   const timer = ep1Engine.getTimerStatus ? ep1Engine.getTimerStatus(match) : { remaining_sec: 420 };
-  return {
+  const gs = match?.game_state || {};
+  const out = {
     ok: true,
     match_id: matchId,
     remaining_sec: timer.remaining_sec ?? 420,
-    game_state: match?.game_state || {},
+    game_state: gs,
     deadline_at: match?.deadline_at,
     events: match?.events || []
   };
+  if (gs.game_over) {
+    const imp = match?.impostor_role ?? match?.hidden_host_role;
+    if (imp) out.actual_imposter = imp;
+    const evs = match?.events || [];
+    if (evs.some((e) => e && e.type === 'TIMEOUT')) out.is_timeout = true;
+  }
+  return out;
 }
 
 /**
  * API용 메시지 처리 (구조화된 결과 반환)
+ * actual_imposter: game_over=true일 때만 match.impostor_role을 포함. game_over=false면 미포함.
  * @param {string} playerId
  * @param {string} text
  * @param {object} opts - { now? }
@@ -197,7 +207,7 @@ async function processMessageApi(playerId, text, opts = {}) {
   if (!match) return { ok: false, error: 'Match not found' };
 
   if (match.game_state?.game_over) {
-    return {
+    const ret = {
       ok: true,
       summary: `Game over. Outcome: ${match.game_state.outcome || 'unknown'}`,
       game_over: true,
@@ -206,6 +216,10 @@ async function processMessageApi(playerId, text, opts = {}) {
       events: [],
       match_state: { ...match.game_state }
     };
+    if (match.impostor_role != null) ret.actual_imposter = match.impostor_role;
+    const evs = match?.events || [];
+    if (evs.some((e) => e && e.type === 'TIMEOUT')) ret.is_timeout = true;
+    return ret;
   }
 
   const parsed = intentParser.parse(text);
@@ -219,16 +233,23 @@ async function processMessageApi(playerId, text, opts = {}) {
   }
 
   const updated = await matchStore.getMatch(matchId);
-  return {
+  const gameOver = result.game_over || updated?.game_state?.game_over;
+  const ret = {
     ok: true,
     summary: result.summary || 'Captain acted.',
     remaining_sec: result.remaining_sec ?? 0,
-    game_over: result.game_over || false,
+    game_over: gameOver || false,
     outcome: result.outcome || null,
     events: result.events || [],
     recent_events: (updated?.events || []).slice(-5),
     match_state: updated?.game_state || {}
   };
+  if (gameOver) {
+    if (updated?.impostor_role != null) ret.actual_imposter = updated.impostor_role;
+    const evs = result.events || updated?.events || [];
+    if (evs.some((e) => e && e.type === 'TIMEOUT')) ret.is_timeout = true;
+  }
+  return ret;
 }
 
 /**
@@ -338,14 +359,21 @@ function createLocalApiServer() {
         }
         const match = await matchStore.getMatch(matchId);
         const timer = ep1Engine.getTimerStatus ? ep1Engine.getTimerStatus(match) : { remaining_sec: 420 };
-        res.writeHead(200);
-        res.end(JSON.stringify({
+        const gs = match?.game_state || {};
+        const statePayload = {
           ok: true,
           match_id: matchId,
           remaining_sec: timer.remaining_sec ?? 420,
-          game_state: match?.game_state || {},
+          game_state: gs,
           events: match?.events || []
-        }));
+        };
+        if (gs.game_over) {
+          if (match.impostor_role != null) statePayload.actual_imposter = match.impostor_role;
+          const evs = match?.events || [];
+          if (evs.some((e) => e && e.type === 'TIMEOUT')) statePayload.is_timeout = true;
+        }
+        res.writeHead(200);
+        res.end(JSON.stringify(statePayload));
         return;
       }
 
