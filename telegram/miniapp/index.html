@@ -23,22 +23,24 @@
       padding-bottom: 24px;
     }
 
-    /* Header */
+    /* Header (베르셀 game-header 스타일: 타이틀 + 타이머만) */
     .header {
       text-align: center;
-      padding: 12px 0;
+      padding: 6px 0 8px;
       border-bottom: 1px solid #2aef2a33;
+      margin-bottom: 6px;
     }
     .header h1 {
       margin: 0;
-      font-size: 1.4rem;
+      font-size: 1rem;
       font-weight: 600;
-      letter-spacing: 2px;
+      letter-spacing: 1px;
     }
     .subheader {
-      margin-top: 4px;
-      font-size: 0.75rem;
-      color: #2aef2a88;
+      margin-top: 2px;
+      font-size: 0.7rem;
+      color: #ff4444;
+      font-weight: 600;
     }
 
     /* Outcome badge (game over) */
@@ -57,49 +59,19 @@
     .outcome-badge.impostor_win { background: #3a0a0a; border: 2px solid #ef2a2a; color: #ff4a4a; box-shadow: 0 0 12px rgba(239,42,42,0.3); }
     .outcome-badge.accuse_failed { background: #3a1a0a; border: 2px solid #ef8a2a; color: #ffaa4a; box-shadow: 0 0 12px rgba(239,138,42,0.25); }
 
-    /* Status card */
+    /* Status card — 플레이 중 숨김 (베르셀처럼 로그 중심) */
     .status-card {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px 12px;
-      margin: 12px 0;
-      padding: 12px;
-      background: #111;
-      border: 1px solid #2aef2a22;
-      border-radius: 4px;
+      display: none;
     }
-    .status-item {
-      font-size: 0.68rem;
-      color: #2aef2a99;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .status-item > span { display: block; }
-    .status-value {
-      font-size: 0.85rem;
-      color: #2aef2a;
-      margin-top: 3px;
-      word-break: break-all;
-    }
-    .status-value.match-id {
-      font-size: 0.75rem;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      max-width: 100%;
-    }
-    .status-value.threat { color: #ef2a2a; }
-    .status-value.nominal { color: #2aef2a; }
-    .status-item.full-width { grid-column: 1 / -1; }
 
-    /* Log panel */
+    /* Log panel (베르셀 #log 스타일: 메인 터미널 영역 확대) */
     .log-panel {
-      min-height: 140px;
-      max-height: 200px;
+      min-height: 200px;
+      max-height: 320px;
       overflow-y: auto;
       overflow-x: hidden;
-      padding: 12px;
-      margin: 12px 0;
+      padding: 8px 10px;
+      margin: 6px 0;
       background: #0d0d0d;
       border: 1px solid #2aef2a22;
       border-radius: 4px;
@@ -113,12 +85,12 @@
     }
     .log-entry.error { border-color: #ef2a2a44; }
 
-    /* Action buttons */
+    /* Action buttons (2열 배치 유지) */
     .action-panel {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
-      gap: 8px;
-      margin: 12px 0;
+      gap: 6px 8px;
+      margin: 6px 0;
     }
     .action-btn {
       padding: 12px;
@@ -148,8 +120,8 @@
     .input-area {
       display: flex;
       gap: 8px;
-      margin: 12px 0;
-      padding-bottom: 12px;
+      margin: 6px 0;
+      padding-bottom: 8px;
     }
     .input-area input {
       flex: 1;
@@ -219,8 +191,8 @@
 
     /* Episode lock section */
     .episode-section {
-      padding: 12px;
-      margin-top: auto;
+      padding: 8px 10px;
+      margin-top: 8px;
       background: #0d0d0d;
       border: 1px solid #2aef2a22;
       border-radius: 4px;
@@ -316,7 +288,7 @@
       line-height: 1.8;
     }
     #intro-scroll-content.scroll-animate {
-      animation: introCreditsScroll 60s linear 0s 1 forwards;
+      animation: introCreditsScroll 85s linear 5s 1 forwards;
     }
     @keyframes introCreditsScroll {
       0% { transform: translateX(-50%) translateY(0); }
@@ -402,16 +374,49 @@
     #game-screen { display: none; min-height: 100vh; }
     #game-screen.visible { display: block; }
 
-    /* Hades / Objectives sections */
-    .hud-section {
-      margin: 8px 0;
-      padding: 10px 12px;
+    /* 게임 브리핑 스크롤 (베르셀식 위로 흐르는 briefing) */
+    .game-briefing-viewport {
+      height: 140px;
+      margin: 6px 0 0;
+      overflow: hidden;
       background: #0d0d0d;
       border: 1px solid #2aef2a22;
       border-radius: 4px;
+      transition: height 0.4s ease, margin 0.4s ease, padding 0.4s ease, opacity 0.3s ease;
     }
-    .hud-section-title { font-size: 0.72rem; color: #2aef2a; font-weight: 600; letter-spacing: 1px; margin-bottom: 6px; }
-    .hud-section-body { font-size: 0.78rem; color: #2aef2a99; line-height: 1.5; }
+    .game-briefing-viewport.collapsed {
+      height: 0;
+      margin: 0;
+      padding: 0;
+      border-width: 0;
+      opacity: 0;
+      overflow: hidden;
+    }
+    .game-briefing-scroll {
+      padding: 12px 14px 24px;
+      font-size: 0.78rem;
+      line-height: 1.6;
+      color: #2aef2a99;
+    }
+    .game-briefing-scroll.scroll-animate {
+      animation: gameBriefingScroll 28s linear 1s 1 forwards;
+    }
+    @keyframes gameBriefingScroll {
+      0% { transform: translateY(0); }
+      100% { transform: translateY(-100%); }
+    }
+    .game-briefing-line {
+      margin-bottom: 6px;
+    }
+    .game-briefing-line.briefing-title {
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: #2aef2a;
+      letter-spacing: 1px;
+      margin-top: 10px;
+      margin-bottom: 4px;
+    }
+    .game-briefing-line.briefing-title:first-child { margin-top: 0; }
 
     /* Execute protocol modal */
     .modal-overlay {
@@ -524,13 +529,22 @@
 
     <div class="outcome-badge" id="outcome-badge"></div>
 
-    <section class="hud-section">
-      <div class="hud-section-title" id="hades-title">[HADES ALERT]</div>
-      <div class="hud-section-body" id="hades-body">The gravity drive awakened the unauthorized layer known as HADES. A parasitic overlap entity slipped into the return signal.</div>
-    </section>
-    <section class="hud-section">
-      <div class="hud-section-title" id="objectives-title">[PRIMARY OBJECTIVES]</div>
-      <div class="hud-section-body" id="objectives-body">1. Identify the HOST hidden among the four crew members. 2. Eliminate the overlap entity before time runs out. 3. If you fail, it will isolate and kill the crew one by one.</div>
+    <section class="game-briefing-viewport" id="game-briefing-viewport">
+      <div class="game-briefing-scroll" id="game-briefing-scroll">
+        <div class="game-briefing-line briefing-title" id="briefing-boot-title">[SYSTEM INITIALIZE…]</div>
+        <div class="game-briefing-line" id="briefing-target-vessel">Target vessel: USSC Tartarus (Prototype)</div>
+        <div class="game-briefing-line" id="briefing-mission">Mission: PROJECT 'HORIZON' - Gravity Drive Test</div>
+        <div class="game-briefing-line" id="briefing-location">Location: Neptune Orbit (Edge of Solar System)</div>
+        <div class="game-briefing-line briefing-title" id="briefing-hades-title">[HADES ALERT]</div>
+        <div class="game-briefing-line" id="briefing-hades-1">The gravity drive awakened the unauthorized layer known as HADES.</div>
+        <div class="game-briefing-line" id="briefing-hades-2">A parasitic overlap entity slipped into the return signal.</div>
+        <div class="game-briefing-line" id="briefing-hades-3">The four crew members are scattered across the ship, each carrying out their own duties.</div>
+        <div class="game-briefing-line" id="briefing-hades-4">Communications are open, but none of them are standing together.</div>
+        <div class="game-briefing-line briefing-title" id="briefing-objectives-title">[PRIMARY OBJECTIVES]</div>
+        <div class="game-briefing-line" id="briefing-obj-1">1. Identify the HOST hidden among the four crew members.</div>
+        <div class="game-briefing-line" id="briefing-obj-2">2. Eliminate the overlap entity before time runs out.</div>
+        <div class="game-briefing-line" id="briefing-obj-3">3. If you fail, it will isolate and kill the crew one by one.</div>
+      </div>
     </section>
 
     <section class="status-card">
@@ -701,11 +715,20 @@
       /* Vercel public/locales.js, public/index.html 기준 내용 */
       var GAME_LABELS = {
         ko: {
+          bootTitle: '[시스템 기동…]',
+          targetVessel: '대상 함선: USSC 타르타로스(프로토타입)',
+          mission: '임무: 프로젝트 \'HORIZON\' - 중력 드라이브 실험',
+          briefingLocation: '현 위치: 해왕성 궤도(태양계 외곽)',
           countdown: '함선 붕괴까지',
           hadesTitle: '[하데스 경보]',
-          hadesBody: '중력 드라이브가 비인가 계층 \'HADES\'를 깨웠다. 귀환 신호에 정체 불명의 중첩체가 섞여 들어왔다. 함장을 제외한 4명의 크루는 현재 함선 각 구역에 분산되어 임무를 수행 중이다. 통신은 열려 있지만, 누구도 서로의 곁에 있지 않다.',
+          hades1: '중력 드라이브가 비인가 계층 \'HADES\'를 깨웠다.',
+          hades2: '귀환 신호에 정체 불명의 중첩체가 섞여 들어왔다.',
+          hades3: '함장을 제외한 4명의 크루는 현재 함선 각 구역에 분산되어 임무를 수행 중이다.',
+          hades4: '통신은 열려 있지만, 누구도 서로의 곁에 있지 않다.',
           objectivesTitle: '[주요 목표]',
-          objectivesBody: '1. 크루 4명 중 인간을 흉내 내는 중첩체(HOST)를 찾아라. 2. 시간이 끝나기 전에 중첩체를 처형하라. 3. 늦으면 중첩체가 고립된 크루를 하나씩 살해한다.',
+          obj1: '1. 크루 4명 중 인간을 흉내 내는 중첩체(HOST)를 찾아라.',
+          obj2: '2. 시간이 끝나기 전에 중첩체를 처형하라.',
+          obj3: '3. 늦으면 중첩체가 고립된 크루를 하나씩 살해한다.',
           matchId: 'Match ID',
           remaining: 'Remaining Time',
           location: '현재 위치',
@@ -746,11 +769,20 @@
           pilot: '파일럿'
         },
         en: {
+          bootTitle: '[SYSTEM INITIALIZE…]',
+          targetVessel: 'Target vessel: USSC Tartarus (Prototype)',
+          mission: 'Mission: PROJECT \'HORIZON\' - Gravity Drive Test',
+          briefingLocation: 'Location: Neptune Orbit (Edge of Solar System)',
           countdown: 'TIME UNTIL TOTAL SHIP COLLAPSE',
           hadesTitle: '[HADES ALERT]',
-          hadesBody: 'The gravity drive awakened the unauthorized layer known as HADES. A parasitic overlap entity slipped into the return signal. The four crew members are scattered across the ship, each carrying out their own duties. Communications are open, but none of them are standing together.',
+          hades1: 'The gravity drive awakened the unauthorized layer known as HADES.',
+          hades2: 'A parasitic overlap entity slipped into the return signal.',
+          hades3: 'The four crew members are scattered across the ship, each carrying out their own duties.',
+          hades4: 'Communications are open, but none of them are standing together.',
           objectivesTitle: '[PRIMARY OBJECTIVES]',
-          objectivesBody: '1. Identify the HOST hidden among the four crew members. 2. Eliminate the overlap entity before time runs out. 3. If you fail, it will isolate and kill the crew one by one.',
+          obj1: '1. Identify the HOST hidden among the four crew members.',
+          obj2: '2. Eliminate the overlap entity before time runs out.',
+          obj3: '3. If you fail, it will isolate and kill the crew one by one.',
           matchId: 'Match ID',
           remaining: 'Remaining Time',
           location: 'Current Location',
@@ -805,10 +837,21 @@
       const introLangEn = document.getElementById('intro-lang-en');
       const gameScreen = document.getElementById('game-screen');
       const hudCountdown = document.getElementById('hud-countdown');
-      const hadesTitle = document.getElementById('hades-title');
-      const hadesBody = document.getElementById('hades-body');
-      const objectivesTitle = document.getElementById('objectives-title');
-      const objectivesBody = document.getElementById('objectives-body');
+      const briefingBootTitle = document.getElementById('briefing-boot-title');
+      const briefingTargetVessel = document.getElementById('briefing-target-vessel');
+      const briefingMission = document.getElementById('briefing-mission');
+      const briefingLocation = document.getElementById('briefing-location');
+      const briefingHadesTitle = document.getElementById('briefing-hades-title');
+      const briefingHades1 = document.getElementById('briefing-hades-1');
+      const briefingHades2 = document.getElementById('briefing-hades-2');
+      const briefingHades3 = document.getElementById('briefing-hades-3');
+      const briefingHades4 = document.getElementById('briefing-hades-4');
+      const briefingObjectivesTitle = document.getElementById('briefing-objectives-title');
+      const briefingObj1 = document.getElementById('briefing-obj-1');
+      const briefingObj2 = document.getElementById('briefing-obj-2');
+      const briefingObj3 = document.getElementById('briefing-obj-3');
+      const gameBriefingViewport = document.getElementById('game-briefing-viewport');
+      const gameBriefingScroll = document.getElementById('game-briefing-scroll');
       const statusMatchId = document.getElementById('status-match-id');
       const statusTime = document.getElementById('status-time');
       const statusLocation = document.getElementById('status-location');
@@ -887,8 +930,7 @@
         if (logInit && logInit.parentNode) logInit.remove();
         var entry = document.createElement('div');
         entry.className = 'log-entry' + (isError ? ' error' : '');
-        var ts = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        entry.textContent = '[' + ts + '] ' + text;
+        entry.textContent = text;
         if (logPanel) logPanel.appendChild(entry);
         if (logPanel) logPanel.scrollTop = logPanel.scrollHeight;
       }
@@ -898,8 +940,7 @@
       function syncLangFromStorage() {
         var stored;
         try { stored = (localStorage.getItem(LANG_KEY) || '').trim(); } catch (e) { stored = ''; }
-        var next = (stored === 'ko' || stored === 'en') ? stored : 'en';
-        if (lang !== next) { lang = next; }
+        lang = (stored === 'ko' || stored === 'en') ? stored : 'en';
       }
 
       function restartIntroScrollAnimation() {
@@ -923,9 +964,13 @@
       }
 
       function ensureIntroButtonsEnabled() {
-        if (introInitBtn) { introInitBtn.disabled = false; introInitBtn.removeAttribute('disabled'); introInitBtn.classList.remove('locked', 'disabled'); }
-        if (introLangKo) { introLangKo.disabled = false; introLangKo.removeAttribute('disabled'); introLangKo.classList.remove('locked', 'disabled'); }
-        if (introLangEn) { introLangEn.disabled = false; introLangEn.removeAttribute('disabled'); introLangEn.classList.remove('locked', 'disabled'); }
+        [introInitBtn, introLangKo, introLangEn].forEach(function(btn) {
+          if (!btn) return;
+          btn.disabled = false;
+          btn.removeAttribute('disabled');
+          btn.removeAttribute('aria-disabled');
+          btn.classList.remove('locked', 'disabled');
+        });
       }
 
       function renderIntroScreen() {
@@ -954,13 +999,35 @@
         restartIntroScrollAnimation();
       }
 
+      function startGameBriefingScroll() {
+        if (!gameBriefingViewport || !gameBriefingScroll) return;
+        gameBriefingViewport.classList.remove('collapsed');
+        gameBriefingScroll.classList.remove('scroll-animate');
+        void gameBriefingScroll.offsetWidth;
+        gameBriefingScroll.classList.add('scroll-animate');
+        var onEnd = function() {
+          gameBriefingScroll.removeEventListener('animationend', onEnd);
+          if (gameBriefingViewport) gameBriefingViewport.classList.add('collapsed');
+        };
+        gameBriefingScroll.addEventListener('animationend', onEnd);
+      }
+
       function renderGameLabels() {
         var L = getL();
         if (hudCountdown) hudCountdown.textContent = L.countdown + ' : ' + (statusTime && statusTime.textContent ? statusTime.textContent : '--:--');
-        if (hadesTitle) hadesTitle.textContent = L.hadesTitle;
-        if (hadesBody) hadesBody.textContent = L.hadesBody;
-        if (objectivesTitle) objectivesTitle.textContent = L.objectivesTitle;
-        if (objectivesBody) objectivesBody.textContent = L.objectivesBody;
+        if (briefingBootTitle) briefingBootTitle.textContent = L.bootTitle;
+        if (briefingTargetVessel) briefingTargetVessel.textContent = L.targetVessel;
+        if (briefingMission) briefingMission.textContent = L.mission;
+        if (briefingLocation) briefingLocation.textContent = L.briefingLocation;
+        if (briefingHadesTitle) briefingHadesTitle.textContent = L.hadesTitle;
+        if (briefingHades1) briefingHades1.textContent = L.hades1;
+        if (briefingHades2) briefingHades2.textContent = L.hades2;
+        if (briefingHades3) briefingHades3.textContent = L.hades3;
+        if (briefingHades4) briefingHades4.textContent = L.hades4;
+        if (briefingObjectivesTitle) briefingObjectivesTitle.textContent = L.objectivesTitle;
+        if (briefingObj1) briefingObj1.textContent = L.obj1;
+        if (briefingObj2) briefingObj2.textContent = L.obj2;
+        if (briefingObj3) briefingObj3.textContent = L.obj3;
         var labels = { 'label-match-id': L.matchId, 'label-remaining': L.remaining, 'label-location': L.location, 'label-threat': L.threat, 'label-outcome': L.outcome, 'label-dead': L.deadRoles };
         for (var k in labels) { var el = document.getElementById(k); if (el) el.textContent = labels[k]; }
         actionBtns.forEach(function(b) {
@@ -1139,6 +1206,7 @@
           .then(function(data) {
             if (data.ok) {
               resetResultUI();
+              ensureIntroButtonsEnabled();
               var st = { match_id: data.match_id, remaining_sec: data.remaining_sec, game_state: data.game_state };
               if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
               if (data.is_timeout) st.is_timeout = data.is_timeout;
@@ -1198,6 +1266,7 @@
         if (introScreen) introScreen.classList.add('hidden');
         if (gameScreen) gameScreen.classList.add('visible');
         renderGameLabels();
+        startGameBriefingScroll();
         doStart(false);
       });
 
@@ -1272,6 +1341,7 @@
         if (!isGameOver) return;
         resetResultUI();
         restartSection.classList.remove('visible');
+        startGameBriefingScroll();
         appendLog(lang === 'ko' ? '새 매치 시작 중...' : 'Starting new match...', false);
         doStart(true);
       }
