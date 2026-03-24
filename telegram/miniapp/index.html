@@ -16,7 +16,8 @@
       -webkit-font-smoothing: antialiased;
     }
     /* 처형 모달 열림: 아래 게임 UI로 터치가 새지 않게 (고스트 클릭으로 전송 버튼·이전 입력 재전송 방지) */
-    body.execute-modal-open #game-screen {
+    body.execute-modal-open #game-screen,
+    body.threat-modal-open #game-screen {
       pointer-events: none;
     }
     #app {
@@ -447,7 +448,8 @@
     .modal-execute-warn { display: none; font-size: 0.78rem; color: #e6a23c; text-align: center; margin: -8px 0 12px; line-height: 1.35; }
     .modal-execute-warn.visible { display: block; }
     .modal-targets { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
-    .modal-target-btn {
+    .modal-target-btn,
+    .threat-target-btn {
       padding: 14px;
       background: #1a1a1a;
       border: 1px solid #2aef2a55;
@@ -458,8 +460,10 @@
       cursor: pointer;
       -webkit-tap-highlight-color: transparent;
     }
-    .modal-target-btn.selected { border-color: #2aef2a; background: #1a3a1a; }
-    .modal-target-btn:active { background: #222; }
+    .modal-target-btn.selected,
+    .threat-target-btn.selected { border-color: #2aef2a; background: #1a3a1a; }
+    .modal-target-btn:active,
+    .threat-target-btn:active { background: #222; }
     .modal-actions { display: flex; gap: 10px; }
     .modal-actions button {
       flex: 1;
@@ -475,14 +479,16 @@
     .modal-confirm { background: #1a3a1a; border: 1px solid #2aef2a; color: #2aef2a; }
     #restart-btn:disabled,
     #result-restart-btn:disabled,
-    #execute-confirm:disabled {
+    #execute-confirm:disabled,
+    #threat-confirm:disabled {
       opacity: 0.45;
       cursor: not-allowed;
       pointer-events: none;
     }
     @media (max-width: 480px) {
       .modal-box { padding: 24px; }
-      .modal-target-btn { padding: 16px; min-height: 48px; }
+      .modal-target-btn,
+      .threat-target-btn { padding: 16px; min-height: 48px; }
     }
 
     /* Result modal (game over) */
@@ -650,6 +656,25 @@
     </div>
   </div>
 
+  <!-- Threat target modal (비처형 위협 — /api/action threaten) -->
+  <div class="modal-overlay" id="threat-modal">
+    <div class="modal-box">
+      <div class="modal-title" id="threat-modal-title">위협 대상 선택</div>
+      <div class="modal-instruction" id="threat-modal-instruction">압박할 승무원 1명을 선택하십시오. 처형이 아닙니다.</div>
+      <div class="modal-execute-warn" id="threat-no-target-hint" role="status"></div>
+      <div class="modal-targets">
+        <button type="button" class="threat-target-btn" data-target="doctor" id="threat-target-doctor">닥터</button>
+        <button type="button" class="threat-target-btn" data-target="engineer" id="threat-target-engineer">엔지니어</button>
+        <button type="button" class="threat-target-btn" data-target="navigator" id="threat-target-navigator">네비게이터</button>
+        <button type="button" class="threat-target-btn" data-target="pilot" id="threat-target-pilot">파일럿</button>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="modal-cancel" id="threat-cancel">취소</button>
+        <button type="button" class="modal-confirm" id="threat-confirm" disabled>확정</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     (function() {
       var API_BASE = (typeof location !== 'undefined' && location.origin === 'http://localhost:8788') ? '' : 'http://localhost:8788';
@@ -776,6 +801,9 @@
           executeModalTitle: '처형 대상 선택',
           executeModalInstruction: '처형 대상 1명을 선택하십시오. 탄환은 1발뿐입니다.',
           executeNoTargetHint: '처형 대상을 먼저 선택하십시오. (닥터 / 엔지니어 / 네비게이터 / 파일럿)',
+          threatModalTitle: '위협 대상 선택',
+          threatModalInstruction: '압박할 승무원 1명을 선택하십시오. 처형 프로토콜이 아닙니다.',
+          threatNoTargetHint: '위협 대상을 먼저 선택하십시오. (닥터 / 엔지니어 / 네비게이터 / 파일럿)',
           cancel: '취소',
           confirm: '확정',
           doctor: '닥터',
@@ -831,6 +859,9 @@
           executeModalTitle: 'SELECT TARGET FOR ELIMINATION',
           executeModalInstruction: 'Choose one target. One bullet only. No second chance.',
           executeNoTargetHint: 'Select an execution target first. (Doctor / Engineer / Navigator / Pilot)',
+          threatModalTitle: 'SELECT THREAT TARGET',
+          threatModalInstruction: 'Choose one crew member to pressure. This is not execution.',
+          threatNoTargetHint: 'Select a threat target first. (Doctor / Engineer / Navigator / Pilot)',
           cancel: 'CANCEL',
           confirm: 'CONFIRM',
           doctor: 'Doctor',
@@ -888,6 +919,7 @@
       const restartBtn = document.getElementById('restart-btn');
       const resultRestartBtn = document.getElementById('result-restart-btn');
       const executeConfirmBtn = document.getElementById('execute-confirm');
+      const threatConfirmBtn = document.getElementById('threat-confirm');
 
       var isGameOver = false;
       var previousGameOver = false;
@@ -899,6 +931,9 @@
       var accuseRequestInFlight = false;
       var takePistolRequestInFlight = false;
       var collectClueRequestInFlight = false;
+      var threatRequestInFlight = false;
+      var threatModalUnlockTimer = null;
+      var selectedThreatTarget = null;
 
       function setRestartButtonsDisabled(disabled) {
         if (restartBtn) restartBtn.disabled = !!disabled;
@@ -965,9 +1000,21 @@
           clearTimeout(executeModalUnlockTimer);
           executeModalUnlockTimer = null;
         }
+        if (threatModalUnlockTimer) {
+          clearTimeout(threatModalUnlockTimer);
+          threatModalUnlockTimer = null;
+        }
         document.body.classList.remove('execute-modal-open');
+        document.body.classList.remove('threat-modal-open');
         var execM = document.getElementById('execute-modal');
         if (execM) execM.classList.remove('visible');
+        var threatM = document.getElementById('threat-modal');
+        if (threatM) threatM.classList.remove('visible');
+        selectedThreatTarget = null;
+        document.querySelectorAll('.threat-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+        if (threatConfirmBtn) threatConfirmBtn.disabled = true;
+        var threatNoTargetHintEl = document.getElementById('threat-no-target-hint');
+        if (threatNoTargetHintEl) threatNoTargetHintEl.classList.remove('visible');
         closeResultModal();
         var resultModal = document.getElementById('result-modal');
         if (resultModal) resultModal.classList.remove('result-win', 'result-lose');
@@ -1161,7 +1208,24 @@
         ['doctor','engineer','navigator','pilot'].forEach(function(r) {
           var btn = document.getElementById('target-' + r);
           if (btn) btn.textContent = L[r];
+          var tbtn = document.getElementById('threat-target-' + r);
+          if (tbtn) tbtn.textContent = L[r];
         });
+        var threatTitle = document.getElementById('threat-modal-title');
+        var threatInst = document.getElementById('threat-modal-instruction');
+        var threatCancel = document.getElementById('threat-cancel');
+        if (threatTitle) threatTitle.textContent = L.threatModalTitle || '';
+        if (threatInst) threatInst.textContent = L.threatModalInstruction || '';
+        if (threatCancel) threatCancel.textContent = L.cancel;
+        if (threatConfirmBtn) {
+          threatConfirmBtn.textContent = L.confirm;
+          if (!threatRequestInFlight) threatConfirmBtn.disabled = !selectedThreatTarget;
+        }
+        var threatNoTarget = document.getElementById('threat-no-target-hint');
+        if (threatNoTarget) {
+          threatNoTarget.textContent = L.threatNoTargetHint || '';
+          threatNoTarget.classList.remove('visible');
+        }
       }
 
       function formatOutcomeDisplay(outcome) {
@@ -1481,6 +1545,39 @@
           });
       }
 
+      /** 위협 — 타깃 선택 후 POST /api/action threaten (비처형) */
+      function postThreaten(targetKey) {
+        if (isGameOver || threatRequestInFlight) return;
+        threatRequestInFlight = true;
+        if (threatConfirmBtn) threatConfirmBtn.disabled = true;
+        var playerId = getPlayerId();
+        fetch(API_BASE + '/api/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ playerId: playerId, action: 'threaten', target: targetKey })
+        })
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.ok) {
+              var st = { remaining_sec: data.remaining_sec, game_state: data.match_state };
+              if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
+              if (data.is_timeout) st.is_timeout = data.is_timeout;
+              updateStatus(st, { forApiMessage: true });
+              if (data.game_over) stopStatePolling();
+              appendSummaryOrEvents(data);
+            } else {
+              appendLog('Error: ' + (data.error || 'unknown'), true);
+            }
+          })
+          .catch(function(err) {
+            appendLog('Connection failed: ' + err.message, true);
+          })
+          .finally(function() {
+            threatRequestInFlight = false;
+            if (threatConfirmBtn) threatConfirmBtn.disabled = true;
+          });
+      }
+
       renderIntroScreen();
 
       introLangKo.addEventListener('click', function() {
@@ -1504,6 +1601,7 @@
       });
 
       var executeModal = document.getElementById('execute-modal');
+      var threatModal = document.getElementById('threat-modal');
       var selectedExecuteTarget = null;
 
       /** 처형 확정 단일 진입점 — /api/accuse (confirm 버튼·모달 위임만 이 함수 호출) */
@@ -1561,6 +1659,63 @@
         }, 200);
       }
 
+      function confirmThreat() {
+        var targetKey = selectedThreatTarget;
+        if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
+          var sel = threatModal ? threatModal.querySelector('.threat-target-btn.selected') : null;
+          targetKey = sel ? String(sel.getAttribute('data-target') || '').toLowerCase() : '';
+        }
+        if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
+          var w = document.getElementById('threat-no-target-hint');
+          if (w) {
+            w.textContent = (getL().threatNoTargetHint || '').trim();
+            w.classList.add('visible');
+          }
+          return;
+        }
+        if (threatRequestInFlight) return;
+        var wh = document.getElementById('threat-no-target-hint');
+        if (wh) wh.classList.remove('visible');
+        if (freeInput) {
+          freeInput.value = '';
+          freeInput.blur();
+        }
+        closeThreatModal();
+        postThreaten(targetKey);
+      }
+
+      function openThreatModal() {
+        if (isGameOver) return;
+        if (threatModalUnlockTimer) {
+          clearTimeout(threatModalUnlockTimer);
+          threatModalUnlockTimer = null;
+        }
+        document.body.classList.add('threat-modal-open');
+        if (freeInput) freeInput.blur();
+        selectedThreatTarget = null;
+        var L = getL();
+        if (threatModal) threatModal.querySelectorAll('.threat-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+        var th = document.getElementById('threat-no-target-hint');
+        if (th) {
+          th.textContent = L.threatNoTargetHint || '';
+          th.classList.remove('visible');
+        }
+        if (threatConfirmBtn) threatConfirmBtn.disabled = true;
+        if (threatModal) threatModal.classList.add('visible');
+      }
+
+      function closeThreatModal() {
+        if (threatModal) threatModal.classList.remove('visible');
+        if (threatModalUnlockTimer) clearTimeout(threatModalUnlockTimer);
+        threatModalUnlockTimer = setTimeout(function() {
+          threatModalUnlockTimer = null;
+          document.body.classList.remove('threat-modal-open');
+        }, 200);
+        selectedThreatTarget = null;
+        if (threatModal) threatModal.querySelectorAll('.threat-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+        if (threatConfirmBtn) threatConfirmBtn.disabled = true;
+      }
+
       document.querySelectorAll('.modal-target-btn').forEach(function(btn) {
         btn.addEventListener('click', function() {
           var rid = String(this.getAttribute('data-target') || '').toLowerCase();
@@ -1593,6 +1748,38 @@
         });
       }
 
+      if (threatModal) {
+        threatModal.querySelectorAll('.threat-target-btn').forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            var rid = String(this.getAttribute('data-target') || '').toLowerCase();
+            selectedThreatTarget = VALID_ACCUSE_TARGETS.indexOf(rid) >= 0 ? rid : null;
+            threatModal.querySelectorAll('.threat-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+            this.classList.add('selected');
+            var hw = document.getElementById('threat-no-target-hint');
+            if (hw) hw.classList.remove('visible');
+            if (threatConfirmBtn && !threatRequestInFlight) threatConfirmBtn.disabled = !selectedThreatTarget;
+          });
+        });
+        threatModal.addEventListener('click', function(e) {
+          var t = e.target;
+          var confirmEl = t && t.closest ? t.closest('#threat-confirm') : (t && t.id === 'threat-confirm' ? t : null);
+          if (confirmEl) {
+            e.preventDefault();
+            e.stopPropagation();
+            confirmThreat();
+            return;
+          }
+          var cancelEl = t && t.closest ? t.closest('#threat-cancel') : (t && t.id === 'threat-cancel' ? t : null);
+          if (cancelEl) {
+            e.preventDefault();
+            e.stopPropagation();
+            closeThreatModal();
+            return;
+          }
+          if (e.target === threatModal) closeThreatModal();
+        });
+      }
+
       sendBtn.addEventListener('click', function() {
         if (isGameOver) return;
         var text = (freeInput.value || '').trim();
@@ -1619,6 +1806,8 @@
             postTakePistol();
           } else if (action === 'clue') {
             postCollectClue();
+          } else if (action === 'threat') {
+            openThreatModal();
           } else if (action === 'execute') {
             openExecuteModal();
           } else {

@@ -92,6 +92,14 @@ function toPlayerDisplayLogs(rawEvents, opts = {}) {
       }
       continue;
     }
+    if (t === 'THREATEN' && target) {
+      const obj = roleWithObjectParticle(target);
+      const body = `${obj} 위협한다`.replace(/\s+/g, ' ').trim();
+      const tk = [ev?.ts ?? '', t, role, target].join('|');
+      out.push({ type: '[함장]', role: 'system', target: null, _key: tk + '|hdr' });
+      out.push({ type: body, role: 'system', target: null, _key: tk + '|body' });
+      continue;
+    }
     if (t === 'FIND_CLUE') {
       const clueId = ev.clue_id ? String(ev.clue_id) : '';
       const clueKey = clueId || [ev?.ts ?? '', t, role, target ?? ''].join('|');
@@ -534,7 +542,7 @@ async function processAccuseApi(playerId, targetRaw, opts = {}) {
  * take_pistol / collect_clue → 엔진 TAKE_PISTOL / FIND_CLUE 분기.
  * 응답 형태는 processMessageApi / processAccuseApi와 동일.
  * @param {string} playerId
- * @param {string} actionRaw - e.g. take_pistol | collect_clue
+ * @param {string} actionRaw - e.g. take_pistol | collect_clue | threaten (+ target)
  * @param {string} [targetRaw] - optional
  * @param {object} [opts] - { now? }
  * @returns {Promise<object>}
@@ -543,10 +551,18 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
   const actionKey = String(actionRaw || '').toLowerCase().trim();
   const actionPayloadByKey = {
     take_pistol: { actor: 'captain', role: 'captain', action: 'take_pistol' },
-    collect_clue: { actor: 'captain', role: 'captain', action: 'collect_clue' }
+    collect_clue: { actor: 'captain', role: 'captain', action: 'collect_clue' },
+    threaten: { actor: 'captain', role: 'captain', action: 'threaten' }
   };
   if (!actionPayloadByKey[actionKey]) {
     return { ok: false, error: 'Unsupported action' };
+  }
+
+  if (actionKey === 'threaten') {
+    const t = String(targetRaw || '').toLowerCase().trim();
+    if (!ACCUSE_API_TARGETS.has(t)) {
+      return { ok: false, error: 'target required (doctor|engineer|navigator|pilot)' };
+    }
   }
 
   let player = await playerStore.getPlayer(playerId);

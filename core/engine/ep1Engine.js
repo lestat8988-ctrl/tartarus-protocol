@@ -19,7 +19,19 @@ function getGameTotalSec(matchState) {
   return GAME_TOTAL_SEC;
 }
 
-const VALID_ACTIONS = new Set(['QUESTION', 'OBSERVE', 'CHECK_LOG', 'REPAIR', 'ACCUSE', 'SUSPECT', 'WAIT', 'TAKE_PISTOL', 'FIND_CLUE', 'DEATH']);
+const VALID_ACTIONS = new Set([
+  'QUESTION',
+  'OBSERVE',
+  'CHECK_LOG',
+  'REPAIR',
+  'ACCUSE',
+  'SUSPECT',
+  'WAIT',
+  'TAKE_PISTOL',
+  'FIND_CLUE',
+  'THREATEN',
+  'DEATH'
+]);
 const VALID_TARGETS = new Set(['doctor', 'engineer', 'navigator', 'pilot', 'captain', 'player']);
 
 /** id 기준 중복 방지. 짧은 서사 조각(베르셀 톤). */
@@ -288,6 +300,39 @@ async function applyAction(matchState, action, opts = {}) {
     };
   }
 
+  // 3.10. THREATEN — 비처형 압박 (game_over·dead_roles 불변)
+  if (actFinal === 'THREATEN') {
+    const crewRoles = ['doctor', 'engineer', 'navigator', 'pilot'];
+    const targetRaw = action.target ? String(action.target).toLowerCase() : '';
+    if (!targetRaw || !crewRoles.includes(targetRaw)) {
+      return {
+        ok: true,
+        next_state: matchState,
+        events: [{ type: 'CREW_DIALOGUE', role: 'system', dialogue: '[시스템] 위협 대상 승무원을 지정해야 한다.' }],
+        summary: 'Threat requires a valid crew target.',
+        remaining_sec
+      };
+    }
+    const aliveCrew = crewRoles.filter((r) => !deadRoles.includes(r));
+    if (!aliveCrew.includes(targetRaw)) {
+      return {
+        ok: true,
+        next_state: matchState,
+        events: [{ type: 'CREW_DIALOGUE', role: 'system', dialogue: '[시스템] 해당 승무원은 이미 생체 신호가 끊긴 상태다.' }],
+        summary: 'Threat target unavailable.',
+        remaining_sec
+      };
+    }
+    const events = buildThreatenEvents(targetRaw, aliveCrew);
+    return {
+      ok: true,
+      next_state: matchState,
+      events,
+      summary: `Captain threatened ${targetRaw}.`,
+      remaining_sec
+    };
+  }
+
   // 4. 일반 액션 (OBSERVE 등)
   const actOut = String(action.action || '').toUpperCase();
   const event = { type: actOut, role: action.role || 'captain', target: action.target };
@@ -445,6 +490,99 @@ function buildCrewReactionEvents(actionType, target, aliveCrew) {
   return events;
 }
 
+/**
+ * THREATEN: 함장 위협 선언 + 대상 방어/긴장 + 다른 생존 크루 짧은 후속 (베르셀 톤).
+ * @param {string} target - doctor | engineer | navigator | pilot
+ * @param {string[]} aliveCrew
+ * @returns {object[]}
+ */
+function buildThreatenEvents(target, aliveCrew) {
+  const events = [{ type: 'THREATEN', role: 'captain', target }];
+
+  const TARGET_REACT = {
+    doctor:
+      '[닥터] …함장님. 저는 의료 윤리상 거짓 말은 못 합니다. 호흡은… 지금 제가 통제하고 있어요.',
+    engineer:
+      '[엔지니어] 압박해도 로그 숫자는 안 바뀌어요. 엔진실 기록은 여기 있습니다. 증거부터 대시죠.',
+    navigator:
+      '[네비게이터] 브리지에서 이런 식의 압력은… 기록에 남습니다. 제 동선은 끝까지 말할 수 있어요.',
+    pilot: '[파일럿] …조종석 공기가 얼어붙었어요. 함장님, 아직… 총은 꺼내지 않으신 거죠?'
+  };
+
+  const TARGET_NAR = {
+    doctor: '닥터가 손끝을 떨리지 않게 붙잡았다.',
+    engineer: '엔지니어가 터미널 쪽으로 몸을 돌렸다.',
+    navigator: '네비게이터가 항해 패널에 시선을 고정했다.',
+    pilot: '파일럿이 조종대 손잡이를 놓지 않았다.'
+  };
+
+  const order = ['doctor', 'engineer', 'navigator', 'pilot'].filter((r) => aliveCrew.includes(r));
+
+  if (aliveCrew.includes(target)) {
+    const tLine = TARGET_REACT[target];
+    if (tLine) {
+      events.push({ type: 'CREW_DIALOGUE', role: target, dialogue: tLine });
+      const nar = TARGET_NAR[target];
+      if (nar) events.push({ type: 'CREW_DIALOGUE', role: target, dialogue: nar });
+    }
+  }
+
+  /** bystander 역할 → (위협 대상 역할 → 대사) */
+  const otherLines = {
+    doctor: {
+      engineer:
+        '[닥터] 엔지니어님, 동요 반응이 큽니다. 생체 스파이크가 짧게 찍혔어요. 진정부터 하세요.',
+      navigator:
+        '[닥터] 네비게이터님, 방금 발언과 생체 리듬이 어긋납니다. 계속 관찰할게요.',
+      pilot: '[닥터] 파일럿님, 교량 전체 호흡수가 올랐어요. 과호흡 오기 전에 숨부터 고르세요.'
+    },
+    engineer: {
+      doctor:
+        '[엔지니어] 닥터님, 닥터 구역 생체 로그를 당겨오세요. 말과 기록을 맞춰봅시다.',
+      navigator:
+        '[엔지니어] 네비게이터님, 그 시간대 교량·항로 로그를 다시 엽니다. 동선 공백이 있으면 지금 말해요.',
+      pilot: '[엔지니어] 파일럿님, 조종석 자동 기록이 한 번 끊겼어요. 수동 개입 있었는지 확인합시다.'
+    },
+    navigator: {
+      doctor:
+        '[네비게이터] 닥터님, 닥터의 심리적 방어 태세가 너무 단단해요. 이상 징후 없나요?',
+      engineer:
+        '[네비게이터] 엔지니어님, CCTV 버퍼 공백이 압박 직전후와 겹칩니다. 우연은 이제 접읍시다.',
+      pilot:
+        '[네비게이터] 파일럿님, 조종석 출입과 교량 복귀 시각이 두 줄로 갈라져 있어요. 어느 쪽이 맞아요?'
+    },
+    pilot: {
+      doctor:
+        '[파일럿] 닥터님, 닥터 주변만 공기 밀도가 달라요. 생체 말고 환경 센서도 봐주세요.',
+      engineer:
+        '[파일럿] 엔지니어님, 브리지 환기가 잠깐 멈췄어요. 누가 우선권을 가져간 거 아닌가요?',
+      navigator:
+        '[파일럿] 네비게이터님, 네비가 말하는 항로와 제가 본 별 위치가 살짝 안 맞아요.'
+    }
+  };
+
+  const NAR_OTHER = {
+    doctor: () => '닥터가 생체 패널을 슬쩍 확인했다.',
+    engineer: () => '엔지니어가 로그 스트림을 스크롤했다.',
+    navigator: (t) => `네비게이터가 ${roleNameFromKey(t)}의 동선을 머릿속으로 다시 그렸다.`,
+    pilot: () => '파일럿이 브리지의 무음을 삼켰다.'
+  };
+
+  for (const r of order) {
+    if (r === target) continue;
+    const lineByTgt = otherLines[r];
+    const line = lineByTgt && lineByTgt[target];
+    if (line) events.push({ type: 'CREW_DIALOGUE', role: r, dialogue: line });
+    const nfn = NAR_OTHER[r];
+    if (nfn) {
+      const n = typeof nfn === 'function' ? nfn(target) : nfn;
+      if (n) events.push({ type: 'CREW_DIALOGUE', role: r, dialogue: n });
+    }
+  }
+
+  return events;
+}
+
 function roleNameFromKey(r) {
   return ROLE_KO[String(r || '').toLowerCase()] || String(r || '');
 }
@@ -458,6 +596,7 @@ function buildSummary(action, role, target) {
   if (act === 'OBSERVE') return 'Captain observed the bridge.';
   if (act === 'SUSPECT' && t) return `Captain suspects ${t}.`;
   if (act === 'ACCUSE' && t) return `Captain accused ${t}.`;
+  if (act === 'THREATEN' && t) return `Captain threatened ${t}.`;
   return 'Captain acted.';
 }
 
@@ -467,6 +606,12 @@ function normalizeIntentToken(intent_type) {
     .toLowerCase()
     .trim()
     .replace(/[\s-]+/g, '_');
+}
+
+/** 위협 계열 → THREATEN (비처형, target 필수) */
+function isThreatenIntent(intent_type) {
+  const key = normalizeIntentToken(intent_type);
+  return key === 'threaten' || key === 'threat' || key === 'intimidate';
 }
 
 /** 명시 API·텍스트 계열: collect_clue, find_clue → FIND_CLUE */
@@ -499,13 +644,15 @@ function intentToAction(intent_type, target) {
   if (isCollectClueIntent(intent_type)) {
     return { action: 'FIND_CLUE', target: target || null };
   }
+  if (isThreatenIntent(intent_type)) {
+    return { action: 'THREATEN', target: target || null };
+  }
   const map = {
     question: 'QUESTION',
     check_log: 'CHECK_LOG',
     accuse_hint: 'SUSPECT',
     accuse: 'ACCUSE',
     observe: 'OBSERVE',
-    threat: 'QUESTION',
     unknown: 'OBSERVE'
   };
   const key = normalizeIntentToken(intent_type);
