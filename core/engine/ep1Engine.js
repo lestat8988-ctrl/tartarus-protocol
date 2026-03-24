@@ -185,7 +185,23 @@ async function applyAction(matchState, action, opts = {}) {
     };
   }
 
-  // 4. 일반 액션 (OBSERVE, CHECK_LOG 등)
+  // 3.7. CHECK_LOG 처리 (베르셀 성공본처럼 로그 분석 턴. engineer 중심 + 짧은 후속. game_over/outcome 변경 없음)
+  if (actFinal === 'CHECK_LOG') {
+    const target = action.target ? String(action.target).toLowerCase() : null;
+    const crewOrder = ['doctor', 'engineer', 'navigator', 'pilot'];
+    const aliveCrew = crewOrder.filter((r) => !deadRoles.includes(r));
+    const events = buildCheckLogEvents(target, aliveCrew, matchState.turn || 1);
+    const summary = target ? `Captain checked logs (${target}).` : 'Captain checked ship logs.';
+    return {
+      ok: true,
+      next_state: matchState,
+      events,
+      summary,
+      remaining_sec
+    };
+  }
+
+  // 4. 일반 액션 (OBSERVE 등)
   const actOut = String(action.action || '').toUpperCase();
   const event = { type: actOut, role: action.role || 'captain', target: action.target };
   const summary = buildSummary(actOut, action.role, action.target);
@@ -199,6 +215,56 @@ async function applyAction(matchState, action, opts = {}) {
 }
 
 const ROLE_KO = { doctor: '닥터', engineer: '엔지니어', navigator: '네비게이터', pilot: '파일럿' };
+
+/**
+ * CHECK_LOG 시 로그 분석 턴 (베르셀 CCTV/로그 흐름).
+ * CHECK_LOG + engineer 핵심 대사 + 서술 + doctor/navigator/pilot 짧은 후속.
+ * @param {string|null} target - 파서가 넣은 구역/역할 힌트 (없으면 null)
+ * @param {string[]} aliveCrew
+ * @param {number} turn - 변주용
+ */
+function buildCheckLogEvents(target, aliveCrew, turn) {
+  const tNorm = target && ['doctor', 'engineer', 'navigator', 'pilot'].includes(target) ? target : null;
+  const events = [{ type: 'CHECK_LOG', role: 'captain', target: tNorm }];
+
+  const ENGINEER_ANALYSIS_POOL = [
+    '[엔지니어] 교량 CCTV 버퍼가 한 구간 통째로 비어 있어요. 지운 거거나 기록이 애초에 안 들어온 겁니다.',
+    '[엔지니어] 엔진실 접근 로그 타임스탬프가 실제 전력 피크랑 안 맞아요. 누군가 시간을 맞춘 것 같습니다.',
+    '[엔지니어] 중앙 동기화 터미널에 무단 쿼리 흔적이 있어요. 권한은 고급 승무원만인데 출처가 찍히지 않았습니다.',
+    '[엔지니어] 항로 보정 서브시스템 로그에 끊김이 있어요. 그 직전에 누가 네비 채널에 붙었는지 추적 중입니다.',
+    '[엔지니어] 의무실 출입 기록과 복도 감시가 같은 분에 동시에 공백이에요. 우연이라기엔 너무 맞아떨어집니다.',
+    '[엔지니어] 중력 드라이브 인근 센서 로그가 부분적으로 리다이렉트됐어요. 누가 마스킹한 흔적입니다.'
+  ];
+
+  const TARGET_HINT_POOL = {
+    engineer: '[엔지니어] 엔진실 구역 로그를 집중해서 봤어요. 수리 작업과 무관한 접근이 한 번 더 찍혀 있습니다.',
+    doctor: '[엔지니어] 의무실·격리 구역 출입 기록을 봤는데, 승인 없이 열린 창이 하나 있어요.',
+    navigator: '[엔지니어] 교량·항로 연동 로그에 공백이 있어요. 네비가 수동으로 끊은 건지 확인이 필요합니다.',
+    pilot: '[엔지니어] 조종석 자동조종 전환 로그가 이상해요. 수동 개입이 있었는데 서명이 없습니다.'
+  };
+
+  const pool = tNorm && TARGET_HINT_POOL[tNorm] ? [TARGET_HINT_POOL[tNorm], ...ENGINEER_ANALYSIS_POOL] : ENGINEER_ANALYSIS_POOL;
+  const pick = pool[(Math.max(0, turn - 1)) % pool.length];
+
+  if (aliveCrew.includes('engineer')) {
+    events.push({ type: 'CREW_DIALOGUE', role: 'engineer', dialogue: pick });
+    events.push({ type: 'CREW_DIALOGUE', role: 'engineer', dialogue: '엔지니어가 시스템 로그를 확인했다.' });
+  }
+
+  const SHORT_FOLLOW_KO = {
+    doctor: '[닥터] 생체 모니터 쪽 기록이랑도 맞춰봐야겠어요. 스트레스 스파이크가 로그 공백이랑 겹칠 수 있어요.',
+    navigator: '[네비게이터] 그 시간대 내 동선은 로그에 그대로 있어요. 엔지니어 말이 맞으면… 누군가 로그를 건드린 겁니다.',
+    pilot: '[파일럿] 브리지 공기가 그때 잠깐 달랐어요. 로그엔 없는데, 느낌은 남아 있어요.'
+  };
+
+  for (const r of ['doctor', 'navigator', 'pilot']) {
+    if (aliveCrew.includes(r) && SHORT_FOLLOW_KO[r]) {
+      events.push({ type: 'CREW_DIALOGUE', role: r, dialogue: SHORT_FOLLOW_KO[r] });
+    }
+  }
+
+  return events;
+}
 
 /**
  * SUSPECT/QUESTION 시 크루 반응 시퀀스 (베르셀 성공본 흐름).
