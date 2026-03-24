@@ -884,19 +884,7 @@
       var isGameOver = false;
       var previousGameOver = false;
       var previousOutcome = null;
-      /** 마지막 전송이 명시적 처형(accuse)인지 — 결과 모달 허용 판별용 */
-      var lastClientIntent = 'other';
-
-      function normalizeOutboundText(s) {
-        return String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
-      }
-
-      function isExplicitAccuseCommand(text) {
-        return /^accuse (doctor|engineer|navigator|pilot)$/.test(normalizeOutboundText(text));
-      }
-
       function resetResultUI() {
-        lastClientIntent = 'other';
         previousGameOver = false;
         previousOutcome = null;
         closeResultModal();
@@ -1184,8 +1172,8 @@
           outcomeBadge.className = 'outcome-badge visible ' + (gs.outcome || '').replace(/-/g, '_');
           if (statusOutcomeWrap) { statusOutcomeWrap.style.display = 'block'; statusOutcome.textContent = gs.outcome; }
 
-          var timeoutish = !!(state.is_timeout || gs.outcome === 'timeout');
-          var allowResultModal = opts.fromStart === true || timeoutish || (lastClientIntent === 'accuse_explicit');
+          /* /api/start 복원 시(fromStart) 또는 /api/message 응답 시(forApiMessage): game_over 전환만 결과 모달 */
+          var allowResultModal = opts.fromStart === true || opts.forApiMessage === true;
           if (!prevWasGameOver && allowResultModal) showResultModal(state);
         } else if (gs.game_over && !gs.outcome) {
           statusThreat.textContent = 'GAME OVER';
@@ -1240,7 +1228,6 @@
               var st = { match_id: data.match_id, remaining_sec: data.remaining_sec, game_state: data.game_state };
               if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
               if (data.is_timeout) st.is_timeout = data.is_timeout;
-              lastClientIntent = 'other';
               updateStatus(st, { fromStart: true });
               if (data.events && data.events.length) applyEvents(data.events);
               else appendLog('System: Tartarus Protocol initialized.', false);
@@ -1253,11 +1240,8 @@
           });
       }
 
-      function doMessage(text, opts) {
-        opts = opts || {};
+      function doMessage(text) {
         if (isGameOver) return;
-        if (opts.accuseExplicit) lastClientIntent = 'accuse_explicit';
-        else lastClientIntent = isExplicitAccuseCommand(text) ? 'accuse_explicit' : 'other';
         var playerId = getPlayerId();
         fetch(API_BASE + '/api/message', {
           method: 'POST',
@@ -1270,17 +1254,14 @@
               var st = { remaining_sec: data.remaining_sec, game_state: data.match_state };
               if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
               if (data.is_timeout) st.is_timeout = data.is_timeout;
-              updateStatus(st, {});
-              lastClientIntent = 'other';
+              updateStatus(st, { forApiMessage: true });
               appendLog(data.summary || 'Captain acted.', false);
               if (data.recent_events && data.recent_events.length) applyEvents(data.recent_events);
             } else {
-              lastClientIntent = 'other';
               appendLog('Error: ' + (data.error || 'unknown'), true);
             }
           })
           .catch(function(err) {
-            lastClientIntent = 'other';
             appendLog('Connection failed: ' + err.message, true);
           });
       }
@@ -1308,9 +1289,30 @@
       });
 
       var executeModal = document.getElementById('execute-modal');
-      var executeCancel = document.getElementById('execute-cancel');
-      var executeConfirm = document.getElementById('execute-confirm');
       var selectedExecuteTarget = null;
+
+      /** 확정: role id만 사용해 고정 문자열 accuse &lt;role&gt; 전송 (언어·자연어 파싱 무관) */
+      function submitExecuteAccuse() {
+        var targetKey = selectedExecuteTarget;
+        if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
+          var sel = executeModal ? executeModal.querySelector('.modal-target-btn.selected') : null;
+          targetKey = sel ? String(sel.getAttribute('data-target') || '').toLowerCase() : '';
+        }
+        if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
+          var warn = document.getElementById('execute-no-target-hint');
+          if (warn) {
+            warn.textContent = (getL().executeNoTargetHint || '').trim();
+            warn.classList.add('visible');
+          }
+          return;
+        }
+        var cmd = ACCUSE_COMMAND_BY_ROLE[targetKey];
+        if (!cmd) return;
+        var warnEl = document.getElementById('execute-no-target-hint');
+        if (warnEl) warnEl.classList.remove('visible');
+        closeExecuteModal();
+        doMessage(cmd);
+      }
 
       function openExecuteModal() {
         if (isGameOver) return;
@@ -1331,7 +1333,8 @@
 
       document.querySelectorAll('.modal-target-btn').forEach(function(btn) {
         btn.addEventListener('click', function() {
-          selectedExecuteTarget = this.dataset.target;
+          var rid = String(this.getAttribute('data-target') || '').toLowerCase();
+          selectedExecuteTarget = VALID_ACCUSE_TARGETS.indexOf(rid) >= 0 ? rid : null;
           document.querySelectorAll('.modal-target-btn').forEach(function(b) { b.classList.remove('selected'); });
           this.classList.add('selected');
           var w = document.getElementById('execute-no-target-hint');
@@ -1339,29 +1342,26 @@
         });
       });
 
-      if (executeCancel) executeCancel.addEventListener('click', closeExecuteModal);
-      if (executeConfirm) executeConfirm.addEventListener('click', function() {
-        var sel = document.querySelector('.modal-target-btn.selected');
-        var targetKey = sel ? String(sel.getAttribute('data-target') || '').toLowerCase() : '';
-        if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
-          var warn = document.getElementById('execute-no-target-hint');
-          if (warn) {
-            warn.textContent = (getL().executeNoTargetHint || '').trim();
-            warn.classList.add('visible');
+      if (executeModal) {
+        executeModal.addEventListener('click', function(e) {
+          var t = e.target;
+          var confirmEl = t && t.closest ? t.closest('#execute-confirm') : (t && t.id === 'execute-confirm' ? t : null);
+          if (confirmEl) {
+            e.preventDefault();
+            e.stopPropagation();
+            submitExecuteAccuse();
+            return;
           }
-          return;
-        }
-        var cmd = ACCUSE_COMMAND_BY_ROLE[targetKey];
-        if (!cmd) return;
-        var warnEl = document.getElementById('execute-no-target-hint');
-        if (warnEl) warnEl.classList.remove('visible');
-        closeExecuteModal();
-        doMessage(cmd, { accuseExplicit: true });
-      });
-
-      executeModal.addEventListener('click', function(e) {
-        if (e.target === executeModal) closeExecuteModal();
-      });
+          var cancelEl = t && t.closest ? t.closest('#execute-cancel') : (t && t.id === 'execute-cancel' ? t : null);
+          if (cancelEl) {
+            e.preventDefault();
+            e.stopPropagation();
+            closeExecuteModal();
+            return;
+          }
+          if (e.target === executeModal) closeExecuteModal();
+        });
+      }
 
       sendBtn.addEventListener('click', function() {
         if (isGameOver) return;
