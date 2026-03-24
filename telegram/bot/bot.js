@@ -27,6 +27,17 @@ function roleNameKo(r) {
   return ROLE_NAMES_KO[String(r || '').toLowerCase()] || (r ? String(r) : '');
 }
 
+/** 목적어 조사: 닥터→닥터를, 파일럿→파일럿을. 이미 조사 있으면 붙이지 않음. */
+function roleWithObjectParticle(roleKey) {
+  const name = roleNameKo(roleKey);
+  if (!name) return '';
+  const r = String(roleKey || '').toLowerCase();
+  const hasParticle = /[을를이가과와]\s*$/.test(name);
+  if (hasParticle) return name;
+  const withParticle = { doctor: '닥터를', engineer: '엔지니어를', navigator: '네비게이터를', pilot: '파일럿을' }[r];
+  return withParticle || name + '를';
+}
+
 /**
  * Raw action trace를 플레이어용 읽기 전용 로그로 변환.
  * QUESTION -> navigator, CHECK_LOG 등은 노출하지 않고, 사람이 읽을 수 있는 문장만 반환.
@@ -43,19 +54,26 @@ function toPlayerDisplayLogs(rawEvents) {
     const t = String(ev?.type || '').toUpperCase();
     const role = ev?.role || 'captain';
     const target = ev?.target ? String(ev.target).toLowerCase() : null;
-
-    let text = null;
+    const baseKey = [ev?.ts ?? '', t, role, target ?? ''].join('|');
 
     if (t === 'QUESTION' && target) {
-      text = `[함장] ${roleNameKo(target)}, 그때 어디 있었지?`;
-    } else if (t === 'CHECK_LOG') {
+      out.push({ type: '[함장]', role: 'system', target: null, _key: baseKey + '|hdr' });
+      out.push({ type: `${roleNameKo(target)}, 그때 어디 있었지?`, role: 'system', target: null, _key: baseKey + '|body' });
+      continue;
+    }
+    if (t === 'SUSPECT' && target) {
+      out.push({ type: '[함장]', role: 'system', target: null, _key: baseKey + '|hdr' });
+      out.push({ type: `${roleWithObjectParticle(target)} 의심한다`, role: 'system', target: null, _key: baseKey + '|body' });
+      continue;
+    }
+
+    let text = null;
+    if (t === 'CHECK_LOG') {
       text = target ? `함장이 ${roleNameKo(target)} 구역 로그를 확인했다.` : '함장이 시스템 로그를 확인했다.';
     } else if (t === 'OBSERVE') {
       text = '함장이 교량을 관찰했다.';
-    } else if (t === 'SUSPECT' && target) {
-      text = `함장이 ${roleNameKo(target)}을(를) 의심한다.`;
     } else if (t === 'ACCUSE' && target) {
-      text = `함장이 ${roleNameKo(target)}을(를) 처형했다.`;
+      text = `함장이 ${roleWithObjectParticle(target)} 처형했다.`;
     } else if (t === 'DEATH') {
       const victim = roleNameKo(ev.role || target);
       text = victim ? `[시스템] ${victim} 생체 신호 소실.` : '[시스템] 생체 신호 소실.';
@@ -67,11 +85,19 @@ function toPlayerDisplayLogs(rawEvents) {
       text = '함장이 단서를 수집했다.';
     } else if (t === 'REPAIR' || t === 'WAIT') {
       text = '함장이 행동했다.';
+    } else if (ev.dialogue && typeof ev.dialogue === 'string') {
+      const d = ev.dialogue.trim();
+      const m = d.match(/^\[([^\]]+)\]\s*(.*)$/);
+      if (m && m[2]) {
+        out.push({ type: '[' + m[1] + ']', role: 'system', target: null, _key: baseKey + '|hdr' });
+        out.push({ type: m[2].trim(), role: 'system', target: null, _key: baseKey + '|body' });
+      } else {
+        text = d;
+      }
     }
 
     if (text) {
-      const key = [ev?.ts ?? '', t, role, target ?? ''].join('|');
-      out.push({ type: text, role: 'system', target: null, _key: key });
+      out.push({ type: text, role: 'system', target: null, _key: baseKey });
     }
   }
   return out;
