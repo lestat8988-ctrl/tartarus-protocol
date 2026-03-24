@@ -388,6 +388,33 @@
       .modal-box { padding: 24px; }
       .modal-target-btn { padding: 16px; min-height: 48px; }
     }
+
+    /* Result modal (game over) */
+    #result-modal .result-modal-box { border-color: #2aef2a55; }
+    #result-modal.result-win .result-modal-box { border-color: #2aef2a; }
+    #result-modal.result-lose .result-modal-box { border-color: #ef2a2a; }
+    .result-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 12px; text-align: center; }
+    .result-win .result-title { color: #4aff4a; }
+    .result-lose .result-title { color: #ff4a4a; }
+    .result-desc { font-size: 0.88rem; color: #2aef2a99; margin-bottom: 12px; line-height: 1.5; }
+    .result-outcome-row { font-size: 0.85rem; margin-bottom: 10px; }
+    .result-outcome-label { color: #2aef2a99; margin-right: 6px; }
+    .result-imposter { font-size: 0.9rem; margin-bottom: 8px; }
+    .result-dead { font-size: 0.85rem; color: #ef2a2a99; margin-bottom: 16px; line-height: 1.4; }
+    .result-dead-label { color: #2aef2a99; }
+    .result-restart-btn {
+      width: 100%;
+      padding: 14px;
+      background: #1a3a1a;
+      border: 1px solid #2aef2a;
+      border-radius: 4px;
+      color: #2aef2a;
+      font-family: inherit;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
   </style>
 </head>
 <body>
@@ -481,6 +508,18 @@
     </div><!-- #game-screen -->
   </div>
 
+  <!-- Result modal (game over) -->
+  <div class="modal-overlay" id="result-modal">
+    <div class="modal-box result-modal-box">
+      <div class="result-title" id="result-title">--</div>
+      <div class="result-desc" id="result-desc">--</div>
+      <div class="result-outcome-row" id="result-outcome-row" style="display:none;"><span class="result-outcome-label" id="result-outcome-label">--</span><span id="result-outcome-value">--</span></div>
+      <div class="result-imposter" id="result-imposter" style="display:none;"></div>
+      <div class="result-dead" id="result-dead" style="display:none;"></div>
+      <button type="button" class="result-restart-btn" id="result-restart-btn">다시 시작</button>
+    </div>
+  </div>
+
   <!-- Execute protocol modal -->
   <div class="modal-overlay" id="execute-modal">
     <div class="modal-box">
@@ -506,7 +545,8 @@
       const LANG_KEY = 'tartarus_miniapp_lang';
 
       var screen = 'intro';
-      var lang = localStorage.getItem(LANG_KEY) || 'en';
+      var storedLang = localStorage.getItem(LANG_KEY);
+      var lang = (storedLang === 'ko' || storedLang === 'en') ? storedLang : 'en';
 
       /* Vercel public/index.html OPENING_LINES와 동일한 내용/흐름 */
       var OPENING_LINES = {
@@ -572,7 +612,20 @@
           freeInput: '명령 입력...',
           gameOverPlaceholder: '게임 종료됨',
           send: '전송',
-          restart: '시스템 재부팅',
+          restart: '다시 시작',
+          resultTitleWin: '임무 성공',
+          resultTitleLoseAccuse: '미션 실패 — 잘못된 처형',
+          resultTitleLoseImpostor: '미션 실패 — 임포스터 승리',
+          resultTitleLoseTimeout: '미션 실패 — 시간 종료',
+          resultDescCrewWin: '중첩체가 제거됐다. 하데스 계층이 봉인됐다. 함선은 살아남았다.',
+          resultDescAccuseFailed: '무고한 승무원을 처형했다. 잘못된 대상을 지목했다. 함선 파괴됨.',
+          resultDescImpostorWin: '임포스터가 승리했다. 중첩체가 크루를 모두 살해했다. 함선은 하데스의 것이 됐다.',
+          resultDescTimeout: '시간이 다 됐다. 중첩체는 끝까지 발각되지 않았다. 함선은 하데스의 것이 됐다.',
+          resultOutcomeLabel: '결과',
+          resultImposterPrefix: '실제 임포스터: ',
+          resultImposterFallback: '(확인 불가)',
+          resultDeadLabel: '사망',
+          resultDeadPrefix: '사망: ',
           executeModalTitle: '처형 대상 선택',
           executeModalInstruction: '처형 대상 1명을 선택하십시오. 탄환은 1발뿐입니다.',
           cancel: '취소',
@@ -604,7 +657,20 @@
           freeInput: 'Enter command...',
           gameOverPlaceholder: 'Game Over',
           send: 'SEND',
-          restart: 'REBOOT SYSTEM',
+          restart: 'RESTART',
+          resultTitleWin: 'MISSION ACCOMPLISHED',
+          resultTitleLoseAccuse: 'MISSION FAILED — Wrong accusation',
+          resultTitleLoseImpostor: 'MISSION FAILED — Impostor victory',
+          resultTitleLoseTimeout: 'MISSION FAILED — Time expired',
+          resultDescCrewWin: 'The parasite has been eliminated. HADES layer sealed. The ship survives.',
+          resultDescAccuseFailed: 'Innocent crew member executed. Wrong target. Ship destroyed.',
+          resultDescImpostorWin: 'Impostor prevailed. The parasite killed all crew. The ship belongs to HADES.',
+          resultDescTimeout: "Time's up. The parasite was never found. The ship belongs to HADES now.",
+          resultOutcomeLabel: 'Outcome',
+          resultImposterPrefix: 'Identified imposter: ',
+          resultImposterFallback: '(unknown)',
+          resultDeadLabel: 'Deceased',
+          resultDeadPrefix: 'Deceased: ',
           executeModalTitle: 'SELECT TARGET FOR ELIMINATION',
           executeModalInstruction: 'Choose one target. One bullet only. No second chance.',
           cancel: 'CANCEL',
@@ -653,6 +719,37 @@
       const restartBtn = document.getElementById('restart-btn');
 
       var isGameOver = false;
+      var previousGameOver = false;
+      var previousOutcome = null;
+
+      function resetResultUI() {
+        previousGameOver = false;
+        previousOutcome = null;
+        closeResultModal();
+        var resultModal = document.getElementById('result-modal');
+        if (resultModal) resultModal.classList.remove('result-win', 'result-lose');
+        var resultTitle = document.getElementById('result-title');
+        var resultDesc = document.getElementById('result-desc');
+        var resultOutcomeRow = document.getElementById('result-outcome-row');
+        var resultOutcomeValue = document.getElementById('result-outcome-value');
+        var resultImposter = document.getElementById('result-imposter');
+        var resultDead = document.getElementById('result-dead');
+        if (resultTitle) resultTitle.textContent = '--';
+        if (resultDesc) resultDesc.textContent = '--';
+        if (resultOutcomeRow) resultOutcomeRow.style.display = 'none';
+        if (resultOutcomeValue) resultOutcomeValue.textContent = '--';
+        if (resultImposter) { resultImposter.textContent = ''; resultImposter.style.display = 'none'; }
+        if (resultDead) { resultDead.innerHTML = ''; resultDead.style.display = 'none'; }
+        if (outcomeBadge) {
+          outcomeBadge.classList.remove('visible', 'crew_win', 'impostor_win', 'accuse_failed');
+          outcomeBadge.textContent = '';
+        }
+        if (statusOutcomeWrap) statusOutcomeWrap.style.display = 'none';
+        if (statusOutcome) statusOutcome.textContent = '--';
+        selectedExecuteTarget = null;
+        var targets = document.querySelectorAll('.modal-target-btn');
+        if (targets.length) targets.forEach(function(b) { b.classList.remove('selected'); });
+      }
 
       function getPlayerId() {
         let id = localStorage.getItem(PLAYER_KEY);
@@ -685,7 +782,7 @@
         if (logPanel) logPanel.scrollTop = logPanel.scrollHeight;
       }
 
-      function getL() { return GAME_LABELS[lang] || GAME_LABELS.ko; }
+      function getL() { return GAME_LABELS[lang] || GAME_LABELS.en; }
 
       function setGameOverLock(locked) {
         isGameOver = !!locked;
@@ -701,7 +798,7 @@
       }
 
       function renderIntroScreen() {
-        var lines = OPENING_LINES[lang] || OPENING_LINES.ko;
+        var lines = OPENING_LINES[lang] || OPENING_LINES.en;
         if (introLore) {
           var html = '';
           for (var i = 0; i < lines.length; i++) {
@@ -759,9 +856,84 @@
         });
       }
 
+      function formatOutcomeDisplay(outcome) {
+        if (!outcome) return 'unknown';
+        var map = { crew_win: 'crew_win', accuse_failed: 'accuse_failed', impostor_win: 'impostor_win', timeout: 'timeout' };
+        return (map[outcome] || outcome).replace(/_/g, ' ').toUpperCase();
+      }
+
+      function showResultModal(state) {
+        var gs = state.game_state || {};
+        var outcome = gs.outcome || 'unknown';
+        var isTimeout = !!state.is_timeout;
+        var actualImposter = state.actual_imposter;
+        var deadRoles = gs.dead_roles || [];
+        var L = getL();
+        var resultModal = document.getElementById('result-modal');
+        var resultTitle = document.getElementById('result-title');
+        var resultDesc = document.getElementById('result-desc');
+        var resultOutcomeRow = document.getElementById('result-outcome-row');
+        var resultOutcomeLabel = document.getElementById('result-outcome-label');
+        var resultOutcomeValue = document.getElementById('result-outcome-value');
+        var resultImposter = document.getElementById('result-imposter');
+        var resultDead = document.getElementById('result-dead');
+        var resultRestartBtn = document.getElementById('result-restart-btn');
+
+        resultModal.classList.remove('result-win', 'result-lose');
+        if (outcome === 'crew_win') {
+          resultModal.classList.add('result-win');
+          resultTitle.textContent = L.resultTitleWin;
+          resultDesc.textContent = L.resultDescCrewWin;
+        } else {
+          resultModal.classList.add('result-lose');
+          if (outcome === 'accuse_failed') {
+            resultTitle.textContent = L.resultTitleLoseAccuse;
+            resultDesc.textContent = L.resultDescAccuseFailed;
+          } else if (isTimeout || outcome === 'timeout') {
+            resultTitle.textContent = L.resultTitleLoseTimeout;
+            resultDesc.textContent = L.resultDescTimeout;
+          } else {
+            resultTitle.textContent = L.resultTitleLoseImpostor;
+            resultDesc.textContent = L.resultDescImpostorWin;
+          }
+        }
+
+        if (resultOutcomeRow) {
+          resultOutcomeLabel.textContent = (L.resultOutcomeLabel || 'Outcome') + ': ';
+          resultOutcomeValue.textContent = formatOutcomeDisplay(outcome);
+          resultOutcomeRow.style.display = 'block';
+        }
+
+        if (actualImposter) {
+          var roleLabel = (L[actualImposter] || actualImposter);
+          resultImposter.textContent = L.resultImposterPrefix + roleLabel;
+          resultImposter.style.display = 'block';
+        } else {
+          resultImposter.textContent = L.resultImposterPrefix + (L.resultImposterFallback || '(unknown)');
+          resultImposter.style.display = 'block';
+        }
+
+        if (deadRoles.length > 0) {
+          var deadLabels = deadRoles.map(function(r) { return L[r] || r; });
+          resultDead.innerHTML = '<span class="result-dead-label">' + L.resultDeadLabel + ': </span>' + deadLabels.join(', ');
+          resultDead.style.display = 'block';
+        } else {
+          resultDead.style.display = 'none';
+        }
+
+        if (resultRestartBtn) resultRestartBtn.textContent = L.restart;
+        if (resultModal) resultModal.classList.add('visible');
+      }
+
+      function closeResultModal() {
+        var resultModal = document.getElementById('result-modal');
+        if (resultModal) resultModal.classList.remove('visible');
+      }
+
       function updateStatus(state) {
         if (!state) return;
         var gs = state.game_state || {};
+        var prevWasGameOver = previousGameOver;
 
         if (state.match_id) {
           var short = truncateMatchId(state.match_id);
@@ -782,14 +954,32 @@
           outcomeBadge.textContent = gs.outcome.toUpperCase().replace(/_/g, ' ');
           outcomeBadge.className = 'outcome-badge visible ' + (gs.outcome || '').replace(/-/g, '_');
           if (statusOutcomeWrap) { statusOutcomeWrap.style.display = 'block'; statusOutcome.textContent = gs.outcome; }
+
+          if (!prevWasGameOver) showResultModal(state);
+        } else if (gs.game_over && !gs.outcome) {
+          statusThreat.textContent = 'GAME OVER';
+          statusThreat.classList.remove('nominal');
+          statusThreat.classList.add('threat');
+          setGameOverLock(true);
+          outcomeBadge.classList.remove('visible', 'crew_win', 'impostor_win', 'accuse_failed');
+          outcomeBadge.textContent = '';
+          if (statusOutcomeWrap) statusOutcomeWrap.style.display = 'none';
+          if (statusOutcome) statusOutcome.textContent = '--';
+          closeResultModal();
         } else {
           statusThreat.textContent = (gs.dead_roles && gs.dead_roles.length > 0) ? 'ELEVATED' : 'NOMINAL';
           statusThreat.classList.toggle('threat', (gs.dead_roles && gs.dead_roles.length > 0));
           statusThreat.classList.toggle('nominal', !(gs.dead_roles && gs.dead_roles.length > 0));
           setGameOverLock(false);
-          outcomeBadge.classList.remove('visible');
+          outcomeBadge.classList.remove('visible', 'crew_win', 'impostor_win', 'accuse_failed');
+          outcomeBadge.textContent = '';
           if (statusOutcomeWrap) statusOutcomeWrap.style.display = 'none';
+          if (statusOutcome) statusOutcome.textContent = '--';
+          closeResultModal();
         }
+
+        previousGameOver = !!gs.game_over;
+        previousOutcome = gs.outcome || null;
 
         if (gs.dead_roles && gs.dead_roles.length > 0) {
           if (statusDeadWrap) { statusDeadWrap.style.display = 'block'; statusDead.textContent = gs.dead_roles.join(', '); statusDead.classList.add('threat'); }
@@ -814,7 +1004,11 @@
           .then(function(r) { return r.json(); })
           .then(function(data) {
             if (data.ok) {
-              updateStatus({ match_id: data.match_id, remaining_sec: data.remaining_sec, game_state: data.game_state });
+              resetResultUI();
+              var st = { match_id: data.match_id, remaining_sec: data.remaining_sec, game_state: data.game_state };
+              if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
+              if (data.is_timeout) st.is_timeout = data.is_timeout;
+              updateStatus(st);
               if (data.events && data.events.length) applyEvents(data.events);
               else appendLog('System: Tartarus Protocol initialized.', false);
             } else {
@@ -837,7 +1031,10 @@
           .then(function(r) { return r.json(); })
           .then(function(data) {
             if (data.ok) {
-              updateStatus({ remaining_sec: data.remaining_sec, game_state: data.match_state });
+              var st = { remaining_sec: data.remaining_sec, game_state: data.match_state };
+              if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
+              if (data.is_timeout) st.is_timeout = data.is_timeout;
+              updateStatus(st);
               appendLog(data.summary || 'Captain acted.', false);
               if (data.recent_events && data.recent_events.length) applyEvents(data.recent_events);
             } else {
@@ -937,11 +1134,24 @@
         });
       });
 
-      restartBtn.addEventListener('click', function() {
+      function doRestart() {
         if (!isGameOver) return;
+        resetResultUI();
         restartSection.classList.remove('visible');
-        appendLog('새 매치 시작 중...', false);
+        appendLog(lang === 'ko' ? '새 매치 시작 중...' : 'Starting new match...', false);
         doStart(true);
+      }
+
+      restartBtn.addEventListener('click', doRestart);
+
+      var resultRestartBtn = document.getElementById('result-restart-btn');
+      if (resultRestartBtn) resultRestartBtn.addEventListener('click', function() {
+        doRestart();
+      });
+
+      var resultModalEl = document.getElementById('result-modal');
+      if (resultModalEl) resultModalEl.addEventListener('click', function(e) {
+        if (e.target === resultModalEl) closeResultModal();
       });
 
       episodeUnlockBtn.addEventListener('click', function() {
