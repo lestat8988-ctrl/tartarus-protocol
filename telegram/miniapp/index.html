@@ -249,7 +249,7 @@
     }
     .episode-unlock-btn:active { background: #222; }
 
-    /* Intro screen */
+    /* Intro screen (public/index.html #intro-briefing 기준) */
     #intro-screen {
       position: fixed;
       inset: 0;
@@ -257,39 +257,91 @@
       display: flex;
       flex-direction: column;
       background: #000 url(./assets/tartarus-ship-neptune.png) center center no-repeat;
-      background-size: cover;
-      padding: 16px;
-      overflow-y: auto;
+      background-size: clamp(320px, 70vw, 900px) auto;
+      background-position: center 45%;
+      padding: 0;
+      overflow: hidden;
     }
     #intro-screen::before {
       content: '';
       position: absolute;
       inset: 0;
-      z-index: 0;
-      background: linear-gradient(180deg, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.6) 40%, rgba(0,0,0,0.85) 100%);
+      z-index: 5;
       pointer-events: none;
+      background: repeating-linear-gradient(0deg, rgba(0,0,0,0.05) 0px, transparent 1px, transparent 3px);
     }
-    #intro-screen .intro-lore,
-    #intro-screen .intro-bottom { position: relative; z-index: 1; }
+    #intro-screen::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      z-index: 6;
+      pointer-events: none;
+      background:
+        linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.5) 30%, rgba(0,0,0,0.55) 65%, rgba(0,0,0,0.9) 100%),
+        radial-gradient(ellipse 85% 85% at 50% 50%, transparent 45%, rgba(0,0,0,0.4) 100%);
+    }
+    #intro-screen .intro-bottom { position: relative; z-index: 20; }
     #intro-screen.hidden { display: none; }
-    .intro-lore {
+    #intro-scroll-wrapper {
       flex: 1;
-      padding: 12px 0;
-      font-size: 0.85rem;
-      line-height: 1.7;
+      min-height: 0;
+      overflow: hidden;
+      position: relative;
+      z-index: 8;
+    }
+    #intro-scroll-content {
+      position: absolute;
+      left: 50%;
+      top: 0;
+      transform: translateX(-50%) translateY(0);
+      width: 100%;
+      max-width: 440px;
+      padding: 24px 20px 80px;
+      padding-top: max(24px, env(safe-area-inset-top, 0px) + 12px);
+      text-align: center;
+    }
+    #intro-scroll-title {
+      font-size: 18px;
+      letter-spacing: 6px;
+      color: #2aef2a;
+      text-shadow: 0 0 2px rgba(42,239,42,0.5);
+      margin-bottom: 24px;
+    }
+    #intro-scroll-subtitle {
+      font-size: 12px;
+      letter-spacing: 2px;
+      color: rgba(42,239,42,0.9);
+      text-shadow: 0 0 1px rgba(42,239,42,0.4);
+      margin-bottom: 28px;
+      line-height: 1.8;
+    }
+    #intro-scroll-content.scroll-animate {
+      animation: introCreditsScroll 60s linear 0s 1 forwards;
+    }
+    @keyframes introCreditsScroll {
+      0% { transform: translateX(-50%) translateY(0); }
+      100% { transform: translateX(-50%) translateY(-100%); }
+    }
+    .intro-scroll-lines .lore-line { margin-bottom: 10px; color: #2aef2a; }
+    .intro-scroll-lines .lore-spacer { height: 16px; margin-bottom: 16px; }
+    .intro-scroll-lines .lore-alert { font-weight: 600; color: #2aef2a; }
+    .intro-scroll-lines .lore-section-title { font-weight: 600; color: #2aef2a; margin-top: 8px; }
+    .intro-scroll-lines {
+      font-size: 0.9rem;
+      line-height: 1.9;
       color: #2aef2a;
     }
-    .intro-lore .lore-line { margin-bottom: 8px; color: #2aef2a; }
-    .intro-lore .lore-spacer { height: 12px; margin-bottom: 12px; }
-    .intro-lore .lore-alert { font-weight: 600; color: #2aef2a; }
-    .intro-lore .lore-section-title { font-weight: 600; color: #2aef2a; margin-top: 4px; }
     .intro-bottom {
+      flex-shrink: 0;
       margin-top: auto;
-      padding: 20px 0;
+      padding: 20px 16px;
       display: flex;
       flex-direction: column;
       align-items: center;
       gap: 16px;
+      position: relative;
+      z-index: 20;
+      background: linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.85) 25%);
     }
     .intro-init-btn {
       padding: 16px 28px;
@@ -319,6 +371,32 @@
     }
     .intro-lang-btn.active { border-color: #2aef2a; color: #2aef2a; background: #1a2a1a; }
     .intro-lang-btn:active { background: #1a2a1a; }
+
+    /* Intro 모바일 (public @media max-width: 768px 기준) */
+    @media (max-width: 768px) {
+      #intro-screen {
+        background-size: contain;
+        background-position: center 35%;
+      }
+      #intro-scroll-content {
+        padding: 16px 16px 80px;
+        padding-top: max(16px, env(safe-area-inset-top, 0px) + 8px);
+      }
+      #intro-scroll-title {
+        font-size: 14px;
+        letter-spacing: 3px;
+        margin-bottom: 16px;
+        text-shadow: 0 0 1px rgba(42,239,42,0.35);
+      }
+      #intro-scroll-subtitle {
+        font-size: 11px;
+        margin-bottom: 20px;
+        text-shadow: 0 0 1px rgba(42,239,42,0.3);
+      }
+      .intro-bottom {
+        padding: 12px 16px max(16px, env(safe-area-inset-bottom, 0px));
+      }
+    }
 
     /* Game screen (visible after init) */
     #game-screen { display: none; min-height: 100vh; }
@@ -421,7 +499,13 @@
   <div id="app">
     <!-- Intro screen -->
     <div id="intro-screen">
-      <div class="intro-lore" id="intro-lore"></div>
+      <div id="intro-scroll-wrapper">
+        <div id="intro-scroll-content" class="scroll-animate">
+          <div id="intro-scroll-title">TARTARUS PROTOCOL</div>
+          <div id="intro-scroll-subtitle">USS C TARTARUS<br>2198 / NEPTUNE OUTER ORBIT</div>
+          <div class="intro-scroll-lines" id="intro-scroll-lines"></div>
+        </div>
+      </div>
       <div class="intro-bottom">
         <button type="button" class="intro-init-btn" id="intro-init-btn">[ SYSTEM INITIALIZE ]</button>
         <div class="intro-lang-row">
@@ -545,46 +629,72 @@
       const LANG_KEY = 'tartarus_miniapp_lang';
 
       var screen = 'intro';
-      var storedLang = localStorage.getItem(LANG_KEY);
+      var storedLang;
+      try { storedLang = (localStorage.getItem(LANG_KEY) || '').trim(); } catch (e) { storedLang = ''; }
       var lang = (storedLang === 'ko' || storedLang === 'en') ? storedLang : 'en';
 
-      /* Vercel public/index.html OPENING_LINES와 동일한 내용/흐름 */
+      /* public/index.html INTRO_TEXT에서 그대로 복사 (lines 배열) */
       var OPENING_LINES = {
         ko: [
-          '[시스템 기동…]',
-          '대상 함선: USSC 타르타로스(프로토타입)',
-          '임무: 프로젝트 \'HORIZON\' — 중력 드라이브 실험',
-          '현 위치: 해왕성 궤도(태양계 외곽)',
+          '타르타로스 호는',
+          '해왕성 외곽에서',
+          '차세대 중력 워프 실험을 수행하던',
+          '실전형 우주 실험선이다.',
           ' ',
-          '[하데스 경보]',
-          '중력 드라이브가 비인가 계층 \'HADES\'를 깨웠다.',
-          '귀환 신호에 정체 불명의 중첩체가 섞여 들어왔다.',
-          '함장을 제외한 4명의 크루는 현재 함선 각 구역에 분산되어 임무를 수행 중이다.',
-          '통신은 열려 있지만, 누구도 서로의 곁에 있지 않다.',
+          '워프 전이 도중 위상 충격이 발생했다.',
           ' ',
-          '[주요 목표]',
-          '1. 크루 4명 중 인간을 흉내 내는 중첩체(HOST)를 찾아라.',
-          '2. 시간이 끝나기 전에 중첩체를 처형하라.',
-          '3. 늦으면 중첩체가 고립된 크루를 하나씩 살해한다.',
-          ' '
+          'AXIS 비상 프로토콜이 발동했고,',
+          '핵심 승무원만 강제 기상했다.',
+          ' ',
+          '통신은 두절되었다.',
+          '일부 구역은 정전되었다.',
+          '일부 구역은 격리되었다.',
+          ' ',
+          '기상한 인원 중',
+          '한 명의 생체 신원이 일치하지 않는다.',
+          ' ',
+          'AXIS는 손상되었다.',
+          '하지만 AXIS 내부의 봉인된 비인가 계층,',
+          'HADES는 깨어났다.',
+          ' ',
+          '그것은 악의가 아니다.',
+          '계산이 그렇게 결정했을 뿐이다.',
+          ' ',
+          '함장은 권총 1발만 가진다.',
+          '중첩체를 찾아내라.',
+          ' ',
+          '함선은 살아남을 것입니다.<br>누가 그 자리에 있을지는, 여러분이 결정하세요.'
         ],
         en: [
-          '[SYSTEM INITIALIZE…]',
-          'Target vessel: USSC Tartarus (Prototype)',
-          'Mission: PROJECT \'HORIZON\' — Gravity Drive Test',
-          'Location: Neptune Orbit (Edge of Solar System)',
+          'The Tartarus',
+          'was a frontline experimental vessel',
+          'conducting next-generation gravity warp trials',
+          'beyond Neptune.',
           ' ',
-          '[HADES ALERT]',
-          'The gravity drive awakened the unauthorized layer known as HADES.',
-          'A parasitic overlap entity slipped into the return signal.',
-          'The four crew members are scattered across the ship, each carrying out their own duties.',
-          'Communications are open, but none of them are standing together.',
+          'During warp transfer,',
+          'a phase shock occurred.',
           ' ',
-          '[PRIMARY OBJECTIVES]',
-          '1. Identify the HOST hidden among the four crew members.',
-          '2. Eliminate the overlap entity before time runs out.',
-          '3. If you fail, it will isolate and kill the crew one by one.',
-          ' '
+          'AXIS emergency protocol activated.',
+          'Core crew were forcibly awakened.',
+          ' ',
+          'Communications were lost.',
+          'Several sectors went dark.',
+          'Several sectors were sealed.',
+          ' ',
+          'Among the awakened crew,',
+          'one biological identity no longer matches.',
+          ' ',
+          'AXIS was damaged.',
+          'But within AXIS,',
+          'the sealed unauthorized layer HADES awakened.',
+          ' ',
+          'It is not malice.',
+          'It is only a decision made by calculation.',
+          ' ',
+          'The Captain has one bullet.',
+          'Find the overlap.',
+          ' ',
+          'The ship will survive.<br>Who remains aboard is for you to decide.'
         ]
       };
 
@@ -688,7 +798,8 @@
       };
 
       const introScreen = document.getElementById('intro-screen');
-      const introLore = document.getElementById('intro-lore');
+      const introScrollLines = document.getElementById('intro-scroll-lines');
+      const introScrollContent = document.getElementById('intro-scroll-content');
       const introInitBtn = document.getElementById('intro-init-btn');
       const introLangKo = document.getElementById('intro-lang-ko');
       const introLangEn = document.getElementById('intro-lang-en');
@@ -784,6 +895,20 @@
 
       function getL() { return GAME_LABELS[lang] || GAME_LABELS.en; }
 
+      function syncLangFromStorage() {
+        var stored;
+        try { stored = (localStorage.getItem(LANG_KEY) || '').trim(); } catch (e) { stored = ''; }
+        var next = (stored === 'ko' || stored === 'en') ? stored : 'en';
+        if (lang !== next) { lang = next; }
+      }
+
+      function restartIntroScrollAnimation() {
+        if (!introScrollContent) return;
+        introScrollContent.classList.remove('scroll-animate');
+        void introScrollContent.offsetWidth;
+        introScrollContent.classList.add('scroll-animate');
+      }
+
       function setGameOverLock(locked) {
         isGameOver = !!locked;
         var L = getL();
@@ -797,9 +922,17 @@
         if (restartSection) restartSection.classList.toggle('visible', locked);
       }
 
+      function ensureIntroButtonsEnabled() {
+        if (introInitBtn) { introInitBtn.disabled = false; introInitBtn.removeAttribute('disabled'); introInitBtn.classList.remove('locked', 'disabled'); }
+        if (introLangKo) { introLangKo.disabled = false; introLangKo.removeAttribute('disabled'); introLangKo.classList.remove('locked', 'disabled'); }
+        if (introLangEn) { introLangEn.disabled = false; introLangEn.removeAttribute('disabled'); introLangEn.classList.remove('locked', 'disabled'); }
+      }
+
       function renderIntroScreen() {
+        syncLangFromStorage();
+        ensureIntroButtonsEnabled();
         var lines = OPENING_LINES[lang] || OPENING_LINES.en;
-        if (introLore) {
+        if (introScrollLines) {
           var html = '';
           for (var i = 0; i < lines.length; i++) {
             var ln = lines[i];
@@ -813,11 +946,12 @@
               html += '<div class="lore-line">' + ln + '</div>';
             }
           }
-          introLore.innerHTML = html;
+          introScrollLines.innerHTML = html;
         }
         if (introInitBtn) introInitBtn.textContent = (lang === 'ko') ? '[ 시스템 기동 ]' : '[ SYSTEM INITIALIZE ]';
         if (introLangKo) { introLangKo.classList.toggle('active', lang === 'ko'); introLangKo.textContent = '한국어'; }
         if (introLangEn) { introLangEn.classList.toggle('active', lang === 'en'); introLangEn.textContent = 'ENGLISH'; }
+        restartIntroScrollAnimation();
       }
 
       function renderGameLabels() {
