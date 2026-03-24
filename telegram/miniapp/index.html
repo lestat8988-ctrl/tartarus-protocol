@@ -881,6 +881,7 @@
       const inputArea = document.getElementById('input-area');
       const actionPanel = document.getElementById('action-panel');
       const actionBtns = document.querySelectorAll('.action-btn');
+      var pistolActionBtn = actionPanel ? actionPanel.querySelector('.action-btn[data-action="pistol"]') : null;
       const episodeUnlockBtn = document.getElementById('episode-unlock-btn');
       const restartSection = document.getElementById('restart-section');
       const restartBtn = document.getElementById('restart-btn');
@@ -895,6 +896,7 @@
       var lastAppendedLogNorm = null;
       var startRequestInFlight = false;
       var accuseRequestInFlight = false;
+      var takePistolRequestInFlight = false;
 
       function setRestartButtonsDisabled(disabled) {
         if (restartBtn) restartBtn.disabled = !!disabled;
@@ -1410,6 +1412,39 @@
           });
       }
 
+      /** 권총 획득 — /api/message·텍스트 파싱 없이 POST /api/action */
+      function postTakePistol() {
+        if (isGameOver || takePistolRequestInFlight) return;
+        takePistolRequestInFlight = true;
+        if (pistolActionBtn) pistolActionBtn.disabled = true;
+        var playerId = getPlayerId();
+        fetch(API_BASE + '/api/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ playerId: playerId, action: 'take_pistol' })
+        })
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.ok) {
+              var st = { remaining_sec: data.remaining_sec, game_state: data.match_state };
+              if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
+              if (data.is_timeout) st.is_timeout = data.is_timeout;
+              updateStatus(st, { forApiMessage: true });
+              if (data.game_over) stopStatePolling();
+              appendSummaryOrEvents(data);
+            } else {
+              appendLog('Error: ' + (data.error || 'unknown'), true);
+            }
+          })
+          .catch(function(err) {
+            appendLog('Connection failed: ' + err.message, true);
+          })
+          .finally(function() {
+            takePistolRequestInFlight = false;
+            if (pistolActionBtn) pistolActionBtn.disabled = !!isGameOver;
+          });
+      }
+
       renderIntroScreen();
 
       introLangKo.addEventListener('click', function() {
@@ -1544,6 +1579,8 @@
             doMessage(lang === 'ko' ? 'CCTV 로그를 확인한다.' : 'Checking CCTV logs.');
           } else if (action === 'engine') {
             doMessage(lang === 'ko' ? '엔진실 로그를 확인한다.' : 'Checking engine room logs.');
+          } else if (action === 'pistol') {
+            postTakePistol();
           } else if (action === 'execute') {
             openExecuteModal();
           } else {

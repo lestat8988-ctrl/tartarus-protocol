@@ -516,6 +516,89 @@ async function processAccuseApi(playerId, targetRaw, opts = {}) {
   return ret;
 }
 
+/**
+ * 명시적 액션 API — 텍스트/intentParser 없이 ep1Engine에 직접 전달.
+ * 현재: take_pistol → applyAction({ action: 'take_pistol' }) → 엔진에서 TAKE_PISTOL 분기.
+ * 응답 형태는 processMessageApi / processAccuseApi와 동일.
+ * @param {string} playerId
+ * @param {string} actionRaw - e.g. take_pistol
+ * @param {string} [targetRaw] - optional
+ * @param {object} [opts] - { now? }
+ * @returns {Promise<object>}
+ */
+async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
+  const actionKey = String(actionRaw || '').toLowerCase().trim();
+  if (actionKey !== 'take_pistol') {
+    return { ok: false, error: 'Unsupported action' };
+  }
+
+  let player = await playerStore.getPlayer(playerId);
+  let matchId = player?.match_id;
+  if (!matchId) {
+    const match = await matchStore.getOrCreateMatch('match_' + playerId + '_' + Date.now(), {});
+    matchId = match.match_id;
+    await playerStore.setPlayer(playerId, { match_id: matchId, role: 'captain' });
+  }
+  const match = await matchStore.getMatch(matchId);
+  if (!match) return { ok: false, error: 'Match not found' };
+
+  if (match.game_state?.game_over) {
+    const ret = {
+      ok: true,
+      summary: `Game over. Outcome: ${match.game_state.outcome || 'unknown'}`,
+      game_over: true,
+      outcome: match.game_state.outcome,
+      remaining_sec: 0,
+      events: [],
+      recent_events: [],
+      match_state: { ...match.game_state }
+    };
+    if (match.impostor_role != null) ret.actual_imposter = match.impostor_role;
+    const evs = match?.events || [];
+    if (evs.some((e) => e && e.type === 'TIMEOUT')) ret.is_timeout = true;
+    return ret;
+  }
+
+  const action = { actor: 'captain', role: 'captain', action: 'take_pistol' };
+  if (targetRaw != null && String(targetRaw).trim() !== '') {
+    action.target = String(targetRaw).toLowerCase().trim();
+  }
+  const result = await ep1Engine.applyAction(match, action, opts);
+  if (!result.ok) return { ok: false, error: result.error || 'unknown' };
+
+  await matchStore.updateMatch(matchId, { ...result.next_state, turn: (match.turn || 1) + 1 });
+  if (result.events?.length > 0) {
+    for (const ev of result.events) await matchStore.appendEvent(matchId, ev);
+  }
+
+  const updated = await matchStore.getMatch(matchId);
+  const gameOver = result.game_over || updated?.game_state?.game_over;
+  const newDisplayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(result.events || [], {}));
+  const isCaptainBlock = newDisplayLogs.length >= 2 && newDisplayLogs[0].type === '[함장]';
+  const captainBody = isCaptainBlock ? (newDisplayLogs[1].type || '').trim() : '';
+  const hasCompleteCaptainBlock = isCaptainBlock && captainBody.length > 0;
+  const summaryText = hasCompleteCaptainBlock
+    ? '\u200b'
+    : (newDisplayLogs.length ? newDisplayLogs[0].type : '\u200b');
+  const recentEvents = newDisplayLogs;
+  const ret = {
+    ok: true,
+    summary: summaryText,
+    remaining_sec: result.remaining_sec ?? 0,
+    game_over: gameOver || false,
+    outcome: result.outcome || null,
+    events: newDisplayLogs,
+    recent_events: recentEvents,
+    match_state: updated?.game_state || {}
+  };
+  if (gameOver) {
+    if (updated?.impostor_role != null) ret.actual_imposter = updated.impostor_role;
+    const evs = result.events || updated?.events || [];
+    if (evs.some((e) => e && e.type === 'TIMEOUT')) ret.is_timeout = true;
+  }
+  return ret;
+}
+
 function getGameTotalSecFromMatch(match) {
   if (match?.deadline_at && match?.started_at) {
     const start = new Date(match.started_at);
@@ -766,6 +849,27 @@ function createLocalApiServer() {
         return;
       }
 
+      if (route === '/api/action' && req.method === 'POST') {
+        const data = body ? JSON.parse(body) : {};
+        const playerId = data.playerId;
+        const actionName = data.action;
+        const targetOpt = data.target;
+        if (!playerId) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ ok: false, error: 'playerId required' }));
+          return;
+        }
+        if (actionName == null || String(actionName).trim() === '') {
+          res.writeHead(400);
+          res.end(JSON.stringify({ ok: false, error: 'action required' }));
+          return;
+        }
+        const result = await processActionApi(playerId, actionName, targetOpt);
+        res.writeHead(200);
+        res.end(JSON.stringify(result));
+        return;
+      }
+
       res.writeHead(404);
       res.end(JSON.stringify({ ok: false, error: 'Not found' }));
     } catch (err) {
@@ -836,5 +940,6 @@ module.exports = {
   handleWebhook,
   getStartStateApi,
   processMessageApi,
-  processAccuseApi
+  processAccuseApi,
+  processActionApi
 };
