@@ -905,6 +905,51 @@
         if (executeConfirmBtn) executeConfirmBtn.disabled = !!disabled;
       }
 
+      var statePollTimer = null;
+      var statePollInFlight = false;
+
+      function stopStatePolling() {
+        if (statePollTimer != null) {
+          clearInterval(statePollTimer);
+          statePollTimer = null;
+        }
+      }
+
+      function pollStateOnce() {
+        if (screen !== 'game') return;
+        if (statePollInFlight) return;
+        statePollInFlight = true;
+        var playerId = getPlayerId();
+        fetch(API_BASE + '/api/state?playerId=' + encodeURIComponent(playerId))
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (!data.ok) return;
+            if (!data.match_id) {
+              stopStatePolling();
+              return;
+            }
+            var gs = data.game_state || {};
+            var st = {
+              match_id: data.match_id,
+              remaining_sec: data.remaining_sec,
+              game_state: gs
+            };
+            if (data.actual_imposter != null) st.actual_imposter = data.actual_imposter;
+            if (data.is_timeout) st.is_timeout = data.is_timeout;
+            updateStatus(st, { forApiMessage: true });
+            if (data.recent_events && data.recent_events.length) applyEvents(data.recent_events);
+            if (gs.game_over) stopStatePolling();
+          })
+          .catch(function() { /* network noise: ignore */ })
+          .finally(function() { statePollInFlight = false; });
+      }
+
+      function startStatePolling() {
+        stopStatePolling();
+        pollStateOnce();
+        statePollTimer = setInterval(pollStateOnce, 2000);
+      }
+
       function clearGameLogPanelAndState() {
         lastAppendedLogNorm = null;
         if (logPanel) logPanel.innerHTML = '';
@@ -1292,6 +1337,7 @@
               } else {
                 appendLog('System: Tartarus Protocol initialized.', false);
               }
+              startStatePolling();
             } else {
               appendLog('Error: ' + (data.error || 'unknown'), true);
             }
@@ -1320,6 +1366,7 @@
               if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
               if (data.is_timeout) st.is_timeout = data.is_timeout;
               updateStatus(st, { forApiMessage: true });
+              if (data.game_over) stopStatePolling();
               appendSummaryOrEvents(data);
             } else {
               appendLog('Error: ' + (data.error || 'unknown'), true);
@@ -1348,6 +1395,7 @@
               if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
               if (data.is_timeout) st.is_timeout = data.is_timeout;
               updateStatus(st, { forApiMessage: true });
+              if (data.game_over) stopStatePolling();
               appendSummaryOrEvents(data);
             } else {
               appendLog('Error: ' + (data.error || 'unknown'), true);
@@ -1506,6 +1554,7 @@
 
       function doRestart() {
         if (!isGameOver || startRequestInFlight) return;
+        stopStatePolling();
         clearGameLogPanelAndState();
         previousGameOver = false;
         previousOutcome = null;

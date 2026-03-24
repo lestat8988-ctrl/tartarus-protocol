@@ -12,6 +12,9 @@ const matchStore = require('../../core/state/matchStore');
 const playerStore = require('../../core/state/playerStore');
 const ep1Engine = require('../../core/engine/ep1Engine');
 const intentParser = require('../../core/nlu/intentParser');
+const timers = require('../../core/engine/timers');
+const kills = require('../../core/engine/kills');
+const winlose = require('../../core/engine/winlose');
 
 const API_PORT = 8788;
 
@@ -433,6 +436,164 @@ async function processMessageApi(playerId, text, opts = {}) {
   return ret;
 }
 
+const ACCUSE_API_TARGETS = new Set(['doctor', 'engineer', 'navigator', 'pilot']);
+
+/**
+ * 처형 확정 전용 API — intentParser/텍스트 없이 ep1Engine에 action: accuse 직접 전달.
+ * 응답 형태는 processMessageApi와 동일하게 맞춤.
+ * @param {string} playerId
+ * @param {string} targetRaw - doctor | engineer | navigator | pilot
+ * @param {object} opts - { now? }
+ * @returns {Promise<object>}
+ */
+async function processAccuseApi(playerId, targetRaw, opts = {}) {
+  const target = String(targetRaw || '').toLowerCase().trim();
+  if (!ACCUSE_API_TARGETS.has(target)) {
+    return { ok: false, error: 'Invalid target' };
+  }
+
+  let player = await playerStore.getPlayer(playerId);
+  let matchId = player?.match_id;
+  if (!matchId) {
+    const match = await matchStore.getOrCreateMatch('match_' + playerId + '_' + Date.now(), {});
+    matchId = match.match_id;
+    await playerStore.setPlayer(playerId, { match_id: matchId, role: 'captain' });
+  }
+  const match = await matchStore.getMatch(matchId);
+  if (!match) return { ok: false, error: 'Match not found' };
+
+  if (match.game_state?.game_over) {
+    const ret = {
+      ok: true,
+      summary: `Game over. Outcome: ${match.game_state.outcome || 'unknown'}`,
+      game_over: true,
+      outcome: match.game_state.outcome,
+      remaining_sec: 0,
+      events: [],
+      recent_events: [],
+      match_state: { ...match.game_state }
+    };
+    if (match.impostor_role != null) ret.actual_imposter = match.impostor_role;
+    const evs = match?.events || [];
+    if (evs.some((e) => e && e.type === 'TIMEOUT')) ret.is_timeout = true;
+    return ret;
+  }
+
+  const action = { actor: 'captain', role: 'captain', action: 'accuse', target };
+  const result = await ep1Engine.applyAction(match, action, opts);
+  if (!result.ok) return { ok: false, error: result.error || 'unknown' };
+
+  await matchStore.updateMatch(matchId, { ...result.next_state, turn: (match.turn || 1) + 1 });
+  if (result.events?.length > 0) {
+    for (const ev of result.events) await matchStore.appendEvent(matchId, ev);
+  }
+
+  const updated = await matchStore.getMatch(matchId);
+  const gameOver = result.game_over || updated?.game_state?.game_over;
+  const newDisplayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(result.events || [], {}));
+  const isCaptainBlock = newDisplayLogs.length >= 2 && newDisplayLogs[0].type === '[함장]';
+  const captainBody = isCaptainBlock ? (newDisplayLogs[1].type || '').trim() : '';
+  const hasCompleteCaptainBlock = isCaptainBlock && captainBody.length > 0;
+  const summaryText = hasCompleteCaptainBlock
+    ? '\u200b'
+    : (newDisplayLogs.length ? newDisplayLogs[0].type : '\u200b');
+  const recentEvents = newDisplayLogs;
+  const ret = {
+    ok: true,
+    summary: summaryText,
+    remaining_sec: result.remaining_sec ?? 0,
+    game_over: gameOver || false,
+    outcome: result.outcome || null,
+    events: newDisplayLogs,
+    recent_events: recentEvents,
+    match_state: updated?.game_state || {}
+  };
+  if (gameOver) {
+    if (updated?.impostor_role != null) ret.actual_imposter = updated.impostor_role;
+    const evs = result.events || updated?.events || [];
+    if (evs.some((e) => e && e.type === 'TIMEOUT')) ret.is_timeout = true;
+  }
+  return ret;
+}
+
+function getGameTotalSecFromMatch(match) {
+  if (match?.deadline_at && match?.started_at) {
+    const start = new Date(match.started_at);
+    const deadline = new Date(match.deadline_at);
+    return Math.floor((deadline - start) / 1000);
+  }
+  return ep1Engine.GAME_TOTAL_SEC || 420;
+}
+
+/**
+ * /api/state 폴링 시 실제 시각 기준으로 timeout·auto-kill 반영 (ep1Engine.applyAction 동일 규칙: timers + kills + winlose).
+ * triggered_kill_marks로 구간 중복 발동 방지. 이벤트는 appendEvent로만 추가.
+ * @returns {Promise<object[]>} 이번 틱에서 새로 추가된 raw 이벤트
+ */
+async function applyMatchClockTick(matchId) {
+  const now = new Date();
+  const deltaRaw = [];
+  const maxSteps = 24;
+  for (let step = 0; step < maxSteps; step++) {
+    const match = await matchStore.getMatch(matchId);
+    if (!match || match.game_state?.game_over) break;
+
+    const gs = match.game_state || {};
+    const impostorRole = match.hidden_host_role ?? match.impostor_role;
+    const totalSec = getGameTotalSecFromMatch(match);
+    const startedAt = match.started_at || new Date().toISOString();
+    const { remaining_sec } = timers.computeDeadline(totalSec, startedAt, now);
+
+    if (timers.isExpired(totalSec, startedAt, now)) {
+      const result = winlose.resolveOutcome({ remainingSec: 0 });
+      const nextGs = { ...gs, game_over: true, outcome: result.outcome };
+      const ev = { type: 'TIMEOUT' };
+      await matchStore.appendEvent(matchId, ev);
+      deltaRaw.push(ev);
+      await matchStore.updateMatch(matchId, {
+        game_state: nextGs,
+        turn: (match.turn || 1) + 1
+      });
+      break;
+    }
+
+    const killResult = kills.checkAutoKill(
+      gs.dead_roles || [],
+      impostorRole,
+      remaining_sec,
+      gs.triggered_kill_marks || []
+    );
+    if (!killResult.shouldKill || !killResult.victimRole) break;
+
+    const nextDead = [...(gs.dead_roles || []), killResult.victimRole];
+    const nextMarks = [...(gs.triggered_kill_marks || []), killResult.mark].filter(Boolean);
+    const outcome =
+      nextDead.length >= 4
+        ? winlose.resolveOutcome({
+            deadRoles: nextDead,
+            impostorRole,
+            remainingSec: remaining_sec
+          }).outcome
+        : null;
+    const nextGs = {
+      ...gs,
+      dead_roles: nextDead,
+      triggered_kill_marks: nextMarks,
+      ...(outcome ? { game_over: true, outcome } : {})
+    };
+    const zone = kills.getDeathZone(killResult.victimRole);
+    const ev = { type: 'DEATH', role: killResult.victimRole, zone, reason: 'auto_kill' };
+    await matchStore.appendEvent(matchId, ev);
+    deltaRaw.push(ev);
+    await matchStore.updateMatch(matchId, {
+      game_state: nextGs,
+      turn: (match.turn || 1) + 1
+    });
+    if (outcome) break;
+  }
+  return deltaRaw;
+}
+
 /**
  * 봇 초기화 (텔레그램 SDK 연결 시 사용)
  */
@@ -538,16 +699,27 @@ function createLocalApiServer() {
           res.end(JSON.stringify({ ok: true, match_id: null, game_state: null }));
           return;
         }
-        const match = await matchStore.getMatch(matchId);
-        const timer = ep1Engine.getTimerStatus ? ep1Engine.getTimerStatus(match) : { remaining_sec: 420 };
+        let match = await matchStore.getMatch(matchId);
+        if (!match) {
+          res.writeHead(200);
+          res.end(JSON.stringify({ ok: true, match_id: null, game_state: null }));
+          return;
+        }
+        const deltaRaw = await applyMatchClockTick(matchId);
+        match = await matchStore.getMatch(matchId);
+        const timer = ep1Engine.getTimerStatus(match, new Date());
         const gs = match?.game_state || {};
         const displayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(match?.events || []));
+        const recentDisplay = dedupeDisplayLogs(toPlayerDisplayLogs(deltaRaw));
         const statePayload = {
           ok: true,
           match_id: matchId,
-          remaining_sec: timer.remaining_sec ?? 420,
+          remaining_sec: timer.remaining_sec ?? 0,
           game_state: gs,
-          events: displayLogs
+          match_state: gs,
+          events: displayLogs,
+          recent_events: recentDisplay,
+          game_over: !!gs.game_over
         };
         if (gs.game_over) {
           if (match.impostor_role != null) statePayload.actual_imposter = match.impostor_role;
@@ -569,6 +741,26 @@ function createLocalApiServer() {
           return;
         }
         const result = await processMessageApi(playerId, text);
+        res.writeHead(200);
+        res.end(JSON.stringify(result));
+        return;
+      }
+
+      if (route === '/api/accuse' && req.method === 'POST') {
+        const data = body ? JSON.parse(body) : {};
+        const playerId = data.playerId;
+        const target = data.target;
+        if (!playerId) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ ok: false, error: 'playerId required' }));
+          return;
+        }
+        if (target == null || String(target).trim() === '') {
+          res.writeHead(400);
+          res.end(JSON.stringify({ ok: false, error: 'target required' }));
+          return;
+        }
+        const result = await processAccuseApi(playerId, target);
         res.writeHead(200);
         res.end(JSON.stringify(result));
         return;
@@ -643,5 +835,6 @@ module.exports = {
   routeMessage,
   handleWebhook,
   getStartStateApi,
-  processMessageApi
+  processMessageApi,
+  processAccuseApi
 };
