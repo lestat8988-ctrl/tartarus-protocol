@@ -22,6 +22,80 @@ function log(tag, msg, data) {
   if (LOG) console.log('[bot]', tag, msg, data != null ? JSON.stringify(data) : '');
 }
 
+const ROLE_NAMES_KO = { doctor: '닥터', engineer: '엔지니어', navigator: '네비게이터', pilot: '파일럿', captain: '함장' };
+function roleNameKo(r) {
+  return ROLE_NAMES_KO[String(r || '').toLowerCase()] || (r ? String(r) : '');
+}
+
+/**
+ * Raw action trace를 플레이어용 읽기 전용 로그로 변환.
+ * QUESTION -> navigator, CHECK_LOG 등은 노출하지 않고, 사람이 읽을 수 있는 문장만 반환.
+ * miniapp applyEvents: label = (ev.type || ev.role) + (ev.target ? ' -> ' + ev.target : '')
+ * → type에 전체 문장을 넣고 target=null로 하면 문장만 표시됨.
+ * @param {object[]} rawEvents - match.events 등 내부 raw 이벤트
+ * @returns {object[]} { type: string, role?, target?: null, _key?: string } - 표시용
+ */
+function toPlayerDisplayLogs(rawEvents) {
+  if (!rawEvents || !Array.isArray(rawEvents)) return [];
+  const out = [];
+
+  for (const ev of rawEvents) {
+    const t = String(ev?.type || '').toUpperCase();
+    const role = ev?.role || 'captain';
+    const target = ev?.target ? String(ev.target).toLowerCase() : null;
+
+    let text = null;
+
+    if (t === 'QUESTION' && target) {
+      text = `[함장] ${roleNameKo(target)}, 그때 어디 있었지?`;
+    } else if (t === 'CHECK_LOG') {
+      text = target ? `함장이 ${roleNameKo(target)} 구역 로그를 확인했다.` : '함장이 시스템 로그를 확인했다.';
+    } else if (t === 'OBSERVE') {
+      text = '함장이 교량을 관찰했다.';
+    } else if (t === 'SUSPECT' && target) {
+      text = `함장이 ${roleNameKo(target)}을(를) 의심한다.`;
+    } else if (t === 'ACCUSE' && target) {
+      text = `함장이 ${roleNameKo(target)}을(를) 처형했다.`;
+    } else if (t === 'DEATH') {
+      const victim = roleNameKo(ev.role || target);
+      text = victim ? `[시스템] ${victim} 생체 신호 소실.` : '[시스템] 생체 신호 소실.';
+    } else if (t === 'TIMEOUT') {
+      text = '[시스템] 시간 종료.';
+    } else if (t === 'TAKE_PISTOL') {
+      text = '함장이 권총을 획득했다.';
+    } else if (t === 'FIND_CLUE') {
+      text = '함장이 단서를 수집했다.';
+    } else if (t === 'REPAIR' || t === 'WAIT') {
+      text = '함장이 행동했다.';
+    }
+
+    if (text) {
+      const key = [ev?.ts ?? '', t, role, target ?? ''].join('|');
+      out.push({ type: text, role: 'system', target: null, _key: key });
+    }
+  }
+  return out;
+}
+
+/**
+ * 같은 이벤트가 여러 번 내려가지 않도록 _key(ts+type+role+target) 기준 dedupe.
+ * @param {object[]} displayLogs - toPlayerDisplayLogs 출력
+ */
+function dedupeDisplayLogs(displayLogs) {
+  if (!displayLogs || !displayLogs.length) return [];
+  const seen = new Set();
+  const out = [];
+  for (const item of displayLogs) {
+    const key = item._key ?? item.type ?? '';
+    if (!seen.has(key)) {
+      seen.add(key);
+      const { _key, ...rest } = item;
+      out.push(rest);
+    }
+  }
+  return out;
+}
+
 /**
  * /start 처리
  * @param {string} playerId - telegram user id
@@ -31,7 +105,13 @@ function log(tag, msg, data) {
 async function handleStart(playerId, opts = {}) {
   const player = await playerStore.getPlayer(playerId);
   let matchId = player?.match_id;
-  if (!matchId) {
+
+  let needNewMatch = !matchId;
+  if (matchId) {
+    const existingMatch = await matchStore.getMatch(matchId);
+    if (existingMatch?.game_state?.game_over) needNewMatch = true;
+  }
+  if (needNewMatch) {
     const match = await matchStore.getOrCreateMatch('match_' + playerId + '_' + Date.now(), {
       game_total_sec: opts.game_total_sec
     });
@@ -121,9 +201,9 @@ async function handleTextMessage(playerId, text, opts = {}) {
   } else {
     log('ACTION', 'ok', { playerId, matchId, action: parsed.intent_type, target: parsed.target });
   }
-  const recent = (updated?.events || []).slice(-3);
-  if (recent.length > 0) {
-    reply += '\n\nRecent: ' + recent.map((e) => (e.type || e.role) + (e.target ? '→' + e.target : '')).join(', ');
+  const recentDisplay = dedupeDisplayLogs(toPlayerDisplayLogs((updated?.events || []).slice(-3)));
+  if (recentDisplay.length > 0) {
+    reply += '\n\nRecent: ' + recentDisplay.map((e) => e.type).join(', ');
   }
   return reply;
 }
@@ -162,7 +242,13 @@ async function getStartStateApi(playerId, opts = {}) {
   }
   let player = await playerStore.getPlayer(playerId);
   let matchId = player?.match_id;
-  if (!matchId) {
+
+  let needNewMatch = !matchId;
+  if (matchId) {
+    const existingMatch = await matchStore.getMatch(matchId);
+    if (existingMatch?.game_state?.game_over) needNewMatch = true;
+  }
+  if (needNewMatch) {
     const match = await matchStore.getOrCreateMatch('match_' + playerId + '_' + Date.now(), {});
     matchId = match.match_id;
     await playerStore.setPlayer(playerId, { match_id: matchId, role: 'captain' });
@@ -170,13 +256,14 @@ async function getStartStateApi(playerId, opts = {}) {
   const match = await matchStore.getMatch(matchId);
   const timer = ep1Engine.getTimerStatus ? ep1Engine.getTimerStatus(match) : { remaining_sec: 420 };
   const gs = match?.game_state || {};
+  const displayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(match?.events || []));
   const out = {
     ok: true,
     match_id: matchId,
     remaining_sec: timer.remaining_sec ?? 420,
     game_state: gs,
     deadline_at: match?.deadline_at,
-    events: match?.events || []
+    events: displayLogs
   };
   if (gs.game_over) {
     const imp = match?.impostor_role ?? match?.hidden_host_role;
@@ -234,14 +321,16 @@ async function processMessageApi(playerId, text, opts = {}) {
 
   const updated = await matchStore.getMatch(matchId);
   const gameOver = result.game_over || updated?.game_state?.game_over;
+  const newDisplayLogs = toPlayerDisplayLogs(result.events || []);
+  const summaryText = newDisplayLogs.length ? newDisplayLogs[0].type : '함장이 행동했다.';
   const ret = {
     ok: true,
-    summary: result.summary || 'Captain acted.',
+    summary: summaryText,
     remaining_sec: result.remaining_sec ?? 0,
     game_over: gameOver || false,
     outcome: result.outcome || null,
-    events: result.events || [],
-    recent_events: (updated?.events || []).slice(-5),
+    events: newDisplayLogs,
+    recent_events: [],
     match_state: updated?.game_state || {}
   };
   if (gameOver) {
@@ -360,12 +449,13 @@ function createLocalApiServer() {
         const match = await matchStore.getMatch(matchId);
         const timer = ep1Engine.getTimerStatus ? ep1Engine.getTimerStatus(match) : { remaining_sec: 420 };
         const gs = match?.game_state || {};
+        const displayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(match?.events || []));
         const statePayload = {
           ok: true,
           match_id: matchId,
           remaining_sec: timer.remaining_sec ?? 420,
           game_state: gs,
-          events: match?.events || []
+          events: displayLogs
         };
         if (gs.game_over) {
           if (match.impostor_role != null) statePayload.actual_imposter = match.impostor_role;
