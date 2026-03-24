@@ -19,7 +19,7 @@ function getGameTotalSec(matchState) {
   return GAME_TOTAL_SEC;
 }
 
-const VALID_ACTIONS = new Set(['QUESTION', 'OBSERVE', 'CHECK_LOG', 'REPAIR', 'ACCUSE', 'WAIT', 'TAKE_PISTOL', 'FIND_CLUE', 'DEATH']);
+const VALID_ACTIONS = new Set(['QUESTION', 'OBSERVE', 'CHECK_LOG', 'REPAIR', 'ACCUSE', 'SUSPECT', 'WAIT', 'TAKE_PISTOL', 'FIND_CLUE', 'DEATH']);
 const VALID_TARGETS = new Set(['doctor', 'engineer', 'navigator', 'pilot', 'captain', 'player']);
 
 /**
@@ -93,11 +93,11 @@ async function applyAction(matchState, action, opts = {}) {
     };
   }
 
-  // 1. intent_type → action 정규화
-  const raw = String(action.action || '').toLowerCase();
-  const mapped = intentToAction(raw, action.target);
+  // 1. intent_type / action → 정규화 (accuse_hint → SUSPECT 비처형, accuse → ACCUSE 처형)
+  const intentOrAction = String(action.intent_type || action.action || '').toLowerCase();
+  const mapped = intentToAction(intentOrAction, action.target);
   action.action = mapped.action;
-  action.target = mapped.target;
+  action.target = mapped.target ?? action.target;
 
   const act = String(action.action || '').toUpperCase();
   if (!VALID_ACTIONS.has(act)) {
@@ -123,7 +123,7 @@ async function applyAction(matchState, action, opts = {}) {
     };
   }
 
-  // 3. ACCUSE 처리 → 승패 판정, accuse_history 반영
+  // 3. ACCUSE 처리 (action=accuse 또는 명시적 처형 액션만. accuse_hint는 SUSPECT로 비처형 분기)
   const actFinal = String(action.action || '').toUpperCase();
   if (actFinal === 'ACCUSE' && action.target) {
     const result = winlose.resolveOutcome({
@@ -145,7 +145,7 @@ async function applyAction(matchState, action, opts = {}) {
     return {
       ok: true,
       next_state: nextState,
-      events: [{ type: 'ACCUSE', role: 'captain', target: action.target }],
+      events: [{ type: 'ACCUSE', role: 'captain', target: action.target }], // ACCUSE -> target
       summary: `Captain accused ${action.target}. Outcome: ${result.outcome}`,
       game_over: true,
       outcome: result.outcome,
@@ -173,16 +173,18 @@ function buildSummary(action, role, target) {
   if (act === 'QUESTION' && t) return `Captain questioned ${t}.`;
   if (act === 'CHECK_LOG') return 'Captain checked ship logs.';
   if (act === 'OBSERVE') return 'Captain observed the bridge.';
+  if (act === 'SUSPECT' && t) return `Captain suspects ${t}.`;
   if (act === 'ACCUSE' && t) return `Captain accused ${t}.`;
   return 'Captain acted.';
 }
 
-/** intent_type → engine action 매핑 */
+/** intent_type → engine action 매핑. accuse_hint는 비처형(SUSPECT), accuse만 실제 처형(ACCUSE) */
 function intentToAction(intent_type, target) {
   const map = {
     question: 'QUESTION',
     check_log: 'CHECK_LOG',
-    accuse_hint: 'ACCUSE',
+    accuse_hint: 'SUSPECT',
+    accuse: 'ACCUSE',
     observe: 'OBSERVE',
     threat: 'QUESTION',
     unknown: 'OBSERVE'
