@@ -473,6 +473,13 @@
     }
     .modal-cancel { background: #333; border: 1px solid #666; color: #ccc; }
     .modal-confirm { background: #1a3a1a; border: 1px solid #2aef2a; color: #2aef2a; }
+    #restart-btn:disabled,
+    #result-restart-btn:disabled,
+    #execute-confirm:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
     @media (max-width: 480px) {
       .modal-box { padding: 24px; }
       .modal-target-btn { padding: 16px; min-height: 48px; }
@@ -877,6 +884,8 @@
       const episodeUnlockBtn = document.getElementById('episode-unlock-btn');
       const restartSection = document.getElementById('restart-section');
       const restartBtn = document.getElementById('restart-btn');
+      const resultRestartBtn = document.getElementById('result-restart-btn');
+      const executeConfirmBtn = document.getElementById('execute-confirm');
 
       var isGameOver = false;
       var previousGameOver = false;
@@ -884,6 +893,17 @@
       var executeModalUnlockTimer = null;
       /** 연속 동일 로그 방지 (summary + recent_events 이중 출력 등) */
       var lastAppendedLogNorm = null;
+      var startRequestInFlight = false;
+      var accuseRequestInFlight = false;
+
+      function setRestartButtonsDisabled(disabled) {
+        if (restartBtn) restartBtn.disabled = !!disabled;
+        if (resultRestartBtn) resultRestartBtn.disabled = !!disabled;
+      }
+
+      function setAccuseConfirmDisabled(disabled) {
+        if (executeConfirmBtn) executeConfirmBtn.disabled = !!disabled;
+      }
 
       function clearGameLogPanelAndState() {
         lastAppendedLogNorm = null;
@@ -1069,14 +1089,20 @@
         if (freeInput) freeInput.placeholder = isGameOver ? L.gameOverPlaceholder : L.freeInput;
         if (sendBtn) sendBtn.textContent = L.send;
         if (restartBtn) restartBtn.textContent = L.restart;
+        if (resultRestartBtn) {
+          resultRestartBtn.textContent = L.restart;
+          if (!startRequestInFlight) resultRestartBtn.disabled = false;
+        }
         var execTitle = document.getElementById('execute-modal-title');
         var execInst = document.getElementById('execute-modal-instruction');
         var execCancel = document.getElementById('execute-cancel');
-        var execConfirm = document.getElementById('execute-confirm');
         if (execTitle) execTitle.textContent = L.executeModalTitle;
         if (execInst) execInst.textContent = L.executeModalInstruction || '';
         if (execCancel) execCancel.textContent = L.cancel;
-        if (execConfirm) execConfirm.textContent = L.confirm;
+        if (executeConfirmBtn) {
+          executeConfirmBtn.textContent = L.confirm;
+          if (!accuseRequestInFlight) executeConfirmBtn.disabled = false;
+        }
         var execNoTarget = document.getElementById('execute-no-target-hint');
         if (execNoTarget) {
           execNoTarget.textContent = L.executeNoTargetHint || '';
@@ -1109,8 +1135,6 @@
         var resultOutcomeValue = document.getElementById('result-outcome-value');
         var resultImposter = document.getElementById('result-imposter');
         var resultDead = document.getElementById('result-dead');
-        var resultRestartBtn = document.getElementById('result-restart-btn');
-
         resultModal.classList.remove('result-win', 'result-lose');
         if (outcome === 'crew_win') {
           resultModal.classList.add('result-win');
@@ -1153,7 +1177,10 @@
           resultDead.style.display = 'none';
         }
 
-        if (resultRestartBtn) resultRestartBtn.textContent = L.restart;
+        if (resultRestartBtn) {
+          resultRestartBtn.textContent = L.restart;
+          if (!startRequestInFlight) resultRestartBtn.disabled = false;
+        }
         if (resultModal) resultModal.classList.add('visible');
       }
 
@@ -1239,6 +1266,9 @@
       }
 
       function doStart(restart) {
+        if (startRequestInFlight) return;
+        startRequestInFlight = true;
+        setRestartButtonsDisabled(true);
         var playerId = getPlayerId();
         fetch(API_BASE + '/api/start', {
           method: 'POST',
@@ -1268,6 +1298,10 @@
           })
           .catch(function(err) {
             appendLog('Connection failed. Start: node telegram/bot/bot.js', true);
+          })
+          .finally(function() {
+            startRequestInFlight = false;
+            setRestartButtonsDisabled(false);
           });
       }
 
@@ -1298,7 +1332,9 @@
 
       /** 처형 확정 전용 — /api/message·doMessage 경로 미사용, 텍스트 파싱 없음 */
       function postAccuse(targetKey) {
-        if (isGameOver) return;
+        if (isGameOver || accuseRequestInFlight) return;
+        accuseRequestInFlight = true;
+        setAccuseConfirmDisabled(true);
         var playerId = getPlayerId();
         fetch(API_BASE + '/api/accuse', {
           method: 'POST',
@@ -1319,6 +1355,10 @@
           })
           .catch(function(err) {
             appendLog('Connection failed: ' + err.message, true);
+          })
+          .finally(function() {
+            accuseRequestInFlight = false;
+            setAccuseConfirmDisabled(false);
           });
       }
 
@@ -1347,8 +1387,8 @@
       var executeModal = document.getElementById('execute-modal');
       var selectedExecuteTarget = null;
 
-      /** 확정: /api/accuse 에 { playerId, target } 만 전송 (role id, 텍스트 파싱 없음) */
-      function submitExecuteAccuse() {
+      /** 처형 확정 단일 진입점 — /api/accuse (confirm 버튼·모달 위임만 이 함수 호출) */
+      function confirmAccuse() {
         var targetKey = selectedExecuteTarget;
         if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
           var sel = executeModal ? executeModal.querySelector('.modal-target-btn.selected') : null;
@@ -1362,6 +1402,7 @@
           }
           return;
         }
+        if (accuseRequestInFlight) return;
         var warnEl = document.getElementById('execute-no-target-hint');
         if (warnEl) warnEl.classList.remove('visible');
         if (freeInput) {
@@ -1389,6 +1430,7 @@
           hint.classList.remove('visible');
         }
         if (executeModal) executeModal.classList.add('visible');
+        if (!accuseRequestInFlight) setAccuseConfirmDisabled(false);
       }
 
       function closeExecuteModal() {
@@ -1418,7 +1460,7 @@
           if (confirmEl) {
             e.preventDefault();
             e.stopPropagation();
-            submitExecuteAccuse();
+            confirmAccuse();
             return;
           }
           var cancelEl = t && t.closest ? t.closest('#execute-cancel') : (t && t.id === 'execute-cancel' ? t : null);
@@ -1463,7 +1505,7 @@
       });
 
       function doRestart() {
-        if (!isGameOver) return;
+        if (!isGameOver || startRequestInFlight) return;
         clearGameLogPanelAndState();
         previousGameOver = false;
         previousOutcome = null;
@@ -1473,12 +1515,15 @@
         doStart(true);
       }
 
-      restartBtn.addEventListener('click', doRestart);
-
-      var resultRestartBtn = document.getElementById('result-restart-btn');
-      if (resultRestartBtn) resultRestartBtn.addEventListener('click', function() {
+      function onRestartClick(e) {
+        if (e) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
         doRestart();
-      });
+      }
+      if (restartBtn) restartBtn.addEventListener('click', onRestartClick);
+      if (resultRestartBtn) resultRestartBtn.addEventListener('click', onRestartClick);
 
       var resultModalEl = document.getElementById('result-modal');
       if (resultModalEl) resultModalEl.addEventListener('click', function(e) {
