@@ -57,13 +57,21 @@ function toPlayerDisplayLogs(rawEvents) {
     const baseKey = [ev?.ts ?? '', t, role, target ?? ''].join('|');
 
     if (t === 'QUESTION' && target) {
-      out.push({ type: '[함장]', role: 'system', target: null, _key: baseKey + '|hdr' });
-      out.push({ type: `${roleNameKo(target)}, 그때 어디 있었지?`, role: 'system', target: null, _key: baseKey + '|body' });
+      const qBody = `${roleNameKo(target)}, 그때 어디 있었지?`;
+      const body = (qBody || ev.dialogue || ev.text || '함장이 질문했다.').trim();
+      if (body) {
+        out.push({ type: '[함장]', role: 'system', target: null, _key: baseKey + '|hdr' });
+        out.push({ type: body, role: 'system', target: null, _key: baseKey + '|body' });
+      }
       continue;
     }
     if (t === 'SUSPECT' && target) {
-      out.push({ type: '[함장]', role: 'system', target: null, _key: baseKey + '|hdr' });
-      out.push({ type: `${roleWithObjectParticle(target)} 의심한다`, role: 'system', target: null, _key: baseKey + '|body' });
+      const sBody = `${roleWithObjectParticle(target)} 의심한다`;
+      const body = (sBody || ev.dialogue || ev.text || `${roleNameKo(target)}를 의심한다`).trim();
+      if (body) {
+        out.push({ type: '[함장]', role: 'system', target: null, _key: baseKey + '|hdr' });
+        out.push({ type: body, role: 'system', target: null, _key: baseKey + '|body' });
+      }
       continue;
     }
 
@@ -88,9 +96,10 @@ function toPlayerDisplayLogs(rawEvents) {
     } else if (ev.dialogue && typeof ev.dialogue === 'string') {
       const d = ev.dialogue.trim();
       const m = d.match(/^\[([^\]]+)\]\s*(.*)$/);
-      if (m && m[2]) {
+      const crewBody = m ? m[2].trim() : '';
+      if (m && crewBody) {
         out.push({ type: '[' + m[1] + ']', role: 'system', target: null, _key: baseKey + '|hdr' });
-        out.push({ type: m[2].trim(), role: 'system', target: null, _key: baseKey + '|body' });
+        out.push({ type: crewBody, role: 'system', target: null, _key: baseKey + '|body' });
       } else {
         text = d;
       }
@@ -347,8 +356,14 @@ async function processMessageApi(playerId, text, opts = {}) {
 
   const updated = await matchStore.getMatch(matchId);
   const gameOver = result.game_over || updated?.game_state?.game_over;
-  const newDisplayLogs = toPlayerDisplayLogs(result.events || []);
-  const summaryText = newDisplayLogs.length ? newDisplayLogs[0].type : '함장이 행동했다.';
+  const newDisplayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(result.events || []));
+  const isCaptainBlock = newDisplayLogs.length >= 2 && newDisplayLogs[0].type === '[함장]';
+  const captainBody = isCaptainBlock ? (newDisplayLogs[1].type || '').trim() : '';
+  const hasCompleteCaptainBlock = isCaptainBlock && captainBody.length > 0;
+  const summaryText = hasCompleteCaptainBlock
+    ? ''
+    : (newDisplayLogs.length ? newDisplayLogs[0].type : '함장이 행동했다.');
+  const recentEvents = newDisplayLogs;
   const ret = {
     ok: true,
     summary: summaryText,
@@ -356,7 +371,7 @@ async function processMessageApi(playerId, text, opts = {}) {
     game_over: gameOver || false,
     outcome: result.outcome || null,
     events: newDisplayLogs,
-    recent_events: [],
+    recent_events: recentEvents,
     match_state: updated?.game_state || {}
   };
   if (gameOver) {
