@@ -440,6 +440,8 @@
     }
     .modal-title { font-size: 1rem; font-weight: 600; color: #2aef2a; margin-bottom: 8px; text-align: center; }
     .modal-instruction { font-size: 0.8rem; color: #2aef2a99; margin-bottom: 16px; text-align: center; line-height: 1.4; }
+    .modal-execute-warn { display: none; font-size: 0.78rem; color: #e6a23c; text-align: center; margin: -8px 0 12px; line-height: 1.35; }
+    .modal-execute-warn.visible { display: block; }
     .modal-targets { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
     .modal-target-btn {
       padding: 14px;
@@ -623,6 +625,7 @@
     <div class="modal-box">
       <div class="modal-title" id="execute-modal-title">처형 대상 선택</div>
       <div class="modal-instruction" id="execute-modal-instruction">처형 대상 1명을 선택하십시오. 탄환은 1발뿐입니다.</div>
+      <div class="modal-execute-warn" id="execute-no-target-hint" role="status"></div>
       <div class="modal-targets">
         <button type="button" class="modal-target-btn" data-target="doctor" id="target-doctor">닥터</button>
         <button type="button" class="modal-target-btn" data-target="engineer" id="target-engineer">엔지니어</button>
@@ -761,6 +764,7 @@
           resultDeadPrefix: '사망: ',
           executeModalTitle: '처형 대상 선택',
           executeModalInstruction: '처형 대상 1명을 선택하십시오. 탄환은 1발뿐입니다.',
+          executeNoTargetHint: '처형 대상을 먼저 선택하십시오. (닥터 / 엔지니어 / 네비게이터 / 파일럿)',
           cancel: '취소',
           confirm: '확정',
           doctor: '닥터',
@@ -815,6 +819,7 @@
           resultDeadPrefix: 'Deceased: ',
           executeModalTitle: 'SELECT TARGET FOR ELIMINATION',
           executeModalInstruction: 'Choose one target. One bullet only. No second chance.',
+          executeNoTargetHint: 'Select an execution target first. (Doctor / Engineer / Navigator / Pilot)',
           cancel: 'CANCEL',
           confirm: 'CONFIRM',
           doctor: 'Doctor',
@@ -824,10 +829,14 @@
         }
       };
 
-      var ACCUSE_TEXTS = {
-        ko: { doctor: '닥터를 의심한다', engineer: '엔지니어를 의심한다', navigator: '네비게이터를 의심한다', pilot: '파일럿을 의심한다' },
-        en: { doctor: 'accuse doctor', engineer: 'accuse engineer', navigator: 'accuse navigator', pilot: 'accuse pilot' }
+      /** 처형 프로토콜 확정 시에만 전송. 역할 키와 1:1 매칭되는 명시적 accuse 문구 (파서 target 추출과 일치). */
+      var ACCUSE_COMMAND_BY_ROLE = {
+        doctor: 'accuse doctor',
+        engineer: 'accuse engineer',
+        navigator: 'accuse navigator',
+        pilot: 'accuse pilot'
       };
+      var VALID_ACCUSE_TARGETS = ['doctor', 'engineer', 'navigator', 'pilot'];
 
       const introScreen = document.getElementById('intro-screen');
       const introScrollLines = document.getElementById('intro-scroll-lines');
@@ -875,8 +884,19 @@
       var isGameOver = false;
       var previousGameOver = false;
       var previousOutcome = null;
+      /** 마지막 전송이 명시적 처형(accuse)인지 — 결과 모달 허용 판별용 */
+      var lastClientIntent = 'other';
+
+      function normalizeOutboundText(s) {
+        return String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
+      }
+
+      function isExplicitAccuseCommand(text) {
+        return /^accuse (doctor|engineer|navigator|pilot)$/.test(normalizeOutboundText(text));
+      }
 
       function resetResultUI() {
+        lastClientIntent = 'other';
         previousGameOver = false;
         previousOutcome = null;
         closeResultModal();
@@ -903,6 +923,8 @@
         selectedExecuteTarget = null;
         var targets = document.querySelectorAll('.modal-target-btn');
         if (targets.length) targets.forEach(function(b) { b.classList.remove('selected'); });
+        var execNoTargetHint = document.getElementById('execute-no-target-hint');
+        if (execNoTargetHint) execNoTargetHint.classList.remove('visible');
       }
 
       function getPlayerId() {
@@ -1051,6 +1073,11 @@
         if (execInst) execInst.textContent = L.executeModalInstruction || '';
         if (execCancel) execCancel.textContent = L.cancel;
         if (execConfirm) execConfirm.textContent = L.confirm;
+        var execNoTarget = document.getElementById('execute-no-target-hint');
+        if (execNoTarget) {
+          execNoTarget.textContent = L.executeNoTargetHint || '';
+          execNoTarget.classList.remove('visible');
+        }
         ['doctor','engineer','navigator','pilot'].forEach(function(r) {
           var btn = document.getElementById('target-' + r);
           if (btn) btn.textContent = L[r];
@@ -1131,7 +1158,8 @@
         if (resultModal) resultModal.classList.remove('visible');
       }
 
-      function updateStatus(state) {
+      function updateStatus(state, opts) {
+        opts = opts || {};
         if (!state) return;
         var gs = state.game_state || {};
         var prevWasGameOver = previousGameOver;
@@ -1156,7 +1184,9 @@
           outcomeBadge.className = 'outcome-badge visible ' + (gs.outcome || '').replace(/-/g, '_');
           if (statusOutcomeWrap) { statusOutcomeWrap.style.display = 'block'; statusOutcome.textContent = gs.outcome; }
 
-          if (!prevWasGameOver) showResultModal(state);
+          var timeoutish = !!(state.is_timeout || gs.outcome === 'timeout');
+          var allowResultModal = opts.fromStart === true || timeoutish || (lastClientIntent === 'accuse_explicit');
+          if (!prevWasGameOver && allowResultModal) showResultModal(state);
         } else if (gs.game_over && !gs.outcome) {
           statusThreat.textContent = 'GAME OVER';
           statusThreat.classList.remove('nominal');
@@ -1210,7 +1240,8 @@
               var st = { match_id: data.match_id, remaining_sec: data.remaining_sec, game_state: data.game_state };
               if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
               if (data.is_timeout) st.is_timeout = data.is_timeout;
-              updateStatus(st);
+              lastClientIntent = 'other';
+              updateStatus(st, { fromStart: true });
               if (data.events && data.events.length) applyEvents(data.events);
               else appendLog('System: Tartarus Protocol initialized.', false);
             } else {
@@ -1222,8 +1253,11 @@
           });
       }
 
-      function doMessage(text) {
+      function doMessage(text, opts) {
+        opts = opts || {};
         if (isGameOver) return;
+        if (opts.accuseExplicit) lastClientIntent = 'accuse_explicit';
+        else lastClientIntent = isExplicitAccuseCommand(text) ? 'accuse_explicit' : 'other';
         var playerId = getPlayerId();
         fetch(API_BASE + '/api/message', {
           method: 'POST',
@@ -1236,14 +1270,17 @@
               var st = { remaining_sec: data.remaining_sec, game_state: data.match_state };
               if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
               if (data.is_timeout) st.is_timeout = data.is_timeout;
-              updateStatus(st);
+              updateStatus(st, {});
+              lastClientIntent = 'other';
               appendLog(data.summary || 'Captain acted.', false);
               if (data.recent_events && data.recent_events.length) applyEvents(data.recent_events);
             } else {
+              lastClientIntent = 'other';
               appendLog('Error: ' + (data.error || 'unknown'), true);
             }
           })
           .catch(function(err) {
+            lastClientIntent = 'other';
             appendLog('Connection failed: ' + err.message, true);
           });
       }
@@ -1280,6 +1317,11 @@
         selectedExecuteTarget = null;
         var L = getL();
         document.querySelectorAll('.modal-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+        var hint = document.getElementById('execute-no-target-hint');
+        if (hint) {
+          hint.textContent = L.executeNoTargetHint || '';
+          hint.classList.remove('visible');
+        }
         if (executeModal) executeModal.classList.add('visible');
       }
 
@@ -1292,15 +1334,29 @@
           selectedExecuteTarget = this.dataset.target;
           document.querySelectorAll('.modal-target-btn').forEach(function(b) { b.classList.remove('selected'); });
           this.classList.add('selected');
+          var w = document.getElementById('execute-no-target-hint');
+          if (w) w.classList.remove('visible');
         });
       });
 
       if (executeCancel) executeCancel.addEventListener('click', closeExecuteModal);
       if (executeConfirm) executeConfirm.addEventListener('click', function() {
-        if (!selectedExecuteTarget) return;
-        var text = ACCUSE_TEXTS[lang][selectedExecuteTarget];
+        var sel = document.querySelector('.modal-target-btn.selected');
+        var targetKey = sel ? String(sel.getAttribute('data-target') || '').toLowerCase() : '';
+        if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
+          var warn = document.getElementById('execute-no-target-hint');
+          if (warn) {
+            warn.textContent = (getL().executeNoTargetHint || '').trim();
+            warn.classList.add('visible');
+          }
+          return;
+        }
+        var cmd = ACCUSE_COMMAND_BY_ROLE[targetKey];
+        if (!cmd) return;
+        var warnEl = document.getElementById('execute-no-target-hint');
+        if (warnEl) warnEl.classList.remove('visible');
         closeExecuteModal();
-        doMessage(text);
+        doMessage(cmd, { accuseExplicit: true });
       });
 
       executeModal.addEventListener('click', function(e) {
