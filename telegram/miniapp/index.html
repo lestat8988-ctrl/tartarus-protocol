@@ -882,6 +882,13 @@
       var previousGameOver = false;
       var previousOutcome = null;
       var executeModalUnlockTimer = null;
+      /** 연속 동일 로그 방지 (summary + recent_events 이중 출력 등) */
+      var lastAppendedLogNorm = null;
+
+      function clearGameLogPanelAndState() {
+        lastAppendedLogNorm = null;
+        if (logPanel) logPanel.innerHTML = '';
+      }
       function resetResultUI() {
         previousGameOver = false;
         previousOutcome = null;
@@ -942,10 +949,14 @@
       }
 
       function appendLog(text, isError) {
+        var raw = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
+        if (!raw || raw === '\u200b') return;
+        if (raw === lastAppendedLogNorm) return;
+        lastAppendedLogNorm = raw;
         if (logInit && logInit.parentNode) logInit.remove();
         var entry = document.createElement('div');
         entry.className = 'log-entry' + (isError ? ' error' : '');
-        entry.textContent = text;
+        entry.textContent = raw;
         if (logPanel) logPanel.appendChild(entry);
         if (logPanel) logPanel.scrollTop = logPanel.scrollHeight;
       }
@@ -1213,9 +1224,18 @@
       function applyEvents(events) {
         if (!events || !events.length) return;
         events.forEach(function(ev) {
-          var label = (ev.type || ev.role) + (ev.target ? ' -> ' + ev.target : '');
-          appendLog(label, false);
+          var label = String((ev.type || ev.role || '') + (ev.target ? ' -> ' + ev.target : '')).trim();
+          if (label) appendLog(label, false);
         });
+      }
+
+      function appendSummaryOrEvents(data) {
+        if (data.recent_events && data.recent_events.length) {
+          applyEvents(data.recent_events);
+        } else {
+          var s = String(data.summary || 'Captain acted.').replace(/\s+/g, ' ').trim();
+          if (s && s !== '\u200b') appendLog(s, false);
+        }
       }
 
       function doStart(restart) {
@@ -1234,8 +1254,14 @@
               if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
               if (data.is_timeout) st.is_timeout = data.is_timeout;
               updateStatus(st, { fromStart: true });
-              if (data.events && data.events.length) applyEvents(data.events);
-              else appendLog('System: Tartarus Protocol initialized.', false);
+              if (restart) {
+                clearGameLogPanelAndState();
+                appendLog('System: Tartarus Protocol initialized.', false);
+              } else if (data.events && data.events.length) {
+                applyEvents(data.events);
+              } else {
+                appendLog('System: Tartarus Protocol initialized.', false);
+              }
             } else {
               appendLog('Error: ' + (data.error || 'unknown'), true);
             }
@@ -1260,8 +1286,33 @@
               if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
               if (data.is_timeout) st.is_timeout = data.is_timeout;
               updateStatus(st, { forApiMessage: true });
-              appendLog(data.summary || 'Captain acted.', false);
-              if (data.recent_events && data.recent_events.length) applyEvents(data.recent_events);
+              appendSummaryOrEvents(data);
+            } else {
+              appendLog('Error: ' + (data.error || 'unknown'), true);
+            }
+          })
+          .catch(function(err) {
+            appendLog('Connection failed: ' + err.message, true);
+          });
+      }
+
+      /** 처형 확정 전용 — /api/message·doMessage 경로 미사용, 텍스트 파싱 없음 */
+      function postAccuse(targetKey) {
+        if (isGameOver) return;
+        var playerId = getPlayerId();
+        fetch(API_BASE + '/api/accuse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ playerId: playerId, target: targetKey })
+        })
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.ok) {
+              var st = { remaining_sec: data.remaining_sec, game_state: data.match_state };
+              if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
+              if (data.is_timeout) st.is_timeout = data.is_timeout;
+              updateStatus(st, { forApiMessage: true });
+              appendSummaryOrEvents(data);
             } else {
               appendLog('Error: ' + (data.error || 'unknown'), true);
             }
@@ -1296,7 +1347,7 @@
       var executeModal = document.getElementById('execute-modal');
       var selectedExecuteTarget = null;
 
-      /** 확정: 선택된 role id로만 문자열을 조립해 전송 (자유입력·맵 재사용 없음). 형식: accuse &lt;doctor|engineer|navigator|pilot&gt; */
+      /** 확정: /api/accuse 에 { playerId, target } 만 전송 (role id, 텍스트 파싱 없음) */
       function submitExecuteAccuse() {
         var targetKey = selectedExecuteTarget;
         if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
@@ -1311,7 +1362,6 @@
           }
           return;
         }
-        var cmd = 'accuse ' + targetKey;
         var warnEl = document.getElementById('execute-no-target-hint');
         if (warnEl) warnEl.classList.remove('visible');
         if (freeInput) {
@@ -1319,7 +1369,7 @@
           freeInput.blur();
         }
         closeExecuteModal();
-        doMessage(cmd);
+        postAccuse(targetKey);
       }
 
       function openExecuteModal() {
@@ -1414,10 +1464,12 @@
 
       function doRestart() {
         if (!isGameOver) return;
+        clearGameLogPanelAndState();
+        previousGameOver = false;
+        previousOutcome = null;
         resetResultUI();
         restartSection.classList.remove('visible');
         startGameBriefingScroll();
-        appendLog(lang === 'ko' ? '새 매치 시작 중...' : 'Starting new match...', false);
         doStart(true);
       }
 
