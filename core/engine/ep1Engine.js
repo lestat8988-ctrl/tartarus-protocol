@@ -201,6 +201,39 @@ async function applyAction(matchState, action, opts = {}) {
     };
   }
 
+  // 3.8. TAKE_PISTOL — 함장 권총 획득 (game_state.pistol_holder)
+  if (actFinal === 'TAKE_PISTOL') {
+    if (game_state.pistol_holder === 'captain') {
+      return {
+        ok: true,
+        next_state: matchState,
+        events: [
+          {
+            type: 'CREW_DIALOGUE',
+            role: 'captain',
+            dialogue: '함장은 이미 권총을 소지하고 있다.'
+          }
+        ],
+        summary: 'Captain already holds the pistol.',
+        remaining_sec
+      };
+    }
+    const nextState = {
+      ...matchState,
+      game_state: {
+        ...game_state,
+        pistol_holder: 'captain'
+      }
+    };
+    return {
+      ok: true,
+      next_state: nextState,
+      events: [{ type: 'TAKE_PISTOL', role: 'captain' }],
+      summary: 'Captain took the pistol.',
+      remaining_sec
+    };
+  }
+
   // 4. 일반 액션 (OBSERVE 등)
   const actOut = String(action.action || '').toUpperCase();
   const event = { type: actOut, role: action.role || 'captain', target: action.target };
@@ -374,8 +407,35 @@ function buildSummary(action, role, target) {
   return 'Captain acted.';
 }
 
+/** intent 문자열 정규화 (공밍/하이픈 → _) */
+function normalizeIntentToken(intent_type) {
+  return String(intent_type || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[\s-]+/g, '_');
+}
+
+/** 권총 획득으로 들어오는 intent/action 토큰 (take_pistol, pistol, gun pickup 등) */
+function isTakePistolIntent(intent_type) {
+  const key = normalizeIntentToken(intent_type);
+  if (
+    key === 'take_pistol' ||
+    key === 'pistol' ||
+    key === 'gun_pickup' ||
+    key === 'pickup_gun' ||
+    key === 'take_gun' ||
+    key === 'get_pistol'
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /** intent_type → engine action 매핑. accuse_hint는 비처형(SUSPECT), accuse만 실제 처형(ACCUSE) */
 function intentToAction(intent_type, target) {
+  if (isTakePistolIntent(intent_type)) {
+    return { action: 'TAKE_PISTOL', target: target || null };
+  }
   const map = {
     question: 'QUESTION',
     check_log: 'CHECK_LOG',
@@ -385,7 +445,8 @@ function intentToAction(intent_type, target) {
     threat: 'QUESTION',
     unknown: 'OBSERVE'
   };
-  const action = map[intent_type] || 'OBSERVE';
+  const key = normalizeIntentToken(intent_type);
+  const action = map[key] || 'OBSERVE';
   return { action, target: target || null };
 }
 
