@@ -153,6 +153,22 @@ async function applyAction(matchState, action, opts = {}) {
     };
   }
 
+  // 3.5. SUSPECT 처리 (베르셀 성공본처럼 함장 suspect + 크루 4명 반응 시퀀스. game_over/outcome 변경 없음)
+  if (actFinal === 'SUSPECT' && action.target) {
+    const target = String(action.target).toLowerCase();
+    const crewOrder = ['doctor', 'engineer', 'navigator', 'pilot'];
+    const aliveCrew = crewOrder.filter((r) => !deadRoles.includes(r));
+    const events = buildSuspectEvents(target, aliveCrew);
+    const summary = `Captain suspects ${action.target}.`;
+    return {
+      ok: true,
+      next_state: matchState,
+      events,
+      summary,
+      remaining_sec
+    };
+  }
+
   // 4. 일반 액션 (QUESTION, OBSERVE, CHECK_LOG 등)
   const actOut = String(action.action || '').toUpperCase();
   const event = { type: actOut, role: action.role || 'captain', target: action.target };
@@ -164,6 +180,50 @@ async function applyAction(matchState, action, opts = {}) {
     summary,
     remaining_sec
   };
+}
+
+/**
+ * SUSPECT 시 크루 반응 시퀀스 (베르셀 성공본 흐름).
+ * 대상 역할이 먼저 방어/회피, 그 다음 다른 크루들이 역할 톤대로 반응.
+ * engineer는 시스템 로그 확인 서술 포함.
+ * @param {string} target - 의심 대상 (doctor|engineer|navigator|pilot)
+ * @param {string[]} aliveCrew - 생존 크루 (dead_roles 제외)
+ * @returns {object[]} 이벤트 배열 (SUSPECT + CREW_DIALOGUE)
+ */
+function buildSuspectEvents(target, aliveCrew) {
+  const ROLE_KO = { doctor: '닥터', engineer: '엔지니어', navigator: '네비게이터', pilot: '파일럿' };
+
+  const TARGET_DEFENSE_KO = {
+    doctor: '[닥터] 저요? 저는 의무실에서 생체 모니터링 중이었습니다.',
+    engineer: '[엔지니어] 제가요? 엔진실 로그 확인해보세요. 저는 수리 작업 중이었습니다.',
+    navigator: '[네비게이터] 저를 의심하시다니… 그 시간대 동선은 교량이었습니다.',
+    pilot: '[파일럿] 저요? 조종석에 있었어요. 로그에 남아 있을 겁니다.'
+  };
+
+  const CREW_REACT_KO = {
+    doctor: '[닥터] 표정을 보니… 뭔가 숨기는 것 같아.',
+    engineer: '[엔지니어] 로그를 확인해봐야겠다.',
+    navigator: '[네비게이터] 그때 동선을 다시 말해봐.',
+    pilot: '[파일럿] 분위기가 이상해.'
+  };
+
+  const events = [{ type: 'SUSPECT', role: 'captain', target }];
+
+  const targetFirst = aliveCrew.filter((r) => r === target);
+  const others = aliveCrew.filter((r) => r !== target);
+  const orderedCrew = targetFirst.length ? [...targetFirst, ...others] : aliveCrew;
+
+  for (const role of orderedCrew) {
+    const isTarget = role === target;
+    const text = isTarget ? (TARGET_DEFENSE_KO[role] || `[${ROLE_KO[role]}] 제가요? 저는 그때 할 일이 있었습니다.`) : (CREW_REACT_KO[role] || `[${ROLE_KO[role]}] …`);
+    events.push({ type: 'CREW_DIALOGUE', role, dialogue: text });
+  }
+
+  if (aliveCrew.includes('engineer')) {
+    events.push({ type: 'CREW_DIALOGUE', role: 'engineer', dialogue: '엔지니어가 시스템 로그를 확인했다.' });
+  }
+
+  return events;
 }
 
 /** deterministic fallback summary */
