@@ -22,6 +22,16 @@ function getGameTotalSec(matchState) {
 const VALID_ACTIONS = new Set(['QUESTION', 'OBSERVE', 'CHECK_LOG', 'REPAIR', 'ACCUSE', 'SUSPECT', 'WAIT', 'TAKE_PISTOL', 'FIND_CLUE', 'DEATH']);
 const VALID_TARGETS = new Set(['doctor', 'engineer', 'navigator', 'pilot', 'captain', 'player']);
 
+/** id 기준 중복 방지. 짧은 서사 조각(베르셀 톤). */
+const CLUE_CATALOG = [
+  { id: 'bridge_log_gap', text: '교량 감시 로그 02:14~02:18 구간이 공백으로 남아 있다.' },
+  { id: 'medbay_access', text: '의무실 출입 기록에 승인 없는 재실이 짧게 찍혀 있다.' },
+  { id: 'bio_spike', text: '저선실 복도 생체 센서에 일시적 스파이크가 포착되었다.' },
+  { id: 'engineering_checksum', text: '엔진실 안전 로그 체크섬이 이전 주기와 불일치한다.' },
+  { id: 'nav_chart_drift', text: '항법 차트 백업과 메인 항해 기록 사이에 미세한 궤적 어긋남이 있다.' },
+  { id: 'cctv_sync', text: 'CCTV 타임스탬프와 함선 NTP 동기 사이에 수 초 단위 어긋남이 있다.' }
+];
+
 /**
  * @param {object} matchState - { match_id, turn, started_at, deadline_at, game_state, hidden_host_role, ... }
  * @param {object} action - { actor, role, action, target?, dialogue?, reason? }
@@ -234,6 +244,50 @@ async function applyAction(matchState, action, opts = {}) {
     };
   }
 
+  // 3.9. FIND_CLUE / collect_clue — game_state.clues (비처형, game_over 불변)
+  if (actFinal === 'FIND_CLUE') {
+    const clues = Array.isArray(game_state.clues) ? [...game_state.clues] : [];
+    const haveIds = new Set(clues.map((c) => (c && c.id ? String(c.id) : null)).filter(Boolean));
+    const remainingCatalog = CLUE_CATALOG.filter((c) => !haveIds.has(c.id));
+    if (remainingCatalog.length === 0) {
+      return {
+        ok: true,
+        next_state: matchState,
+        events: [
+          { type: 'CREW_DIALOGUE', role: 'captain', dialogue: '[함장] 단서를 더 살펴본다.' },
+          { type: 'CREW_DIALOGUE', role: 'system', dialogue: '[시스템] 이미 확보한 정보 외에 결정적인 단서는 없다.' }
+        ],
+        summary: 'No new clues to collect.',
+        remaining_sec
+      };
+    }
+    const pick = remainingCatalog[Math.floor(Math.random() * remainingCatalog.length)];
+    const turn = matchState.turn || 1;
+    const newEntry = { id: pick.id, text: pick.text, turn, role: 'captain' };
+    const nextState = {
+      ...matchState,
+      game_state: {
+        ...game_state,
+        clues: [...clues, newEntry]
+      }
+    };
+    return {
+      ok: true,
+      next_state: nextState,
+      events: [
+        {
+          type: 'FIND_CLUE',
+          role: 'captain',
+          clue_id: pick.id,
+          clue_text: pick.text,
+          captain_action: '단서를 수집한다'
+        }
+      ],
+      summary: 'Captain collected a clue.',
+      remaining_sec
+    };
+  }
+
   // 4. 일반 액션 (OBSERVE 등)
   const actOut = String(action.action || '').toUpperCase();
   const event = { type: actOut, role: action.role || 'captain', target: action.target };
@@ -415,6 +469,12 @@ function normalizeIntentToken(intent_type) {
     .replace(/[\s-]+/g, '_');
 }
 
+/** 명시 API·텍스트 계열: collect_clue, find_clue → FIND_CLUE */
+function isCollectClueIntent(intent_type) {
+  const key = normalizeIntentToken(intent_type);
+  return key === 'collect_clue' || key === 'find_clue';
+}
+
 /** 권총 획득으로 들어오는 intent/action 토큰 (take_pistol, pistol, gun pickup 등) */
 function isTakePistolIntent(intent_type) {
   const key = normalizeIntentToken(intent_type);
@@ -435,6 +495,9 @@ function isTakePistolIntent(intent_type) {
 function intentToAction(intent_type, target) {
   if (isTakePistolIntent(intent_type)) {
     return { action: 'TAKE_PISTOL', target: target || null };
+  }
+  if (isCollectClueIntent(intent_type)) {
+    return { action: 'FIND_CLUE', target: target || null };
   }
   const map = {
     question: 'QUESTION',

@@ -882,6 +882,7 @@
       const actionPanel = document.getElementById('action-panel');
       const actionBtns = document.querySelectorAll('.action-btn');
       var pistolActionBtn = actionPanel ? actionPanel.querySelector('.action-btn[data-action="pistol"]') : null;
+      var clueActionBtn = actionPanel ? actionPanel.querySelector('.action-btn[data-action="clue"]') : null;
       const episodeUnlockBtn = document.getElementById('episode-unlock-btn');
       const restartSection = document.getElementById('restart-section');
       const restartBtn = document.getElementById('restart-btn');
@@ -897,6 +898,7 @@
       var startRequestInFlight = false;
       var accuseRequestInFlight = false;
       var takePistolRequestInFlight = false;
+      var collectClueRequestInFlight = false;
 
       function setRestartButtonsDisabled(disabled) {
         if (restartBtn) restartBtn.disabled = !!disabled;
@@ -1051,6 +1053,7 @@
         if (actionPanel) {
           actionBtns.forEach(function(b) {
             b.classList.toggle('locked', locked);
+            if (!locked) b.disabled = false;
           });
         }
         if (restartSection) restartSection.classList.toggle('visible', locked);
@@ -1445,6 +1448,39 @@
           });
       }
 
+      /** 단서 수집 — /api/message·텍스트 파싱 없이 POST /api/action */
+      function postCollectClue() {
+        if (isGameOver || collectClueRequestInFlight) return;
+        collectClueRequestInFlight = true;
+        if (clueActionBtn) clueActionBtn.disabled = true;
+        var playerId = getPlayerId();
+        fetch(API_BASE + '/api/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ playerId: playerId, action: 'collect_clue' })
+        })
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.ok) {
+              var st = { remaining_sec: data.remaining_sec, game_state: data.match_state };
+              if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
+              if (data.is_timeout) st.is_timeout = data.is_timeout;
+              updateStatus(st, { forApiMessage: true });
+              if (data.game_over) stopStatePolling();
+              appendSummaryOrEvents(data);
+            } else {
+              appendLog('Error: ' + (data.error || 'unknown'), true);
+            }
+          })
+          .catch(function(err) {
+            appendLog('Connection failed: ' + err.message, true);
+          })
+          .finally(function() {
+            collectClueRequestInFlight = false;
+            if (clueActionBtn) clueActionBtn.disabled = !!isGameOver;
+          });
+      }
+
       renderIntroScreen();
 
       introLangKo.addEventListener('click', function() {
@@ -1581,6 +1617,8 @@
             doMessage(lang === 'ko' ? '엔진실 로그를 확인한다.' : 'Checking engine room logs.');
           } else if (action === 'pistol') {
             postTakePistol();
+          } else if (action === 'clue') {
+            postCollectClue();
           } else if (action === 'execute') {
             openExecuteModal();
           } else {

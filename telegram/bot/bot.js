@@ -92,6 +92,21 @@ function toPlayerDisplayLogs(rawEvents, opts = {}) {
       }
       continue;
     }
+    if (t === 'FIND_CLUE') {
+      const clueId = ev.clue_id ? String(ev.clue_id) : '';
+      const clueKey = clueId || [ev?.ts ?? '', t, role, target ?? ''].join('|');
+      const sysBody = (ev.clue_text || '').trim();
+      const capBody = (ev.captain_action || '단서를 수집한다').trim();
+      if (sysBody) {
+        out.push({ type: '[함장]', role: 'system', target: null, _key: clueKey + '|hdr' });
+        out.push({ type: capBody, role: 'system', target: null, _key: clueKey + '|body' });
+        out.push({ type: '[시스템]', role: 'system', target: null, _key: clueKey + '|sys-hdr' });
+        out.push({ type: sysBody, role: 'system', target: null, _key: clueKey + '|sys-body' });
+      } else {
+        out.push({ type: '함장이 단서를 수집했다.', role: 'system', target: null, _key: clueKey });
+      }
+      continue;
+    }
 
     let text = null;
     if (t === 'OBSERVE') {
@@ -105,8 +120,6 @@ function toPlayerDisplayLogs(rawEvents, opts = {}) {
       text = '[시스템] 시간 종료.';
     } else if (t === 'TAKE_PISTOL') {
       text = '함장이 권총을 획득했다.';
-    } else if (t === 'FIND_CLUE') {
-      text = '함장이 단서를 수집했다.';
     } else if (t === 'REPAIR' || t === 'WAIT') {
       text = null;
     } else if (ev.dialogue && typeof ev.dialogue === 'string') {
@@ -518,17 +531,21 @@ async function processAccuseApi(playerId, targetRaw, opts = {}) {
 
 /**
  * 명시적 액션 API — 텍스트/intentParser 없이 ep1Engine에 직접 전달.
- * 현재: take_pistol → applyAction({ action: 'take_pistol' }) → 엔진에서 TAKE_PISTOL 분기.
+ * take_pistol / collect_clue → 엔진 TAKE_PISTOL / FIND_CLUE 분기.
  * 응답 형태는 processMessageApi / processAccuseApi와 동일.
  * @param {string} playerId
- * @param {string} actionRaw - e.g. take_pistol
+ * @param {string} actionRaw - e.g. take_pistol | collect_clue
  * @param {string} [targetRaw] - optional
  * @param {object} [opts] - { now? }
  * @returns {Promise<object>}
  */
 async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
   const actionKey = String(actionRaw || '').toLowerCase().trim();
-  if (actionKey !== 'take_pistol') {
+  const actionPayloadByKey = {
+    take_pistol: { actor: 'captain', role: 'captain', action: 'take_pistol' },
+    collect_clue: { actor: 'captain', role: 'captain', action: 'collect_clue' }
+  };
+  if (!actionPayloadByKey[actionKey]) {
     return { ok: false, error: 'Unsupported action' };
   }
 
@@ -559,7 +576,7 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
     return ret;
   }
 
-  const action = { actor: 'captain', role: 'captain', action: 'take_pistol' };
+  const action = { ...actionPayloadByKey[actionKey] };
   if (targetRaw != null && String(targetRaw).trim() !== '') {
     action.target = String(targetRaw).toLowerCase().trim();
   }
