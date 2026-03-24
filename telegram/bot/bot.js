@@ -44,10 +44,13 @@ function roleWithObjectParticle(roleKey) {
  * miniapp applyEvents: label = (ev.type || ev.role) + (ev.target ? ' -> ' + ev.target : '')
  * → type에 전체 문장을 넣고 target=null로 하면 문장만 표시됨.
  * @param {object[]} rawEvents - match.events 등 내부 raw 이벤트
+ * @param {object} [opts]
+ * @param {string} [opts.captainInputLine] - 해당 배치가 CHECK_LOG일 때 본문에 살릴 플레이어 입력 (이벤트에 dialogue/text 없을 때만)
  * @returns {object[]} { type: string, role?, target?: null, _key?: string } - 표시용
  */
-function toPlayerDisplayLogs(rawEvents) {
+function toPlayerDisplayLogs(rawEvents, opts = {}) {
   if (!rawEvents || !Array.isArray(rawEvents)) return [];
+  const captainInputLine = String(opts.captainInputLine || '').trim();
   const out = [];
 
   for (const ev of rawEvents) {
@@ -74,11 +77,21 @@ function toPlayerDisplayLogs(rawEvents) {
       }
       continue;
     }
+    if (t === 'CHECK_LOG') {
+      const fromUser = (ev.dialogue || ev.text || '').trim();
+      const body =
+        fromUser ||
+        captainInputLine ||
+        (target ? `${roleNameKo(target)} 구역 로그를 확인한다` : '시스템 로그를 확인한다');
+      if (body) {
+        out.push({ type: '[함장]', role: 'system', target: null, _key: baseKey + '|hdr' });
+        out.push({ type: body, role: 'system', target: null, _key: baseKey + '|body' });
+      }
+      continue;
+    }
 
     let text = null;
-    if (t === 'CHECK_LOG') {
-      text = target ? `함장이 ${roleNameKo(target)} 구역 로그를 확인했다.` : '함장이 시스템 로그를 확인했다.';
-    } else if (t === 'OBSERVE') {
+    if (t === 'OBSERVE') {
       text = '함장이 교량을 관찰했다.';
     } else if (t === 'ACCUSE' && target) {
       text = `함장이 ${roleWithObjectParticle(target)} 처형했다.`;
@@ -115,9 +128,21 @@ function toPlayerDisplayLogs(rawEvents) {
 /** 내부 요약/debug 문장 패턴 (플레이어 로그에서 제외) */
 const INTERNAL_SUMMARY_PATTERN = /^(Captain acted\.?|Crew acted\.?|함장이 행동했다\.?|.+\s+acted\.?|.+\s+processed\.?)$/i;
 
+/** 표시 문자열 정규화 (공백·트림) — 연속/턴 내 중복 비교용 */
+function normalizeDisplayLine(s) {
+  return String(s || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** 함장 로그 확인 과거형 서술 (구 CHECK_LOG fallback). [함장]+현재형 본문 직후면 제거 */
+const CAPTAIN_LOG_PAST_NARRATION = /^함장이 (?:시스템|닥터|엔지니어|네비게이터|파일럿)(?: 구역)? 로그를 확인했다\.?$/;
+
 /**
  * 같은 이벤트가 여러 번 내려가지 않도록 _key(ts+type+role+target) 기준 dedupe.
  * 내부 요약 문장(Captain acted., Crew acted. 등)은 제거.
+ * 연속으로 동일한 표시 문장(normalize 기준)은 한 번만 유지.
+ * [함장] + 로그 확인 본문 다음에 오는 동일 의미의 함장 과거형 서술은 제거.
  * @param {object[]} displayLogs - toPlayerDisplayLogs 출력
  */
 function dedupeDisplayLogs(displayLogs) {
@@ -134,7 +159,22 @@ function dedupeDisplayLogs(displayLogs) {
       out.push(rest);
     }
   }
-  return out;
+  const final = [];
+  let prevNorm = null;
+  for (const item of out) {
+    const norm = normalizeDisplayLine(item.type);
+    if (norm && norm === prevNorm) continue;
+    if (norm && CAPTAIN_LOG_PAST_NARRATION.test(norm) && final.length >= 2) {
+      const prev = final[final.length - 1];
+      const hdr = final[final.length - 2];
+      if (hdr && hdr.type === '[함장]' && prev && prev.type && /확인/.test(String(prev.type))) {
+        continue;
+      }
+    }
+    prevNorm = norm;
+    final.push(item);
+  }
+  return final;
 }
 
 /**
@@ -362,7 +402,12 @@ async function processMessageApi(playerId, text, opts = {}) {
 
   const updated = await matchStore.getMatch(matchId);
   const gameOver = result.game_over || updated?.game_state?.game_over;
-  const newDisplayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(result.events || []));
+  const isCheckLogMsg = String(parsed.intent_type || '').toUpperCase() === 'CHECK_LOG';
+  const newDisplayLogs = dedupeDisplayLogs(
+    toPlayerDisplayLogs(result.events || [], {
+      captainInputLine: isCheckLogMsg ? String(text || '').trim() : ''
+    })
+  );
   const isCaptainBlock = newDisplayLogs.length >= 2 && newDisplayLogs[0].type === '[함장]';
   const captainBody = isCaptainBlock ? (newDisplayLogs[1].type || '').trim() : '';
   const hasCompleteCaptainBlock = isCaptainBlock && captainBody.length > 0;
