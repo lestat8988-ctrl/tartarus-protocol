@@ -92,7 +92,7 @@ function toPlayerDisplayLogs(rawEvents) {
     } else if (t === 'FIND_CLUE') {
       text = '함장이 단서를 수집했다.';
     } else if (t === 'REPAIR' || t === 'WAIT') {
-      text = '함장이 행동했다.';
+      text = null;
     } else if (ev.dialogue && typeof ev.dialogue === 'string') {
       const d = ev.dialogue.trim();
       const m = d.match(/^\[([^\]]+)\]\s*(.*)$/);
@@ -112,8 +112,12 @@ function toPlayerDisplayLogs(rawEvents) {
   return out;
 }
 
+/** 내부 요약/debug 문장 패턴 (플레이어 로그에서 제외) */
+const INTERNAL_SUMMARY_PATTERN = /^(Captain acted\.?|Crew acted\.?|함장이 행동했다\.?|.+\s+acted\.?|.+\s+processed\.?)$/i;
+
 /**
  * 같은 이벤트가 여러 번 내려가지 않도록 _key(ts+type+role+target) 기준 dedupe.
+ * 내부 요약 문장(Captain acted., Crew acted. 등)은 제거.
  * @param {object[]} displayLogs - toPlayerDisplayLogs 출력
  */
 function dedupeDisplayLogs(displayLogs) {
@@ -121,7 +125,9 @@ function dedupeDisplayLogs(displayLogs) {
   const seen = new Set();
   const out = [];
   for (const item of displayLogs) {
-    const key = item._key ?? item.type ?? '';
+    const type = (item.type || '').trim();
+    if (INTERNAL_SUMMARY_PATTERN.test(type)) continue;
+    const key = item._key ?? type ?? '';
     if (!seen.has(key)) {
       seen.add(key);
       const { _key, ...rest } = item;
@@ -361,8 +367,8 @@ async function processMessageApi(playerId, text, opts = {}) {
   const captainBody = isCaptainBlock ? (newDisplayLogs[1].type || '').trim() : '';
   const hasCompleteCaptainBlock = isCaptainBlock && captainBody.length > 0;
   const summaryText = hasCompleteCaptainBlock
-    ? ''
-    : (newDisplayLogs.length ? newDisplayLogs[0].type : '함장이 행동했다.');
+    ? '\u200b'
+    : (newDisplayLogs.length ? newDisplayLogs[0].type : '\u200b');
   const recentEvents = newDisplayLogs;
   const ret = {
     ok: true,
