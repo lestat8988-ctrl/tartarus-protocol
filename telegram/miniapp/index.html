@@ -15,6 +15,10 @@
       line-height: 1.5;
       -webkit-font-smoothing: antialiased;
     }
+    /* 처형 모달 열림: 아래 게임 UI로 터치가 새지 않게 (고스트 클릭으로 전송 버튼·이전 입력 재전송 방지) */
+    body.execute-modal-open #game-screen {
+      pointer-events: none;
+    }
     #app {
       min-height: 100vh;
       max-width: 480px;
@@ -829,13 +833,6 @@
         }
       };
 
-      /** 처형 프로토콜 확정 시에만 전송. 역할 키와 1:1 매칭되는 명시적 accuse 문구 (파서 target 추출과 일치). */
-      var ACCUSE_COMMAND_BY_ROLE = {
-        doctor: 'accuse doctor',
-        engineer: 'accuse engineer',
-        navigator: 'accuse navigator',
-        pilot: 'accuse pilot'
-      };
       var VALID_ACCUSE_TARGETS = ['doctor', 'engineer', 'navigator', 'pilot'];
 
       const introScreen = document.getElementById('intro-screen');
@@ -884,9 +881,17 @@
       var isGameOver = false;
       var previousGameOver = false;
       var previousOutcome = null;
+      var executeModalUnlockTimer = null;
       function resetResultUI() {
         previousGameOver = false;
         previousOutcome = null;
+        if (executeModalUnlockTimer) {
+          clearTimeout(executeModalUnlockTimer);
+          executeModalUnlockTimer = null;
+        }
+        document.body.classList.remove('execute-modal-open');
+        var execM = document.getElementById('execute-modal');
+        if (execM) execM.classList.remove('visible');
         closeResultModal();
         var resultModal = document.getElementById('result-modal');
         if (resultModal) resultModal.classList.remove('result-win', 'result-lose');
@@ -1291,7 +1296,7 @@
       var executeModal = document.getElementById('execute-modal');
       var selectedExecuteTarget = null;
 
-      /** 확정: role id만 사용해 고정 문자열 accuse &lt;role&gt; 전송 (언어·자연어 파싱 무관) */
+      /** 확정: 선택된 role id로만 문자열을 조립해 전송 (자유입력·맵 재사용 없음). 형식: accuse &lt;doctor|engineer|navigator|pilot&gt; */
       function submitExecuteAccuse() {
         var targetKey = selectedExecuteTarget;
         if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
@@ -1306,16 +1311,25 @@
           }
           return;
         }
-        var cmd = ACCUSE_COMMAND_BY_ROLE[targetKey];
-        if (!cmd) return;
+        var cmd = 'accuse ' + targetKey;
         var warnEl = document.getElementById('execute-no-target-hint');
         if (warnEl) warnEl.classList.remove('visible');
+        if (freeInput) {
+          freeInput.value = '';
+          freeInput.blur();
+        }
         closeExecuteModal();
         doMessage(cmd);
       }
 
       function openExecuteModal() {
         if (isGameOver) return;
+        if (executeModalUnlockTimer) {
+          clearTimeout(executeModalUnlockTimer);
+          executeModalUnlockTimer = null;
+        }
+        document.body.classList.add('execute-modal-open');
+        if (freeInput) freeInput.blur();
         selectedExecuteTarget = null;
         var L = getL();
         document.querySelectorAll('.modal-target-btn').forEach(function(b) { b.classList.remove('selected'); });
@@ -1329,6 +1343,11 @@
 
       function closeExecuteModal() {
         if (executeModal) executeModal.classList.remove('visible');
+        if (executeModalUnlockTimer) clearTimeout(executeModalUnlockTimer);
+        executeModalUnlockTimer = setTimeout(function() {
+          executeModalUnlockTimer = null;
+          document.body.classList.remove('execute-modal-open');
+        }, 200);
       }
 
       document.querySelectorAll('.modal-target-btn').forEach(function(btn) {
