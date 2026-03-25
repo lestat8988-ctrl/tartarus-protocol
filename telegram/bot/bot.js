@@ -29,6 +29,7 @@ const LOG = process.env.BOT_LOG !== '0';
  * LLM 대사 (non-terminal만): question/suspect/check_log/threaten/collect_clue 배치.
  * OPENAI_API_KEY + TELEGRAM_DIALOGUE_MODEL(기본 gpt-4o-mini) → OpenAI chat.completions.create
  * TELEGRAM_DIALOGUE_MODEL=deepseek-chat|deepseek-reasoner + DEEPSEEK_API_KEY → baseURL api.deepseek.com 동일 API
+ * QUESTION: TELEGRAM_DIALOGUE_QUESTION_EXTRA_TIMEOUT_MS(기본 8000) 가산 + 최대 3회 시도(검증 실패·timeout 시 재시도)
  * 키 없음/호출 실패/JSON·검증 실패 → maybeDialogueLogsFromLlmOrDeterministic가 deterministic 유지
  */
 const TELEGRAM_DIALOGUE_MODEL = process.env.TELEGRAM_DIALOGUE_MODEL || 'gpt-4o-mini';
@@ -36,7 +37,23 @@ const TELEGRAM_DIALOGUE_TIMEOUT_MS = Math.min(
   Math.max(parseInt(process.env.TELEGRAM_DIALOGUE_TIMEOUT_MS || '10000', 10) || 10000, 4000),
   60000
 );
+/** QUESTION만 기본 타임아웃에 가산 (timeout → fallback 완화). 상한 60s */
+const TELEGRAM_DIALOGUE_QUESTION_EXTRA_TIMEOUT_MS = Math.min(
+  Math.max(parseInt(process.env.TELEGRAM_DIALOGUE_QUESTION_EXTRA_TIMEOUT_MS || '8000', 10) || 8000, 0),
+  45000
+);
 const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
+
+function dialogueTimeoutMsForKind(kind) {
+  if (kind === 'QUESTION') {
+    return Math.min(TELEGRAM_DIALOGUE_TIMEOUT_MS + TELEGRAM_DIALOGUE_QUESTION_EXTRA_TIMEOUT_MS, 60000);
+  }
+  return TELEGRAM_DIALOGUE_TIMEOUT_MS;
+}
+
+function dialogueMaxAttemptsForKind(kind) {
+  return kind === 'QUESTION' ? 3 : 2;
+}
 
 function isDeepSeekDialogueModel(model) {
   const m = String(model || '').toLowerCase().trim();
@@ -110,7 +127,19 @@ function expectedCrewOrderForLlm(kind, target, deadRoles, rawEvents) {
       if (dead.has(r)) continue;
       if (!order.includes(r)) order.push(r);
     }
-    return order.length ? order : alive;
+    const base = order.length ? order : alive;
+    const uniq = [];
+    for (const r of base) {
+      if (!alive.includes(r)) continue;
+      if (!uniq.includes(r)) uniq.push(r);
+    }
+    for (const r of alive) {
+      if (!uniq.includes(r)) uniq.push(r);
+    }
+    if (uniq.includes('engineer')) {
+      return ['engineer', ...uniq.filter((r) => r !== 'engineer')];
+    }
+    return uniq;
   }
   if (kind === 'FIND_CLUE') return alive;
   return alive;
@@ -456,75 +485,88 @@ function mergeFindClueDeterministicClue(displayLogs, clueText, batchKey) {
   ]);
 }
 
-function buildDialogueSystemPrompt() {
-  return [
-    'You write Korean in-universe dialogue for USSC Tartarus (Episode 1), 베르셀 성공본 톤: 구체적·함선 내 상황에 박힌 대사만.',
-    'You NEVER decide rules, outcomes, deaths, clue facts, timers, or impostor identity.',
-    'Output: one JSON object with key "blocks" (array) only. No markdown.',
-    'Block shape: { "role", "header", "text", "narration?" }. Headers exactly: [함장] [닥터] [엔지니어] [네비게이터] [파일럿].',
-    '',
-    'HARD RULES:',
-    '- Every line must tie to the current action and (if given) focusTargetRole. No generic life advice, sermons, morals, or abstract warnings.',
-    '- FORBIDDEN vibes/phrases (non-exhaustive): "모두 진정", "신중해야", "침착하게", "우리는 함께", "서로 믿", "훈계", "교훈", empty reassurance.',
-    '- No vague "teamwork" talk. Replace with concrete ship facts: logs, timestamps, zones, biometrics, routes, cockpit readings.',
-    '',
-    'ROLE LOCKS (spoken "text" must follow):',
-    '- doctor: biometrics, stress, vitals, psychological tells, medical observation of crew.',
-    '- engineer: logs, access records, system glitches, CCTV buffers, sync anomalies.',
-    '- navigator: routes, timestamps, alibi holes, bridge/helm position challenges.',
-    '- pilot: atmosphere in cockpit/bridge, gut feel, subtle environmental wrongness.',
-    '- captain: copy captainSpokenLineVerbatim from user JSON EXACTLY into captain.text; captain.narration MUST be empty string "" always.',
-    '',
-    'CREW narration:',
-    '- At most ONE short third-person line per crew block; omit narration if unnecessary.',
-    '- narration must describe a concrete physical/technical action tied to that line (max ~35 Korean syllables worth).',
-    '- No duplicate stock narration across crew. No "…삼켰다" chains for everyone.',
-    '',
-    'TARGET FOCUS:',
-    '- QUESTION / SUSPECT / THREATEN: every non-target crew block must explicitly name the focus target in Korean (e.g. 네비게이터) in text or narration.',
-    '- Target crew\'s own block may use first-person defense; still about the accusation/question.',
-    '- CHECK_LOG: all crew lines must reference logs, records, CCTV, timestamps, or ship systems — no off-topic small talk.',
-    '- FIND_CLUE: reactions to gathering intel; do not invent the clue text (server injects [시스템]).',
-    '',
-    'Respond with JSON only.'
-  ].join('\n');
+function buildDialogueSystemPrompt(kind) {
+  const jsonContract = [
+    'USSC Tartarus E1. Korean spoken lines. Output JSON only: {"blocks":[...]} — no markdown.',
+    'Block: {"role","header","text","narration?"}. Headers exactly: [함장] [닥터] [엔지니어] [네비게이터] [파일럿].',
+    'Never decide rules, deaths, clue facts, timers, or impostor.',
+    'captain.text = captainSpokenLineVerbatim exactly when user JSON provides it; captain.narration always "".',
+    'Forbidden: 모두 진정, 신중해야, 침착하게, 우리는 함께, 훈계, 교훈, 빈 위로, 범용 팀워크 멘트.'
+  ];
+
+  if (kind === 'QUESTION') {
+    return [
+      ...jsonContract,
+      'QUESTION: Target (focusTargetRole) answers immediately in their block — short, direct, no essay.',
+      'doctor/engineer/navigator/pilot: each one brief follow-up (1–2 short sentences) tied to that question only.',
+      'Every non-target crew block must include focusTargetKorean (e.g. 네비게이터) in text or narration.',
+      'Optional one short narration per crew; skip if unnecessary. No generic life advice.'
+    ].join('\n');
+  }
+
+  if (kind === 'CHECK_LOG') {
+    return [
+      ...jsonContract,
+      'CHECK_LOG: After captain, first crew speaker is engineer (crewSpeakingOrder). Engineer opens with logs/access trail/timestamp mismatch/gap/unauthorized-query trace — audit-narrow, no sermon.',
+      'doctor: only auxiliary biometrics/stress-log spike observation. navigator: route/alibi auxiliary only. pilot: mood/gut auxiliary only.',
+      'Stay on: log gaps, access records, timestamp skew, privilege/query anomalies. No unrelated small talk or widening the mystery.'
+    ].join('\n');
+  }
+
+  const tail = [
+    'Concrete ship facts only (zones, logs, biometrics, routes, cockpit).',
+    'Roles: doctor biometrics; engineer logs/access/sync; navigator routes/alibi; pilot cockpit feel.',
+    'At most one short optional narration per crew; no duplicate stock narration.'
+  ];
+  if (kind === 'FIND_CLUE') {
+    tail.push('FIND_CLUE: crew reactions only; never put clue body in JSON (server adds [시스템]).');
+  } else {
+    tail.push('SUSPECT/THREATEN: every non-target crew block names focusTargetKorean in text or narration.');
+  }
+  tail.push('Respond JSON only.');
+  return [...jsonContract, ...tail].join('\n');
 }
 
 function buildDialogueUserPayload(ctx) {
-  return JSON.stringify(
-    {
-      action: ctx.kind,
-      focusTargetRole: ctx.target || null,
-      focusTargetKorean: ctx.targetKo || null,
-      crewSpeakingOrder: ctx.expectedCrew,
-      deadRoles: ctx.deadRoles || [],
-      captainPlayerInput: ctx.playerText || '',
-      captainSpokenLineVerbatim: ctx.captainSpokenLineVerbatim || null,
-      clueTextToQuoteVerbatim: ctx.clueText || null,
-      instructionCaptain:
-        ctx.captainSpokenLineVerbatim
-          ? 'Set captain.text EXACTLY equal to captainSpokenLineVerbatim (character-for-character). Set captain.narration to "".'
-          : 'Captain.text short and decisive; captain.narration must be "".',
-      note:
-        ctx.clueText != null
-          ? 'FIND_CLUE: never put the real clue sentence in JSON; server appends [시스템] clue. Only crew reactions to collecting intel.'
-          : undefined
-    },
-    null,
-    0
-  );
+  const o = {
+    action: ctx.kind,
+    focusTargetRole: ctx.target || null,
+    focusTargetKorean: ctx.targetKo || null,
+    crewSpeakingOrder: ctx.expectedCrew,
+    deadRoles: ctx.deadRoles || [],
+    captainPlayerInput: ctx.playerText || '',
+    captainSpokenLineVerbatim: ctx.captainSpokenLineVerbatim || null,
+    clueTextToQuoteVerbatim: ctx.clueText || null,
+    instructionCaptain: ctx.captainSpokenLineVerbatim
+      ? 'captain.text exact copy of captainSpokenLineVerbatim; captain.narration "".'
+      : 'captain.text short; captain.narration "".'
+  };
+  if (ctx.kind === 'QUESTION') {
+    o.pacing = 'Short lines; target answers first; others one tight reaction each.';
+  } else if (ctx.kind === 'CHECK_LOG') {
+    o.auditFocus = 'Engineer-first; narrow audit: gaps, access, timestamps, stray queries.';
+  }
+  if (ctx.clueText != null) {
+    o.note = 'FIND_CLUE: no clue text in JSON; server injects [시스템].';
+  }
+  return JSON.stringify(o, null, 0);
 }
 
-async function callChatCompletionsJson({ system, user }) {
+async function callChatCompletionsJson({ system, user, timeoutMs, maxTokens }) {
   const model = TELEGRAM_DIALOGUE_MODEL;
   const useDeepSeek = isDeepSeekDialogueModel(model);
   const apiKey = useDeepSeek ? process.env.DEEPSEEK_API_KEY : process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('no_api_key');
 
+  const timeout =
+    timeoutMs != null && Number.isFinite(timeoutMs)
+      ? Math.min(Math.max(timeoutMs, 4000), 60000)
+      : TELEGRAM_DIALOGUE_TIMEOUT_MS;
+
   const client = new OpenAI({
     apiKey,
     baseURL: useDeepSeek ? DEEPSEEK_BASE_URL : undefined,
-    timeout: TELEGRAM_DIALOGUE_TIMEOUT_MS,
+    timeout,
     maxRetries: 0
   });
 
@@ -535,7 +577,7 @@ async function callChatCompletionsJson({ system, user }) {
       { role: 'user', content: user }
     ],
     temperature: 0.42,
-    max_tokens: 2500
+    max_tokens: maxTokens != null && Number.isFinite(maxTokens) ? Math.max(256, maxTokens) : 2500
   };
   if (!useDeepSeek) {
     body.response_format = { type: 'json_object' };
@@ -560,7 +602,7 @@ async function tryGenerateLlmDialogueLogs(ctx) {
   const batchKey = `llm|${kind}|${Date.now()}`;
   const captainForced = String(forcedCaptainText || '').trim();
 
-  const system = buildDialogueSystemPrompt();
+  const system = buildDialogueSystemPrompt(kind);
   const userBase = buildDialogueUserPayload({
     kind,
     target,
@@ -571,17 +613,31 @@ async function tryGenerateLlmDialogueLogs(ctx) {
     clueText: kind === 'FIND_CLUE' ? clueText : null,
     captainSpokenLineVerbatim: captainForced || null
   });
-  const strictRetry =
-    '\n\n[STRICT_RETRY] 검증 실패. 금지: 진정/신중/침착/함께/훈계/교훈/공허한 조언. QUESTION·SUSPECT·THREATEN에서는 focusTargetKorean을 타깃이 아닌 모든 승무원 블록에 반드시 포함. CHECK_LOG는 매 승무원 블록에 로그·기록·CCTV·타임스탬프·접근·시스템 중 하나. narration은 짧게, 같은 패턴 반복 금지.';
+  let strictRetry =
+    '\n\n[STRICT_RETRY] 검증 실패. 금지: 진정/신중/침착/함께/훈계/교훈. narration 짧게·반복 금지.';
+  if (kind === 'QUESTION') {
+    strictRetry += ' QUESTION: 비타깃 블록에 focusTargetKorean 필수. 더 짧게.';
+  } else if (kind === 'CHECK_LOG') {
+    strictRetry += ' CHECK_LOG: 엔지니어 중심 로그/접근/타임스탬프 불일치만.';
+  } else if (kind === 'SUSPECT' || kind === 'THREATEN') {
+    strictRetry += ' 비타깃에 focusTargetKorean.';
+  } else if (kind === 'FIND_CLUE') {
+    strictRetry += ' FIND_CLUE: 단서 본문 금지.';
+  }
+
+  const maxAttempts = dialogueMaxAttemptsForKind(kind);
+  const timeoutMs = dialogueTimeoutMsForKind(kind);
+  const maxTokens = kind === 'QUESTION' ? 1400 : undefined;
 
   let lastRaw = '';
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const user = userBase + (attempt ? strictRetry : '');
     let raw;
     try {
-      raw = await callChatCompletionsJson({ system, user });
+      raw = await callChatCompletionsJson({ system, user, timeoutMs, maxTokens });
     } catch (err) {
       log('LLM_DIALOGUE', 'call_failed', { kind, attempt, err: String(err && err.message) });
+      if (kind === 'QUESTION' && attempt + 1 < maxAttempts) continue;
       return null;
     }
     lastRaw = raw;
