@@ -67,7 +67,7 @@ function isDialogueLlmConfigured() {
 }
 
 /**
- * non-terminal 배치만: QUESTION / SUSPECT / CHECK_LOG / THREATEN / FIND_CLUE(단서 확보)
+ * non-terminal 배치만: QUESTION / SUSPECT / CHECK_LOG / THREATEN / TAKE_PISTOL / FIND_CLUE(단서 확보)
  * 에러용 CREW_DIALOGUE 단독 배치는 null
  */
 function getDialogueLlmKind(events) {
@@ -78,6 +78,7 @@ function getDialogueLlmKind(events) {
   if (t === 'SUSPECT' && ev0.target) return 'SUSPECT';
   if (t === 'CHECK_LOG') return 'CHECK_LOG';
   if (t === 'THREATEN' && ev0.target) return 'THREATEN';
+  if (t === 'TAKE_PISTOL') return 'TAKE_PISTOL';
   if (t === 'FIND_CLUE' && (ev0.clue_text || ev0.clue_id)) return 'FIND_CLUE';
   return null;
 }
@@ -89,6 +90,7 @@ function dialogueActionKindSlug(engineKind) {
     SUSPECT: 'suspect',
     CHECK_LOG: 'check_log',
     THREATEN: 'threaten',
+    TAKE_PISTOL: 'take_pistol',
     FIND_CLUE: 'collect_clue'
   };
   return m[engineKind] || String(engineKind || '').toLowerCase();
@@ -630,6 +632,25 @@ function buildDialogueSystemPrompt(kind) {
     ].join('\n');
   }
 
+  if (kind === 'TAKE_PISTOL') {
+    return [
+      'USSC Tartarus E1. Korean spoken lines. Output JSON only: {"blocks":[...]} — no markdown.',
+      'ROLE FIELD (required): each block.role MUST be exactly one of: captain, doctor, engineer, navigator, pilot — lowercase English only.',
+      'NEVER set role to "header", "system", "title", "speaker", or any other string.',
+      'Each block shape ONLY: {"role":"captain|doctor|engineer|navigator|pilot","text":"...","narration":"..."} — narration optional. Do NOT include a "header" key; the client adds [함장] etc.',
+      'BLOCK ORDER: blocks[0] = captain; then doctor, engineer, navigator, pilot (omit dead roles; one block per alive crew).',
+      'Never decide rules, deaths, clue facts, timers, or impostor.',
+      'captain.text = captainSpokenLineVerbatim exactly when user JSON provides it; captain.narration always "".',
+      'Forbidden: 모두 진정, 신중해야, 침착하게, 우리는 함께, 훈계, 교훈, 빈 위로, 범용 팀워크 멘트.',
+      'TAKE_PISTOL: The captain has armed with the sidearm. React only to that fact — never repeat, echo, or copy captain.text (e.g. do not reuse "권총을 집었다" or the captain\'s exact wording).',
+      'doctor: tension from the captain being armed; psychophys / vitals / breath or stress shift — concrete, brief.',
+      'engineer: weapon lock release, privilege/access audit trail, security or system-log angle — not the captain\'s line parroted.',
+      'navigator: rising tension; corridors, boundaries, immediate readiness — situational.',
+      'pilot: bridge atmosphere, gut unease, how the air in the room changes.',
+      'No generic advice or empty reassurance. Respond JSON only.'
+    ].join('\n');
+  }
+
   const tail = [
     'Concrete ship facts only (zones, logs, biometrics, routes, cockpit).',
     'Roles: doctor biometrics; engineer logs/access/sync; navigator routes/alibi; pilot cockpit feel.',
@@ -674,6 +695,11 @@ function buildDialogueUserPayload(ctx) {
     o.auditFocus = 'Engineer-first; narrow audit: gaps, access, timestamps, stray queries.';
     o.blocksOrder =
       'blocks[0]=captain, blocks[1]=engineer, then doctor, navigator, pilot (omit dead); role must be captain|doctor|engineer|navigator|pilot only.';
+  } else if (ctx.kind === 'TAKE_PISTOL') {
+    o.situation = 'Captain has taken / armed with the sidearm on the ship.';
+    o.blocksOrder =
+      'blocks[0]=captain, then doctor, engineer, navigator, pilot (omit dead); role must be captain|doctor|engineer|navigator|pilot only.';
+    o.pacing = 'Short lines; each crew one tight reaction to the captain being armed; no echo of captain.text.';
   }
   if (ctx.clueText != null) {
     o.note = 'FIND_CLUE: no clue text in JSON; server injects [시스템].';
@@ -757,6 +783,9 @@ async function tryGenerateLlmDialogueLogs(ctx) {
     strictRetry += ' 비타깃에 focusTargetKorean.';
   } else if (kind === 'FIND_CLUE') {
     strictRetry += ' FIND_CLUE: 단서 본문 금지.';
+  } else if (kind === 'TAKE_PISTOL') {
+    strictRetry +=
+      ' TAKE_PISTOL: 함장 문장·권총 집기 문구 복창·인용 금지. 역할별 짧은 반응만. role은 captain|doctor|engineer|navigator|pilot 만; header 금지.';
   }
 
   const maxAttempts = dialogueMaxAttemptsForKind(kind);
@@ -939,7 +968,13 @@ function toPlayerDisplayLogs(rawEvents, opts = {}) {
     } else if (t === 'TIMEOUT') {
       text = '[시스템] 시간 종료.';
     } else if (t === 'TAKE_PISTOL') {
-      text = '함장이 권총을 획득했다.';
+      const fromUser = (ev.dialogue || ev.text || '').trim();
+      const body = fromUser || '권총을 획득했다.';
+      if (body) {
+        out.push({ type: '[함장]', role: 'system', target: null, _key: baseKey + '|hdr' });
+        out.push({ type: body, role: 'system', target: null, _key: baseKey + '|body' });
+      }
+      continue;
     } else if (t === 'REPAIR' || t === 'WAIT') {
       text = null;
     } else if (ev.dialogue && typeof ev.dialogue === 'string') {
@@ -1451,7 +1486,9 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
   const actionHint =
     actionKey === 'threaten'
       ? `[위협 action] target=${String(targetRaw || '').toLowerCase()}`
-      : `[단서수집 action]`;
+      : actionKey === 'take_pistol'
+        ? `[권총 획득 action]`
+        : `[단서수집 action]`;
   const newDisplayLogs = dedupeDisplayLogs(
     await maybeDialogueLogsFromLlmOrDeterministic({
       rawEvents: result.events || [],
