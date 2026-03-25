@@ -176,18 +176,43 @@ function canonicalRoleFromLlmToken(raw) {
 }
 
 /**
+ * role="header" 등 오표기 시 text에서 역할 복구. text가 순수 역할 라벨이면 narration을 text로 승격.
+ * 복구 불가면 null → 호출측에서 블록 skip.
+ */
+function resolveLlmBlockRoleAndLines(b) {
+  if (!b || typeof b !== 'object') return null;
+  const roleLo = String(b.role ?? '').trim().toLowerCase();
+  let canon = canonicalRoleFromLlmToken(b.role);
+  if (!canon) canon = canonicalRoleFromLlmToken(b.header);
+
+  let text = String(b.text != null ? b.text : '').trim();
+  let narr = b.narration != null ? String(b.narration).trim() : '';
+
+  if (!canon && roleLo === 'header') {
+    const fromText = canonicalRoleFromLlmToken(text);
+    if (!fromText) return null;
+    canon = fromText;
+    if (canonicalRoleFromLlmToken(text) === canon) {
+      text = narr;
+      narr = '';
+    }
+    return { canon, text, narration: narr };
+  }
+
+  if (!canon) return null;
+  return { canon, text, narration: narr };
+}
+
+/**
  * 검증 전: role/header 정규화, 역할별 1블록으로 병합(빈 text면 나중 비어 있지 않은 쪽 선호)
  */
 function normalizeLlmDialogueBlocksArray(blocks) {
   if (!Array.isArray(blocks)) return [];
   const merged = new Map();
   for (const b of blocks) {
-    if (!b || typeof b !== 'object') continue;
-    let canon = canonicalRoleFromLlmToken(b.role);
-    if (!canon) canon = canonicalRoleFromLlmToken(b.header);
-    if (!canon) continue;
-    const text = String(b.text != null ? b.text : '').trim();
-    const narr = b.narration != null ? String(b.narration).trim() : '';
+    const res = resolveLlmBlockRoleAndLines(b);
+    if (!res) continue;
+    const { canon, text, narration: narr } = res;
     const hdr = LLM_ROLE_HEADERS[canon];
     const prev = merged.get(canon);
     if (!prev) {
@@ -496,20 +521,36 @@ function buildDialogueSystemPrompt(kind) {
 
   if (kind === 'QUESTION') {
     return [
-      ...jsonContract,
-      'QUESTION: Target (focusTargetRole) answers immediately in their block — short, direct, no essay.',
+      'USSC Tartarus E1. Korean spoken lines. Output JSON only: {"blocks":[...]} — no markdown.',
+      'ROLE FIELD (required): each block.role MUST be exactly one of: captain, doctor, engineer, navigator, pilot — lowercase English only.',
+      'NEVER set role to "header", "system", "title", "speaker", or any other string.',
+      'Each block shape ONLY: {"role":"captain|doctor|engineer|navigator|pilot","text":"...","narration":"..."} — narration optional. Do NOT include a "header" key; the client adds [함장] etc.',
+      'BLOCK ORDER: blocks[0] = captain; blocks[1] = focusTargetRole (the questioned crew answers here); then blocks for the remaining three alive crew in crewSpeakingOrder (one block per role).',
+      'Never decide rules, deaths, clue facts, timers, or impostor.',
+      'captain.text = captainSpokenLineVerbatim exactly when user JSON provides it; captain.narration always "".',
+      'Forbidden: 모두 진정, 신중해야, 침착하게, 우리는 함께, 훈계, 교훈, 빈 위로, 범용 팀워크 멘트.',
+      'QUESTION: Target answers immediately in their block — short, direct, no essay.',
       'doctor/engineer/navigator/pilot: each one brief follow-up (1–2 short sentences) tied to that question only.',
       'Every non-target crew block must include focusTargetKorean (e.g. 네비게이터) in text or narration.',
-      'Optional one short narration per crew; skip if unnecessary. No generic life advice.'
+      'Optional one short narration per crew; skip if unnecessary. No generic life advice.',
+      'Respond JSON only.'
     ].join('\n');
   }
 
   if (kind === 'CHECK_LOG') {
     return [
-      ...jsonContract,
-      'CHECK_LOG: After captain, first crew speaker is engineer (crewSpeakingOrder). Engineer opens with logs/access trail/timestamp mismatch/gap/unauthorized-query trace — audit-narrow, no sermon.',
+      'USSC Tartarus E1. Korean spoken lines. Output JSON only: {"blocks":[...]} — no markdown.',
+      'ROLE FIELD (required): each block.role MUST be exactly one of: captain, doctor, engineer, navigator, pilot — lowercase English only.',
+      'NEVER set role to "header", "system", "title", "speaker", or any other string.',
+      'Each block shape ONLY: {"role":"captain|doctor|engineer|navigator|pilot","text":"...","narration":"..."} — narration optional. Do NOT include a "header" key; the client adds [함장] etc.',
+      'BLOCK ORDER: blocks[0] = captain; blocks[1] = engineer; then doctor, navigator, pilot (omit dead roles; one block per alive role).',
+      'Never decide rules, deaths, clue facts, timers, or impostor.',
+      'captain.text = captainSpokenLineVerbatim exactly when user JSON provides it; captain.narration always "".',
+      'Forbidden: 모두 진정, 신중해야, 침착하게, 우리는 함께, 훈계, 교훈, 빈 위로, 범용 팀워크 멘트.',
+      'CHECK_LOG: Engineer block (second) opens with logs/access trail/timestamp mismatch/gap/unauthorized-query trace — audit-narrow, no sermon.',
       'doctor: only auxiliary biometrics/stress-log spike observation. navigator: route/alibi auxiliary only. pilot: mood/gut auxiliary only.',
-      'Stay on: log gaps, access records, timestamp skew, privilege/query anomalies. No unrelated small talk or widening the mystery.'
+      'Stay on: log gaps, access records, timestamp skew, privilege/query anomalies. No unrelated small talk or widening the mystery.',
+      'Respond JSON only.'
     ].join('\n');
   }
 
@@ -543,8 +584,12 @@ function buildDialogueUserPayload(ctx) {
   };
   if (ctx.kind === 'QUESTION') {
     o.pacing = 'Short lines; target answers first; others one tight reaction each.';
+    o.blocksOrder =
+      'blocks[0]=captain, blocks[1]=focusTargetRole, then other crew in crewSpeakingOrder; role must be captain|doctor|engineer|navigator|pilot only.';
   } else if (ctx.kind === 'CHECK_LOG') {
     o.auditFocus = 'Engineer-first; narrow audit: gaps, access, timestamps, stray queries.';
+    o.blocksOrder =
+      'blocks[0]=captain, blocks[1]=engineer, then doctor, navigator, pilot (omit dead); role must be captain|doctor|engineer|navigator|pilot only.';
   }
   if (ctx.clueText != null) {
     o.note = 'FIND_CLUE: no clue text in JSON; server injects [시스템].';
@@ -616,9 +661,11 @@ async function tryGenerateLlmDialogueLogs(ctx) {
   let strictRetry =
     '\n\n[STRICT_RETRY] 검증 실패. 금지: 진정/신중/침착/함께/훈계/교훈. narration 짧게·반복 금지.';
   if (kind === 'QUESTION') {
-    strictRetry += ' QUESTION: 비타깃 블록에 focusTargetKorean 필수. 더 짧게.';
+    strictRetry +=
+      ' QUESTION: 비타깃 블록에 focusTargetKorean 필수. 더 짧게. role은 captain|doctor|engineer|navigator|pilot 만; header 금지.';
   } else if (kind === 'CHECK_LOG') {
-    strictRetry += ' CHECK_LOG: 엔지니어 중심 로그/접근/타임스탬프 불일치만.';
+    strictRetry +=
+      ' CHECK_LOG: 엔지니어 중심 로그/접근/타임스탬프 불일치만. role은 captain|doctor|engineer|navigator|pilot 만; header 금지.';
   } else if (kind === 'SUSPECT' || kind === 'THREATEN') {
     strictRetry += ' 비타깃에 focusTargetKorean.';
   } else if (kind === 'FIND_CLUE') {
