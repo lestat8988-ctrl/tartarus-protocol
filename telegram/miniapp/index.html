@@ -950,6 +950,8 @@
       var selectedExecuteTarget = null;
       /** 현재 매치의 사망 역할 — updateStatus(game_state.dead_roles)에서 갱신 */
       var lastDeadRoles = [];
+      /** [함장] 줄 이후 같은 턴의 크루 반응 append 시 맨 아래로 스크롤하지 않음 */
+      var logInActiveTurn = false;
 
       function setRestartButtonsDisabled(disabled) {
         if (restartBtn) restartBtn.disabled = !!disabled;
@@ -1007,6 +1009,7 @@
 
       function clearGameLogPanelAndState() {
         lastAppendedLogNorm = null;
+        logInActiveTurn = false;
         if (logPanel) logPanel.innerHTML = '';
       }
       function resetResultUI() {
@@ -1080,6 +1083,34 @@
         return id.slice(0, 10) + '...' + id.slice(-8);
       }
 
+      function isLogNearBottom(el, slackPx) {
+        if (!el) return true;
+        slackPx = slackPx == null ? 80 : slackPx;
+        return el.scrollHeight - el.scrollTop - el.clientHeight <= slackPx;
+      }
+
+      /** 새 턴 시작: [함장] / [Captain] 등 함장 발화 첫 줄 */
+      function isCaptainTurnStartLine(s) {
+        return /^\s*\[(함장|Captain|CAPTAIN|captain)\]/i.test(String(s || '').trim());
+      }
+
+      function scrollLogTurnAnchorIntoView(anchorEl) {
+        if (!logPanel || !anchorEl || !logPanel.contains(anchorEl)) return;
+        var apply = function() {
+          var top = anchorEl.offsetTop;
+          if (typeof logPanel.scrollTo === 'function') {
+            logPanel.scrollTo({ top: top, behavior: 'auto' });
+          } else {
+            logPanel.scrollTop = top;
+          }
+        };
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(apply);
+        } else {
+          setTimeout(apply, 0);
+        }
+      }
+
       function appendLog(text, isError) {
         var raw = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
         if (!raw || raw === '\u200b') return;
@@ -1089,8 +1120,23 @@
         var entry = document.createElement('div');
         entry.className = 'log-entry' + (isError ? ' error' : '');
         entry.textContent = raw;
-        if (logPanel) logPanel.appendChild(entry);
-        if (logPanel) logPanel.scrollTop = logPanel.scrollHeight;
+        if (!logPanel) return;
+        var wasFollowing = isLogNearBottom(logPanel);
+        logPanel.appendChild(entry);
+
+        var isCaptain = isCaptainTurnStartLine(raw) && !isError;
+
+        if (isCaptain) {
+          entry.classList.add('log-turn-anchor');
+          logInActiveTurn = true;
+          if (wasFollowing) {
+            scrollLogTurnAnchorIntoView(entry);
+          }
+        } else if (isError && wasFollowing) {
+          logPanel.scrollTop = logPanel.scrollHeight;
+        } else if (!logInActiveTurn && wasFollowing) {
+          logPanel.scrollTop = logPanel.scrollHeight;
+        }
       }
 
       function getL() { return GAME_LABELS[lang] || GAME_LABELS.en; }
