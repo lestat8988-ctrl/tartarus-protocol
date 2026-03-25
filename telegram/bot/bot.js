@@ -88,6 +88,62 @@ const LLM_ROLE_HEADERS = {
   pilot: '[파일럿]'
 };
 
+/** role 키 → 베르셀 고정 헤더 (대괄호 포함) */
+function canonicalHeaderFromRoleKey(roleKey) {
+  const r = String(roleKey || '').toLowerCase();
+  return LLM_ROLE_HEADERS[r] || null;
+}
+
+/**
+ * 플레이어 로그 한 줄이 역할 헤더로 쓰일 수 있는 문자열이면 베르셀 형식으로 통일.
+ * 본문 대사는 길이·매칭 실패 시 그대로 둠.
+ */
+function canonicalBracketHeaderFromTypeString(s) {
+  const raw = String(s || '').trim();
+  if (!raw) return null;
+  if (raw === '[시스템]') return '[시스템]';
+
+  let inner = raw;
+  if (raw.startsWith('[') && raw.endsWith(']') && raw.length >= 3) {
+    inner = raw.slice(1, -1).trim();
+  }
+  const key = inner.toLowerCase();
+  const MAP = {
+    captain: '[함장]',
+    함장: '[함장]',
+    doctor: '[닥터]',
+    닥터: '[닥터]',
+    engineer: '[엔지니어]',
+    엔지니어: '[엔지니어]',
+    navigator: '[네비게이터]',
+    네비게이터: '[네비게이터]',
+    pilot: '[파일럿]',
+    파일럿: '[파일럿]'
+  };
+  if (MAP[key]) return MAP[key];
+  if (MAP[raw.toLowerCase()]) return MAP[raw.toLowerCase()];
+  return null;
+}
+
+function normalizePlayerFacingDisplayLogs(logs) {
+  if (!Array.isArray(logs) || !logs.length) return logs;
+  return logs.map((item) => {
+    const c = canonicalBracketHeaderFromTypeString(item.type);
+    if (c != null) return { ...item, type: c };
+    return item;
+  });
+}
+
+/** LLM block → 표시용 헤더: role 우선, 없으면 header 문자열에서 역할 추론 */
+function canonicalHeaderForLlmBlock(b) {
+  const role = String(b.role || '').toLowerCase();
+  const fromRole = canonicalHeaderFromRoleKey(role);
+  if (fromRole) return fromRole;
+  const fromHeader = canonicalBracketHeaderFromTypeString(String(b.header || '').trim());
+  if (fromHeader && fromHeader !== '[시스템]') return fromHeader;
+  return '[함장]';
+}
+
 function extractJsonObjectFromLlmText(raw) {
   const s = String(raw || '').trim();
   const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
@@ -321,8 +377,7 @@ function llmBlocksToDisplayLogs(sortedBlocks, batchKey) {
   const out = [];
   let i = 0;
   for (const b of sortedBlocks) {
-    const role = String(b.role || '').toLowerCase();
-    const header = String(b.header || LLM_ROLE_HEADERS[role] || '').trim() || LLM_ROLE_HEADERS[role];
+    const header = canonicalHeaderForLlmBlock(b);
     const text = String(b.text || '').trim();
     const narr = b.narration != null ? String(b.narration).trim() : '';
     const keyBase = `${batchKey}|${i++}`;
@@ -330,7 +385,7 @@ function llmBlocksToDisplayLogs(sortedBlocks, batchKey) {
     if (text) out.push({ type: text, role: 'system', target: null, _key: `${keyBase}|t` });
     if (narr) out.push({ type: narr, role: 'system', target: null, _key: `${keyBase}|n` });
   }
-  return out;
+  return normalizePlayerFacingDisplayLogs(out);
 }
 
 /** FIND_CLUE: 단서 본문은 엔진 값만 사용 (LLM이 사실 조작 불가) */
@@ -339,11 +394,11 @@ function mergeFindClueDeterministicClue(displayLogs, clueText, batchKey) {
   if (!clue) return displayLogs;
   const filtered = (displayLogs || []).filter((item) => item.type !== '[시스템]');
   const k = `${batchKey}|engine-clue`;
-  return [
+  return normalizePlayerFacingDisplayLogs([
     ...filtered,
     { type: '[시스템]', role: 'system', target: null, _key: `${k}|h` },
     { type: clue, role: 'system', target: null, _key: `${k}|b` }
-  ];
+  ]);
 }
 
 function buildDialogueSystemPrompt() {
@@ -641,7 +696,7 @@ function toPlayerDisplayLogs(rawEvents, opts = {}) {
       out.push({ type: text, role: 'system', target: null, _key: baseKey });
     }
   }
-  return out;
+  return normalizePlayerFacingDisplayLogs(out);
 }
 
 /** 내부 요약/debug 문장 패턴 (플레이어 로그에서 제외) */
@@ -693,7 +748,7 @@ function dedupeDisplayLogs(displayLogs) {
     prevNorm = norm;
     final.push(item);
   }
-  return final;
+  return normalizePlayerFacingDisplayLogs(final);
 }
 
 /**
