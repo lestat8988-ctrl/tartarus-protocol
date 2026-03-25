@@ -1000,10 +1000,13 @@
       /** [함장] 줄 이후 같은 턴의 크루 반응 append 시 맨 아래로 스크롤하지 않음 */
       var logInActiveTurn = false;
       /**
-       * /api/message·/api/action 등 서버·LLM 응답 대기 (public index의 gamePhase crew_resolving에 대응).
-       * 단일 플래그로만 잠금 — 리스너 중복 등록 없음, finally + rAF로 해제 누락 방지.
+       * 함장이 직접 시작한 턴 요청(/api/message, /api/action)에만 true.
+       * /api/state 폴링·백그라운드 동기화는 이 플래그를 절대 켜거나 끄지 않음(updateStatus fromPoll 전용 경로).
        */
-      var crewResponsePending = false;
+      var userActionPending = false;
+      /** 잠금을 잡은 요청의 시퀀스; 늦게 도착한 응답의 idle 콜백은 불일치 시 무시 */
+      var captainUserActionSeq = 0;
+      var captainUserActionLockSeq = null;
 
       function refreshCaptainPhaseStatusUi() {
         if (!captainPhaseStatusEl) return;
@@ -1015,7 +1018,7 @@
           return;
         }
         captainPhaseStatusEl.classList.remove('captain-phase-hidden');
-        if (crewResponsePending) {
+        if (userActionPending) {
           captainPhaseStatusEl.textContent = L.statusCrewPending || '';
           captainPhaseStatusEl.classList.remove('captain-phase-idle');
           captainPhaseStatusEl.classList.add('captain-phase-pending');
@@ -1028,13 +1031,13 @@
 
       function applyCaptainInputChrome() {
         var L = getL();
-        var locked = isGameOver || crewResponsePending;
-        document.body.classList.toggle('crew-response-pending', !!crewResponsePending && !isGameOver);
+        var locked = isGameOver || userActionPending;
+        document.body.classList.toggle('crew-response-pending', !!userActionPending && !isGameOver);
         if (inputArea) inputArea.classList.toggle('disabled', locked);
         if (freeInput) {
           freeInput.disabled = locked;
           if (isGameOver) freeInput.placeholder = L.gameOverPlaceholder;
-          else if (crewResponsePending) freeInput.placeholder = L.statusInputLocked || L.statusCrewPending || '';
+          else if (userActionPending) freeInput.placeholder = L.statusInputLocked || L.statusCrewPending || '';
           else freeInput.placeholder = L.freeInput;
         }
         if (sendBtn) sendBtn.disabled = locked;
@@ -1045,7 +1048,7 @@
         if (episodeUnlockBtn) episodeUnlockBtn.disabled = locked;
       }
 
-      /** rAF 미동작(텔레그램 WebView 등) 시 pending 고착 방지용 백업 타이머 */
+      /** rAF 미동작(텔레그램 WebView 등) 시 idle 고착 방지용 백업 타이머 — 사용자 액션 완료 콜백에만 연결 */
       var captainIdleBackupTimer = null;
 
       function cancelCaptainIdleBackup() {
@@ -1055,11 +1058,14 @@
         }
       }
 
-      function setCrewResponsePending(on) {
+      function setUserActionPending(on) {
         if (on) cancelCaptainIdleBackup();
-        crewResponsePending = !!on;
-        if (!on) cancelCaptainIdleBackup();
-        if (crewResponsePending) {
+        userActionPending = !!on;
+        if (!on) {
+          cancelCaptainIdleBackup();
+          captainUserActionLockSeq = null;
+        }
+        if (userActionPending) {
           if (executeModal && executeModal.classList.contains('visible')) closeExecuteModal();
           if (threatModal && threatModal.classList.contains('visible')) closeThreatModal();
           if (freeInput) freeInput.blur();
@@ -1068,20 +1074,34 @@
         refreshCaptainPhaseStatusUi();
       }
 
+      /** setPending: 오직 사용자 턴 요청 시작 시 */
+      function beginCaptainUserActionLock() {
+        captainUserActionSeq++;
+        var mySeq = captainUserActionSeq;
+        captainUserActionLockSeq = mySeq;
+        setUserActionPending(true);
+        return mySeq;
+      }
+
+      function tryReleaseUserActionLockForSeq(lockSeq) {
+        if (captainUserActionLockSeq === null || lockSeq !== captainUserActionLockSeq) return;
+        setUserActionPending(false);
+      }
+
       /**
-       * 크루 로그 동기 append 이후, 스크롤용 rAF(appendLog)까지 반영된 뒤 idle.
-       * 마지막 완료 시점: appendSummaryOrEvents/appendLog 동기 실행 종료 → (최대 3프레임 + 0ms task) → setIdle.
+       * 해당 lockSeq 사용자 요청의 로그 동기 append 이후 idle (appendLog 스크롤 rAF 이후).
+       * 폴링·다른 요청은 lockSeq를 바꾸지 않으므로 여기서 잘못 해제되지 않음.
        */
-      function scheduleCaptainIdleAfterResponse() {
+      function scheduleTryReleaseUserActionAfterLogRender(lockSeq) {
         cancelCaptainIdleBackup();
         captainIdleBackupTimer = setTimeout(function() {
           captainIdleBackupTimer = null;
-          if (crewResponsePending) setCrewResponsePending(false);
+          tryReleaseUserActionLockForSeq(lockSeq);
         }, 750);
 
         var finishIdle = function() {
           cancelCaptainIdleBackup();
-          setCrewResponsePending(false);
+          tryReleaseUserActionLockForSeq(lockSeq);
         };
 
         var afterPaint = function() {
@@ -1100,6 +1120,16 @@
         } else {
           setTimeout(afterPaint, 0);
         }
+      }
+
+      /** start/restart/game_over: 대기 타이머·늦은 콜백 무효화 후 무조건 idle */
+      function forceInvalidateUserActionLock() {
+        cancelCaptainIdleBackup();
+        captainUserActionSeq++;
+        captainUserActionLockSeq = null;
+        userActionPending = false;
+        applyCaptainInputChrome();
+        refreshCaptainPhaseStatusUi();
       }
 
       function setRestartButtonsDisabled(disabled) {
@@ -1142,7 +1172,8 @@
             };
             if (data.actual_imposter != null) st.actual_imposter = data.actual_imposter;
             if (data.is_timeout) st.is_timeout = data.is_timeout;
-            updateStatus(st, { forApiMessage: true });
+            /* 배경 폴링: userActionPending·잠금 시퀀스에 관여하지 않음 */
+            updateStatus(st, { forApiMessage: true, fromPoll: true });
             if (data.recent_events && data.recent_events.length) applyEvents(data.recent_events);
             if (gs.game_over) stopStatePolling();
           })
@@ -1162,8 +1193,7 @@
         if (logPanel) logPanel.innerHTML = '';
       }
       function resetResultUI() {
-        cancelCaptainIdleBackup();
-        crewResponsePending = false;
+        forceInvalidateUserActionLock();
         accuseRequestInFlight = false;
         threatRequestInFlight = false;
         takePistolRequestInFlight = false;
@@ -1464,7 +1494,7 @@
         });
         if (freeInput) {
           if (isGameOver) freeInput.placeholder = L.gameOverPlaceholder;
-          else if (crewResponsePending) freeInput.placeholder = L.statusInputLocked || L.statusCrewPending || '';
+          else if (userActionPending) freeInput.placeholder = L.statusInputLocked || L.statusCrewPending || '';
           else freeInput.placeholder = L.freeInput;
         }
         if (sendBtn) sendBtn.textContent = L.send;
@@ -1586,6 +1616,7 @@
       function updateStatus(state, opts) {
         opts = opts || {};
         if (!state) return;
+        /* opts.fromPoll === true 인 /api/state 경로는 userActionPending을 켜거나 끄지 않음(게임 오버 시 forceInvalidate만). */
         var gs = state.game_state || {};
         lastDeadRoles = gs.dead_roles || [];
         var prevWasGameOver = previousGameOver;
@@ -1601,8 +1632,7 @@
         if (hudCountdown) hudCountdown.textContent = getL().countdown + ' : ' + timeStr;
 
         if (gs.game_over && gs.outcome) {
-          cancelCaptainIdleBackup();
-          crewResponsePending = false;
+          forceInvalidateUserActionLock();
           statusThreat.textContent = 'GAME OVER';
           statusThreat.classList.remove('nominal');
           statusThreat.classList.add('threat');
@@ -1616,8 +1646,7 @@
           var allowResultModal = opts.fromStart === true || opts.forApiMessage === true;
           if (!prevWasGameOver && allowResultModal) showResultModal(state);
         } else if (gs.game_over && !gs.outcome) {
-          cancelCaptainIdleBackup();
-          crewResponsePending = false;
+          forceInvalidateUserActionLock();
           statusThreat.textContent = 'GAME OVER';
           statusThreat.classList.remove('nominal');
           statusThreat.classList.add('threat');
@@ -1668,9 +1697,7 @@
 
       function doStart(restart) {
         if (startRequestInFlight) return;
-        crewResponsePending = false;
-        applyCaptainInputChrome();
-        refreshCaptainPhaseStatusUi();
+        forceInvalidateUserActionLock();
         startRequestInFlight = true;
         setRestartButtonsDisabled(true);
         var playerId = getPlayerId();
@@ -1707,13 +1734,13 @@
           .finally(function() {
             startRequestInFlight = false;
             setRestartButtonsDisabled(false);
-            setCrewResponsePending(false);
+            forceInvalidateUserActionLock();
           });
       }
 
       function doMessage(text) {
-        if (isGameOver || crewResponsePending) return;
-        setCrewResponsePending(true);
+        if (isGameOver || userActionPending) return;
+        var userTurnLockSeq = beginCaptainUserActionLock();
         var playerId = getPlayerId();
         fetch(API_BASE + '/api/message', {
           method: 'POST',
@@ -1737,7 +1764,7 @@
             appendLog('Connection failed: ' + err.message, true);
           })
           .finally(function() {
-            scheduleCaptainIdleAfterResponse();
+            scheduleTryReleaseUserActionAfterLogRender(userTurnLockSeq);
           });
       }
 
@@ -1779,9 +1806,9 @@
 
       /** 권총 획득 — /api/message·텍스트 파싱 없이 POST /api/action */
       function postTakePistol() {
-        if (isGameOver || takePistolRequestInFlight || crewResponsePending) return;
+        if (isGameOver || takePistolRequestInFlight || userActionPending) return;
         takePistolRequestInFlight = true;
-        setCrewResponsePending(true);
+        var userTurnLockSeq = beginCaptainUserActionLock();
         var playerId = getPlayerId();
         fetch(API_BASE + '/api/action', {
           method: 'POST',
@@ -1806,15 +1833,15 @@
           })
           .finally(function() {
             takePistolRequestInFlight = false;
-            scheduleCaptainIdleAfterResponse();
+            scheduleTryReleaseUserActionAfterLogRender(userTurnLockSeq);
           });
       }
 
       /** 단서 수집 — /api/message·텍스트 파싱 없이 POST /api/action */
       function postCollectClue() {
-        if (isGameOver || collectClueRequestInFlight || crewResponsePending) return;
+        if (isGameOver || collectClueRequestInFlight || userActionPending) return;
         collectClueRequestInFlight = true;
-        setCrewResponsePending(true);
+        var userTurnLockSeq = beginCaptainUserActionLock();
         var playerId = getPlayerId();
         fetch(API_BASE + '/api/action', {
           method: 'POST',
@@ -1839,7 +1866,7 @@
           })
           .finally(function() {
             collectClueRequestInFlight = false;
-            scheduleCaptainIdleAfterResponse();
+            scheduleTryReleaseUserActionAfterLogRender(userTurnLockSeq);
           });
       }
 
@@ -1848,10 +1875,9 @@
         if (isGameOver) {
           threatRequestInFlight = false;
           updateThreatConfirmEnabled();
-          scheduleCaptainIdleAfterResponse();
           return;
         }
-        setCrewResponsePending(true);
+        var userTurnLockSeq = beginCaptainUserActionLock();
         var playerId = getPlayerId();
         fetch(API_BASE + '/api/action', {
           method: 'POST',
@@ -1877,7 +1903,7 @@
           .finally(function() {
             threatRequestInFlight = false;
             updateThreatConfirmEnabled();
-            scheduleCaptainIdleAfterResponse();
+            scheduleTryReleaseUserActionAfterLogRender(userTurnLockSeq);
           });
       }
 
@@ -1908,7 +1934,7 @@
 
       /** 처형 확정 단일 진입점 — /api/accuse (confirm 버튼·모달 위임만 이 함수 호출) */
       function confirmAccuse() {
-        if (accuseRequestInFlight || crewResponsePending) return;
+        if (accuseRequestInFlight || userActionPending) return;
         var targetKey = selectedExecuteTarget;
         if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
           var sel = executeModal ? executeModal.querySelector('.modal-target-btn.selected') : null;
@@ -1941,7 +1967,7 @@
       }
 
       function openExecuteModal() {
-        if (isGameOver || crewResponsePending) return;
+        if (isGameOver || userActionPending) return;
         if (executeModalUnlockTimer) {
           clearTimeout(executeModalUnlockTimer);
           executeModalUnlockTimer = null;
@@ -1970,7 +1996,7 @@
       }
 
       function confirmThreat() {
-        if (threatRequestInFlight || crewResponsePending) return;
+        if (threatRequestInFlight || userActionPending) return;
         var targetKey = selectedThreatTarget;
         if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
           var sel = threatModal ? threatModal.querySelector('.threat-target-btn.selected') : null;
@@ -2003,7 +2029,7 @@
       }
 
       function openThreatModal() {
-        if (isGameOver || crewResponsePending) return;
+        if (isGameOver || userActionPending) return;
         if (threatModalUnlockTimer) {
           clearTimeout(threatModalUnlockTimer);
           threatModalUnlockTimer = null;
@@ -2036,7 +2062,7 @@
 
       document.querySelectorAll('.modal-target-btn').forEach(function(btn) {
         btn.addEventListener('click', function() {
-          if (crewResponsePending || this.disabled || this.classList.contains('dead')) return;
+          if (userActionPending || this.disabled || this.classList.contains('dead')) return;
           var rid = String(this.getAttribute('data-target') || '').toLowerCase();
           if (isRoleDead(rid)) return;
           selectedExecuteTarget = VALID_ACCUSE_TARGETS.indexOf(rid) >= 0 ? rid : null;
@@ -2055,7 +2081,7 @@
           if (confirmEl) {
             e.preventDefault();
             e.stopPropagation();
-            if (crewResponsePending) return;
+            if (userActionPending) return;
             confirmAccuse();
             return;
           }
@@ -2073,7 +2099,7 @@
       if (threatModal) {
         threatModal.querySelectorAll('.threat-target-btn').forEach(function(btn) {
           btn.addEventListener('click', function() {
-            if (crewResponsePending || this.disabled || this.classList.contains('dead')) return;
+            if (userActionPending || this.disabled || this.classList.contains('dead')) return;
             var rid = String(this.getAttribute('data-target') || '').toLowerCase();
             if (isRoleDead(rid)) return;
             selectedThreatTarget = VALID_ACCUSE_TARGETS.indexOf(rid) >= 0 ? rid : null;
@@ -2090,7 +2116,7 @@
           if (confirmEl) {
             e.preventDefault();
             e.stopPropagation();
-            if (crewResponsePending) return;
+            if (userActionPending) return;
             confirmThreat();
             return;
           }
@@ -2106,7 +2132,7 @@
       }
 
       sendBtn.addEventListener('click', function() {
-        if (isGameOver || crewResponsePending) return;
+        if (isGameOver || userActionPending) return;
         var text = (freeInput.value || '').trim();
         if (!text) return;
         doMessage(text);
@@ -2115,7 +2141,7 @@
 
       freeInput.addEventListener('keydown', function(e) {
         if (e.key !== 'Enter') return;
-        if (isGameOver || crewResponsePending) {
+        if (isGameOver || userActionPending) {
           e.preventDefault();
           return;
         }
@@ -2124,7 +2150,7 @@
 
       actionBtns.forEach(function(btn) {
         btn.addEventListener('click', function() {
-          if (isGameOver || crewResponsePending) return;
+          if (isGameOver || userActionPending) return;
           var action = this.dataset.action || '';
           if (action === 'question') {
             doMessage(lang === 'ko' ? '네비게이터 어디 있었어' : 'Where was the navigator');
@@ -2148,8 +2174,7 @@
 
       function doRestart() {
         if (!isGameOver || startRequestInFlight) return;
-        cancelCaptainIdleBackup();
-        crewResponsePending = false;
+        forceInvalidateUserActionLock();
         stopStatePolling();
         clearGameLogPanelAndState();
         previousGameOver = false;
