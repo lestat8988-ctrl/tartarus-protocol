@@ -65,6 +65,33 @@ function getDialogueLlmKind(events) {
   return null;
 }
 
+/** getDialogueLlmKind 값 → 터미널 action 슬러그 */
+function dialogueActionKindSlug(engineKind) {
+  const m = {
+    QUESTION: 'question',
+    SUSPECT: 'suspect',
+    CHECK_LOG: 'check_log',
+    THREATEN: 'threaten',
+    FIND_CLUE: 'collect_clue'
+  };
+  return m[engineKind] || String(engineKind || '').toLowerCase();
+}
+
+function logDialogueTrace(actionSlug, provider, modelStr, result, eventsCount) {
+  console.log(
+    '[dialogue] action=' +
+      actionSlug +
+      ' provider=' +
+      provider +
+      ' model=' +
+      modelStr +
+      ' result=' +
+      result +
+      ' events=' +
+      eventsCount
+  );
+}
+
 function expectedCrewOrderForLlm(kind, target, deadRoles, rawEvents) {
   const dead = new Set((deadRoles || []).map((r) => String(r).toLowerCase()));
   const alive = ['doctor', 'engineer', 'navigator', 'pilot'].filter((r) => !dead.has(r));
@@ -566,6 +593,16 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
 }) {
   const kind = getDialogueLlmKind(rawEvents);
   if (!kind) return deterministicLogs;
+  const actionSlug = dialogueActionKindSlug(kind);
+  const eventsCount = (rawEvents || []).length;
+  const modelStr = TELEGRAM_DIALOGUE_MODEL;
+  const apiProvider = isDeepSeekDialogueModel(modelStr) ? 'deepseek' : 'openai';
+
+  if (!isDialogueLlmConfigured()) {
+    logDialogueTrace(actionSlug, 'deterministic', modelStr, 'fallback', eventsCount);
+    return deterministicLogs;
+  }
+
   const forcedCaptainText = extractCaptainSpokenFromDisplayLogs(deterministicLogs);
   const llmLogs = await tryGenerateLlmDialogueLogs({
     kind,
@@ -575,7 +612,11 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
     clueText: clueTextFromEvent != null ? clueTextFromEvent : undefined,
     forcedCaptainText
   });
-  if (llmLogs && llmLogs.length) return llmLogs;
+  if (llmLogs && llmLogs.length) {
+    logDialogueTrace(actionSlug, apiProvider, modelStr, 'llm', eventsCount);
+    return llmLogs;
+  }
+  logDialogueTrace(actionSlug, apiProvider, modelStr, 'fallback', eventsCount);
   return deterministicLogs;
 }
 
