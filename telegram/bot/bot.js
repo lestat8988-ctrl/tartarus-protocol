@@ -21,6 +21,313 @@ const API_PORT = 8788;
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const LOG = process.env.BOT_LOG !== '0';
 
+/** LLM dialogue (non-terminal actions only). Rules/timer/kills stay in ep1Engine. */
+const TELEGRAM_DIALOGUE_MODEL = process.env.TELEGRAM_DIALOGUE_MODEL || 'gpt-4o-mini';
+const TELEGRAM_DIALOGUE_TIMEOUT_MS = Math.min(
+  Math.max(parseInt(process.env.TELEGRAM_DIALOGUE_TIMEOUT_MS || '10000', 10) || 10000, 4000),
+  60000
+);
+const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
+
+function isDeepSeekDialogueModel(model) {
+  const m = String(model || '').toLowerCase().trim();
+  return m === 'deepseek-chat' || m === 'deepseek-reasoner' || m.startsWith('deepseek-');
+}
+
+function isDialogueLlmConfigured() {
+  const model = TELEGRAM_DIALOGUE_MODEL;
+  if (isDeepSeekDialogueModel(model)) return !!process.env.DEEPSEEK_API_KEY;
+  return !!process.env.OPENAI_API_KEY;
+}
+
+/**
+ * non-terminal 배치만: QUESTION / SUSPECT / CHECK_LOG / THREATEN / FIND_CLUE(단서 확보)
+ * 에러용 CREW_DIALOGUE 단독 배치는 null
+ */
+function getDialogueLlmKind(events) {
+  const ev0 = events && events[0];
+  if (!ev0) return null;
+  const t = String(ev0.type || '').toUpperCase();
+  if (t === 'QUESTION' && ev0.target) return 'QUESTION';
+  if (t === 'SUSPECT' && ev0.target) return 'SUSPECT';
+  if (t === 'CHECK_LOG') return 'CHECK_LOG';
+  if (t === 'THREATEN' && ev0.target) return 'THREATEN';
+  if (t === 'FIND_CLUE' && (ev0.clue_text || ev0.clue_id)) return 'FIND_CLUE';
+  return null;
+}
+
+function expectedCrewOrderForLlm(kind, target, deadRoles, rawEvents) {
+  const dead = new Set((deadRoles || []).map((r) => String(r).toLowerCase()));
+  const alive = ['doctor', 'engineer', 'navigator', 'pilot'].filter((r) => !dead.has(r));
+  const t = target ? String(target).toLowerCase() : null;
+  if (kind === 'QUESTION' || kind === 'SUSPECT' || kind === 'THREATEN') {
+    const tf = alive.filter((r) => r === t);
+    const rest = alive.filter((r) => r !== t);
+    return [...tf, ...rest];
+  }
+  if (kind === 'CHECK_LOG') {
+    const order = [];
+    for (const ev of rawEvents || []) {
+      if (String(ev.type) !== 'CREW_DIALOGUE') continue;
+      const r = String(ev.role || '').toLowerCase();
+      if (!['doctor', 'engineer', 'navigator', 'pilot'].includes(r)) continue;
+      if (dead.has(r)) continue;
+      if (!order.includes(r)) order.push(r);
+    }
+    return order.length ? order : alive;
+  }
+  if (kind === 'FIND_CLUE') return alive;
+  return alive;
+}
+
+const LLM_ROLE_HEADERS = {
+  captain: '[함장]',
+  doctor: '[닥터]',
+  engineer: '[엔지니어]',
+  navigator: '[네비게이터]',
+  pilot: '[파일럿]'
+};
+
+function extractJsonObjectFromLlmText(raw) {
+  const s = String(raw || '').trim();
+  const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const body = fence ? fence[1].trim() : s;
+  const first = body.indexOf('{');
+  const last = body.lastIndexOf('}');
+  if (first < 0 || last < first) return null;
+  try {
+    return JSON.parse(body.slice(first, last + 1));
+  } catch (_) {
+    return null;
+  }
+}
+
+function koreanHeavyEnoughForDialogue(texts, minRatio) {
+  const s = texts.join('\n');
+  const hangul = (s.match(/[\uAC00-\uD7A3]/g) || []).length;
+  const latin = (s.match(/[a-zA-Z]/g) || []).length;
+  const total = hangul + latin;
+  if (total === 0) return false;
+  return hangul / total >= minRatio;
+}
+
+function hasExcessiveLineRepetition(blocks, maxSame) {
+  const norm = (x) => String(x || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  const counts = new Map();
+  for (const b of blocks) {
+    for (const part of ['text', 'narration']) {
+      const line = norm(b[part]);
+      if (line.length < 12) continue;
+      counts.set(line, (counts.get(line) || 0) + 1);
+      if (counts.get(line) > maxSame) return true;
+    }
+  }
+  return false;
+}
+
+function sortLlmBlocksByExpected(blocks, crewOrder) {
+  const byRole = new Map();
+  for (const b of blocks) {
+    const r = String(b.role || '').toLowerCase();
+    if (r === 'captain') continue;
+    if (!byRole.has(r)) byRole.set(r, b);
+  }
+  const cap = blocks.find((b) => String(b.role || '').toLowerCase() === 'captain');
+  const ordered = [];
+  if (cap) ordered.push(cap);
+  for (const r of crewOrder) {
+    const x = byRole.get(r);
+    if (x) ordered.push(x);
+  }
+  return ordered;
+}
+
+function validateLlmDialogueBlocks(parsed, kind, expectedCrew) {
+  if (!parsed || typeof parsed !== 'object') return null;
+  const blocks = parsed.blocks;
+  if (!Array.isArray(blocks) || blocks.length === 0) return null;
+  const sorted = sortLlmBlocksByExpected(blocks, expectedCrew);
+  const cap = sorted.find((b) => String(b.role || '').toLowerCase() === 'captain');
+  if (!cap || !String(cap.text || '').trim()) return null;
+  for (const r of expectedCrew) {
+    const b = sorted.find((x) => String(x.role || '').toLowerCase() === r);
+    if (!b || !String(b.text || '').trim()) return null;
+  }
+  const allowed = new Set(['captain', ...expectedCrew]);
+  for (const b of sorted) {
+    const r = String(b.role || '').toLowerCase();
+    if (!allowed.has(r)) return null;
+  }
+  const allTexts = [];
+  for (const b of sorted) {
+    allTexts.push(String(b.text || ''));
+    if (b.narration) allTexts.push(String(b.narration));
+  }
+  if (!koreanHeavyEnoughForDialogue(allTexts, 0.38)) return null;
+  if (hasExcessiveLineRepetition(sorted, 2)) return null;
+  return sorted;
+}
+
+function llmBlocksToDisplayLogs(sortedBlocks, batchKey) {
+  const out = [];
+  let i = 0;
+  for (const b of sortedBlocks) {
+    const role = String(b.role || '').toLowerCase();
+    const header = String(b.header || LLM_ROLE_HEADERS[role] || '').trim() || LLM_ROLE_HEADERS[role];
+    const text = String(b.text || '').trim();
+    const narr = b.narration != null ? String(b.narration).trim() : '';
+    const keyBase = `${batchKey}|${i++}`;
+    if (header) out.push({ type: header, role: 'system', target: null, _key: `${keyBase}|h` });
+    if (text) out.push({ type: text, role: 'system', target: null, _key: `${keyBase}|t` });
+    if (narr) out.push({ type: narr, role: 'system', target: null, _key: `${keyBase}|n` });
+  }
+  return out;
+}
+
+/** FIND_CLUE: 단서 본문은 엔진 값만 사용 (LLM이 사실 조작 불가) */
+function mergeFindClueDeterministicClue(displayLogs, clueText, batchKey) {
+  const clue = String(clueText || '').trim();
+  if (!clue) return displayLogs;
+  const filtered = (displayLogs || []).filter((item) => item.type !== '[시스템]');
+  const k = `${batchKey}|engine-clue`;
+  return [
+    ...filtered,
+    { type: '[시스템]', role: 'system', target: null, _key: `${k}|h` },
+    { type: clue, role: 'system', target: null, _key: `${k}|b` }
+  ];
+}
+
+function buildDialogueSystemPrompt() {
+  return [
+    'You write Korean dialogue ONLY for the sci-fi horror scenario USSC Tartarus (Episode 1).',
+    'You do NOT decide game rules, outcomes, deaths, clues data, timers, or who is the impostor.',
+    'Output MUST be a single JSON object with key "blocks" (array). No markdown outside JSON.',
+    'Each block: { "role": "captain"|"doctor"|"engineer"|"navigator"|"pilot", "header": "[함장]" etc., "text": "spoken line", "narration": optional third-person Korean line }.',
+    'Tone: captain = command, terse; doctor = medical/anxiety; engineer = systems/logs; navigator = routes/alibi; pilot = cockpit/instinct.',
+    'If a targetRole is given, crew lines must center on that crew member.',
+    'Use natural Korean. Headers must match: [함장] [닥터] [엔지니어] [네비게이터] [파일럿].',
+    'Include one narration line per crew block when it improves readability (optional for captain).',
+    'Do not repeat the same long sentence across blocks. Keep lines distinct.',
+    'Respond with JSON only.'
+  ].join('\n');
+}
+
+function buildDialogueUserPayload(ctx) {
+  return JSON.stringify(
+    {
+      action: ctx.kind,
+      targetRole: ctx.target || null,
+      crewSpeakingOrder: ctx.expectedCrew,
+      deadRoles: ctx.deadRoles || [],
+      captainPlayerInput: ctx.playerText || '',
+      clueTextToQuoteVerbatim: ctx.clueText || null,
+      note:
+        ctx.clueText != null
+          ? 'For FIND_CLUE: do NOT put the clue fact text in your JSON; only reactions. The server will append the real clue as [시스템].'
+          : undefined
+    },
+    null,
+    0
+  );
+}
+
+async function callChatCompletionsJson({ system, user }) {
+  const { OpenAI } = require('openai');
+  const model = TELEGRAM_DIALOGUE_MODEL;
+  const useDeepSeek = isDeepSeekDialogueModel(model);
+  const apiKey = useDeepSeek ? process.env.DEEPSEEK_API_KEY : process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error('no_api_key');
+
+  const client = new OpenAI({
+    apiKey,
+    baseURL: useDeepSeek ? DEEPSEEK_BASE_URL : undefined,
+    timeout: TELEGRAM_DIALOGUE_TIMEOUT_MS,
+    maxRetries: 0
+  });
+
+  const body = {
+    model,
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: user }
+    ],
+    temperature: 0.65,
+    max_tokens: 2500
+  };
+  if (!useDeepSeek) {
+    body.response_format = { type: 'json_object' };
+  }
+
+  const completion = await client.chat.completions.create(body);
+  const content = completion?.choices?.[0]?.message?.content;
+  return content != null ? String(content) : '';
+}
+
+/**
+ * @returns {Promise<object[]|null>} display log rows or null → caller uses deterministic
+ */
+async function tryGenerateLlmDialogueLogs(ctx) {
+  if (!isDialogueLlmConfigured()) return null;
+  const { kind, rawEvents, match, playerText, clueText } = ctx;
+  const gs = match?.game_state || {};
+  const deadRoles = gs.dead_roles || [];
+  const ev0 = rawEvents && rawEvents[0];
+  const target = ev0?.target ? String(ev0.target).toLowerCase() : null;
+  const expectedCrew = expectedCrewOrderForLlm(kind, target, deadRoles, rawEvents);
+  const batchKey = `llm|${kind}|${Date.now()}`;
+
+  const system = buildDialogueSystemPrompt();
+  const user = buildDialogueUserPayload({
+    kind,
+    target,
+    expectedCrew,
+    deadRoles,
+    playerText: playerText || '',
+    clueText: kind === 'FIND_CLUE' ? clueText : null
+  });
+
+  let raw;
+  try {
+    raw = await callChatCompletionsJson({ system, user });
+  } catch (err) {
+    log('LLM_DIALOGUE', 'call_failed', { kind, err: String(err && err.message) });
+    return null;
+  }
+
+  const parsed = extractJsonObjectFromLlmText(raw);
+  const valid = validateLlmDialogueBlocks(parsed, kind, expectedCrew);
+  if (!valid) {
+    log('LLM_DIALOGUE', 'validate_failed', { kind });
+    return null;
+  }
+
+  let logs = llmBlocksToDisplayLogs(valid, batchKey);
+  if (kind === 'FIND_CLUE' && clueText) {
+    logs = mergeFindClueDeterministicClue(logs, clueText, batchKey);
+  }
+  return logs.length ? logs : null;
+}
+
+async function maybeDialogueLogsFromLlmOrDeterministic({
+  rawEvents,
+  deterministicLogs,
+  match,
+  playerText,
+  clueTextFromEvent
+}) {
+  const kind = getDialogueLlmKind(rawEvents);
+  if (!kind) return deterministicLogs;
+  const llmLogs = await tryGenerateLlmDialogueLogs({
+    kind,
+    rawEvents,
+    match,
+    playerText: playerText || '',
+    clueText: clueTextFromEvent != null ? clueTextFromEvent : undefined
+  });
+  if (llmLogs && llmLogs.length) return llmLogs;
+  return deterministicLogs;
+}
+
 function log(tag, msg, data) {
   if (LOG) console.log('[bot]', tag, msg, data != null ? JSON.stringify(data) : '');
 }
@@ -306,7 +613,23 @@ async function handleTextMessage(playerId, text, opts = {}) {
   } else {
     log('ACTION', 'ok', { playerId, matchId, action: parsed.intent_type, target: parsed.target });
   }
-  const recentDisplay = dedupeDisplayLogs(toPlayerDisplayLogs((updated?.events || []).slice(-3)));
+  const isCheckLogMsg = String(parsed.intent_type || '').toLowerCase() === 'check_log';
+  const deterministicLogs = dedupeDisplayLogs(
+    toPlayerDisplayLogs(result.events || [], {
+      captainInputLine: isCheckLogMsg ? String(text || '').trim() : ''
+    })
+  );
+  const clueEv = (result.events || []).find((e) => e && String(e.type).toUpperCase() === 'FIND_CLUE');
+  const clueTextFromEvent = clueEv && clueEv.clue_text ? String(clueEv.clue_text) : undefined;
+  const recentDisplay = dedupeDisplayLogs(
+    await maybeDialogueLogsFromLlmOrDeterministic({
+      rawEvents: result.events || [],
+      deterministicLogs,
+      match: updated,
+      playerText: String(text || '').trim(),
+      clueTextFromEvent
+    })
+  );
   if (recentDisplay.length > 0) {
     reply += '\n\nRecent: ' + recentDisplay.map((e) => e.type).join(', ');
   }
@@ -426,10 +749,21 @@ async function processMessageApi(playerId, text, opts = {}) {
 
   const updated = await matchStore.getMatch(matchId);
   const gameOver = result.game_over || updated?.game_state?.game_over;
-  const isCheckLogMsg = String(parsed.intent_type || '').toUpperCase() === 'CHECK_LOG';
-  const newDisplayLogs = dedupeDisplayLogs(
+  const isCheckLogMsg = String(parsed.intent_type || '').toLowerCase() === 'check_log';
+  const deterministicLogs = dedupeDisplayLogs(
     toPlayerDisplayLogs(result.events || [], {
       captainInputLine: isCheckLogMsg ? String(text || '').trim() : ''
+    })
+  );
+  const clueEv = (result.events || []).find((e) => e && String(e.type).toUpperCase() === 'FIND_CLUE');
+  const clueTextFromEvent = clueEv && clueEv.clue_text ? String(clueEv.clue_text) : undefined;
+  const newDisplayLogs = dedupeDisplayLogs(
+    await maybeDialogueLogsFromLlmOrDeterministic({
+      rawEvents: result.events || [],
+      deterministicLogs,
+      match: updated,
+      playerText: String(text || '').trim(),
+      clueTextFromEvent
     })
   );
   const isCaptainBlock = newDisplayLogs.length >= 2 && newDisplayLogs[0].type === '[함장]';
@@ -606,7 +940,22 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
 
   const updated = await matchStore.getMatch(matchId);
   const gameOver = result.game_over || updated?.game_state?.game_over;
-  const newDisplayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(result.events || [], {}));
+  const deterministicLogs = dedupeDisplayLogs(toPlayerDisplayLogs(result.events || [], {}));
+  const clueEv = (result.events || []).find((e) => e && String(e.type).toUpperCase() === 'FIND_CLUE');
+  const clueTextFromEvent = clueEv && clueEv.clue_text ? String(clueEv.clue_text) : undefined;
+  const actionHint =
+    actionKey === 'threaten'
+      ? `[위협 action] target=${String(targetRaw || '').toLowerCase()}`
+      : `[단서수집 action]`;
+  const newDisplayLogs = dedupeDisplayLogs(
+    await maybeDialogueLogsFromLlmOrDeterministic({
+      rawEvents: result.events || [],
+      deterministicLogs,
+      match: updated,
+      playerText: actionHint,
+      clueTextFromEvent
+    })
+  );
   const isCaptainBlock = newDisplayLogs.length >= 2 && newDisplayLogs[0].type === '[함장]';
   const captainBody = isCaptainBlock ? (newDisplayLogs[1].type || '').trim() : '';
   const hasCompleteCaptainBlock = isCaptainBlock && captainBody.length > 0;
