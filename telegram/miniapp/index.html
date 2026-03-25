@@ -462,8 +462,21 @@
     }
     .modal-target-btn.selected,
     .threat-target-btn.selected { border-color: #2aef2a; background: #1a3a1a; }
-    .modal-target-btn:active,
-    .threat-target-btn:active { background: #222; }
+    .modal-target-btn.dead,
+    .threat-target-btn.dead,
+    .modal-target-btn:disabled,
+    .threat-target-btn:disabled {
+      opacity: 0.42;
+      cursor: not-allowed;
+      border-color: #444;
+      color: #666;
+      background: #141414;
+      box-shadow: none;
+    }
+    .modal-target-btn.dead.selected,
+    .threat-target-btn.dead.selected { border-color: #444; background: #141414; color: #666; }
+    .modal-target-btn:active:not(:disabled),
+    .threat-target-btn:active:not(:disabled) { background: #222; }
     .modal-actions { display: flex; gap: 10px; }
     .modal-actions button {
       flex: 1;
@@ -651,7 +664,7 @@
       </div>
       <div class="modal-actions">
         <button type="button" class="modal-cancel" id="execute-cancel">취소</button>
-        <button type="button" class="modal-confirm" id="execute-confirm">확정</button>
+        <button type="button" class="modal-confirm" id="execute-confirm" disabled>확정</button>
       </div>
     </div>
   </div>
@@ -934,6 +947,9 @@
       var threatRequestInFlight = false;
       var threatModalUnlockTimer = null;
       var selectedThreatTarget = null;
+      var selectedExecuteTarget = null;
+      /** 현재 매치의 사망 역할 — updateStatus(game_state.dead_roles)에서 갱신 */
+      var lastDeadRoles = [];
 
       function setRestartButtonsDisabled(disabled) {
         if (restartBtn) restartBtn.disabled = !!disabled;
@@ -1079,6 +1095,65 @@
 
       function getL() { return GAME_LABELS[lang] || GAME_LABELS.en; }
 
+      function normalizeDeadRoleKey(r) {
+        return String(r || '').trim().toLowerCase();
+      }
+      function getDeadRolesSet() {
+        var set = new Set();
+        (lastDeadRoles || []).forEach(function(r) {
+          var k = normalizeDeadRoleKey(r);
+          if (k) set.add(k);
+        });
+        return set;
+      }
+      function isRoleDead(roleKey) {
+        if (!roleKey) return false;
+        return getDeadRolesSet().has(normalizeDeadRoleKey(roleKey));
+      }
+      function getTargetButtonLabel(roleKey, dead) {
+        var L = getL();
+        var base = L[roleKey] || roleKey;
+        if (!dead) return base;
+        var mark = L.resultDeadLabel || '사망';
+        return base + ' (' + mark + ')';
+      }
+      function updateExecuteConfirmEnabled() {
+        if (!executeConfirmBtn) return;
+        if (accuseRequestInFlight) return;
+        var alive = selectedExecuteTarget && !isRoleDead(selectedExecuteTarget);
+        executeConfirmBtn.disabled = !alive;
+      }
+      function updateThreatConfirmEnabled() {
+        if (!threatConfirmBtn) return;
+        if (threatRequestInFlight) return;
+        var alive = selectedThreatTarget && !isRoleDead(selectedThreatTarget);
+        threatConfirmBtn.disabled = !alive;
+      }
+      function applyDeadStateToModalButtons() {
+        VALID_ACCUSE_TARGETS.forEach(function(r) {
+          var dead = isRoleDead(r);
+          var label = getTargetButtonLabel(r, dead);
+          var execBtn = document.getElementById('target-' + r);
+          var threatBtn = document.getElementById('threat-target-' + r);
+          [execBtn, threatBtn].forEach(function(btn) {
+            if (!btn) return;
+            btn.textContent = label;
+            btn.classList.toggle('dead', dead);
+            btn.disabled = dead;
+          });
+        });
+        if (selectedExecuteTarget && isRoleDead(selectedExecuteTarget)) {
+          selectedExecuteTarget = null;
+          document.querySelectorAll('.modal-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+        }
+        if (selectedThreatTarget && isRoleDead(selectedThreatTarget)) {
+          selectedThreatTarget = null;
+          document.querySelectorAll('.threat-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+        }
+        updateExecuteConfirmEnabled();
+        updateThreatConfirmEnabled();
+      }
+
       function syncLangFromStorage() {
         var stored;
         try { stored = (localStorage.getItem(LANG_KEY) || '').trim(); } catch (e) { stored = ''; }
@@ -1198,19 +1273,14 @@
         if (execCancel) execCancel.textContent = L.cancel;
         if (executeConfirmBtn) {
           executeConfirmBtn.textContent = L.confirm;
-          if (!accuseRequestInFlight) executeConfirmBtn.disabled = false;
+          if (!accuseRequestInFlight) updateExecuteConfirmEnabled();
         }
         var execNoTarget = document.getElementById('execute-no-target-hint');
         if (execNoTarget) {
           execNoTarget.textContent = L.executeNoTargetHint || '';
           execNoTarget.classList.remove('visible');
         }
-        ['doctor','engineer','navigator','pilot'].forEach(function(r) {
-          var btn = document.getElementById('target-' + r);
-          if (btn) btn.textContent = L[r];
-          var tbtn = document.getElementById('threat-target-' + r);
-          if (tbtn) tbtn.textContent = L[r];
-        });
+        applyDeadStateToModalButtons();
         var threatTitle = document.getElementById('threat-modal-title');
         var threatInst = document.getElementById('threat-modal-instruction');
         var threatCancel = document.getElementById('threat-cancel');
@@ -1219,7 +1289,7 @@
         if (threatCancel) threatCancel.textContent = L.cancel;
         if (threatConfirmBtn) {
           threatConfirmBtn.textContent = L.confirm;
-          if (!threatRequestInFlight) threatConfirmBtn.disabled = !selectedThreatTarget;
+          if (!threatRequestInFlight) updateThreatConfirmEnabled();
         }
         var threatNoTarget = document.getElementById('threat-no-target-hint');
         if (threatNoTarget) {
@@ -1307,6 +1377,7 @@
         opts = opts || {};
         if (!state) return;
         var gs = state.game_state || {};
+        lastDeadRoles = gs.dead_roles || [];
         var prevWasGameOver = previousGameOver;
 
         if (state.match_id) {
@@ -1360,6 +1431,8 @@
         if (gs.dead_roles && gs.dead_roles.length > 0) {
           if (statusDeadWrap) { statusDeadWrap.style.display = 'block'; statusDead.textContent = gs.dead_roles.join(', '); statusDead.classList.add('threat'); }
         } else if (statusDeadWrap) { statusDeadWrap.style.display = 'none'; statusDead.classList.remove('threat'); }
+
+        applyDeadStateToModalButtons();
       }
 
       function applyEvents(events) {
@@ -1475,7 +1548,7 @@
           })
           .finally(function() {
             accuseRequestInFlight = false;
-            setAccuseConfirmDisabled(false);
+            updateExecuteConfirmEnabled();
           });
       }
 
@@ -1574,7 +1647,7 @@
           })
           .finally(function() {
             threatRequestInFlight = false;
-            if (threatConfirmBtn) threatConfirmBtn.disabled = true;
+            updateThreatConfirmEnabled();
           });
       }
 
@@ -1602,7 +1675,6 @@
 
       var executeModal = document.getElementById('execute-modal');
       var threatModal = document.getElementById('threat-modal');
-      var selectedExecuteTarget = null;
 
       /** 처형 확정 단일 진입점 — /api/accuse (confirm 버튼·모달 위임만 이 함수 호출) */
       function confirmAccuse() {
@@ -1617,6 +1689,12 @@
             warn.textContent = (getL().executeNoTargetHint || '').trim();
             warn.classList.add('visible');
           }
+          return;
+        }
+        if (isRoleDead(targetKey)) {
+          selectedExecuteTarget = null;
+          document.querySelectorAll('.modal-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+          updateExecuteConfirmEnabled();
           return;
         }
         if (accuseRequestInFlight) return;
@@ -1647,7 +1725,7 @@
           hint.classList.remove('visible');
         }
         if (executeModal) executeModal.classList.add('visible');
-        if (!accuseRequestInFlight) setAccuseConfirmDisabled(false);
+        applyDeadStateToModalButtons();
       }
 
       function closeExecuteModal() {
@@ -1671,6 +1749,12 @@
             w.textContent = (getL().threatNoTargetHint || '').trim();
             w.classList.add('visible');
           }
+          return;
+        }
+        if (isRoleDead(targetKey)) {
+          selectedThreatTarget = null;
+          if (threatModal) threatModal.querySelectorAll('.threat-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+          updateThreatConfirmEnabled();
           return;
         }
         if (threatRequestInFlight) return;
@@ -1700,8 +1784,8 @@
           th.textContent = L.threatNoTargetHint || '';
           th.classList.remove('visible');
         }
-        if (threatConfirmBtn) threatConfirmBtn.disabled = true;
         if (threatModal) threatModal.classList.add('visible');
+        applyDeadStateToModalButtons();
       }
 
       function closeThreatModal() {
@@ -1718,12 +1802,15 @@
 
       document.querySelectorAll('.modal-target-btn').forEach(function(btn) {
         btn.addEventListener('click', function() {
+          if (this.disabled || this.classList.contains('dead')) return;
           var rid = String(this.getAttribute('data-target') || '').toLowerCase();
+          if (isRoleDead(rid)) return;
           selectedExecuteTarget = VALID_ACCUSE_TARGETS.indexOf(rid) >= 0 ? rid : null;
           document.querySelectorAll('.modal-target-btn').forEach(function(b) { b.classList.remove('selected'); });
           this.classList.add('selected');
           var w = document.getElementById('execute-no-target-hint');
           if (w) w.classList.remove('visible');
+          updateExecuteConfirmEnabled();
         });
       });
 
@@ -1751,13 +1838,15 @@
       if (threatModal) {
         threatModal.querySelectorAll('.threat-target-btn').forEach(function(btn) {
           btn.addEventListener('click', function() {
+            if (this.disabled || this.classList.contains('dead')) return;
             var rid = String(this.getAttribute('data-target') || '').toLowerCase();
+            if (isRoleDead(rid)) return;
             selectedThreatTarget = VALID_ACCUSE_TARGETS.indexOf(rid) >= 0 ? rid : null;
             threatModal.querySelectorAll('.threat-target-btn').forEach(function(b) { b.classList.remove('selected'); });
             this.classList.add('selected');
             var hw = document.getElementById('threat-no-target-hint');
             if (hw) hw.classList.remove('visible');
-            if (threatConfirmBtn && !threatRequestInFlight) threatConfirmBtn.disabled = !selectedThreatTarget;
+            updateThreatConfirmEnabled();
           });
         });
         threatModal.addEventListener('click', function(e) {
