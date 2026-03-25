@@ -5,6 +5,8 @@
  * 로컬 개발용 HTTP API (포트 8788) 지원.
  */
 
+require('dotenv').config();
+
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -15,13 +17,20 @@ const intentParser = require('../../core/nlu/intentParser');
 const timers = require('../../core/engine/timers');
 const kills = require('../../core/engine/kills');
 const winlose = require('../../core/engine/winlose');
+/** OpenAI 공식 SDK — 대사 생성은 callChatCompletionsJson → chat.completions.create 만 사용 (Responses API 미사용). */
+const { OpenAI } = require('openai');
 
 const API_PORT = 8788;
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const LOG = process.env.BOT_LOG !== '0';
 
-/** LLM dialogue (non-terminal actions only). Rules/timer/kills stay in ep1Engine. */
+/**
+ * LLM 대사 (non-terminal만): question/suspect/check_log/threaten/collect_clue 배치.
+ * OPENAI_API_KEY + TELEGRAM_DIALOGUE_MODEL(기본 gpt-4o-mini) → OpenAI chat.completions.create
+ * TELEGRAM_DIALOGUE_MODEL=deepseek-chat|deepseek-reasoner + DEEPSEEK_API_KEY → baseURL api.deepseek.com 동일 API
+ * 키 없음/호출 실패/JSON·검증 실패 → maybeDialogueLogsFromLlmOrDeterministic가 deterministic 유지
+ */
 const TELEGRAM_DIALOGUE_MODEL = process.env.TELEGRAM_DIALOGUE_MODEL || 'gpt-4o-mini';
 const TELEGRAM_DIALOGUE_TIMEOUT_MS = Math.min(
   Math.max(parseInt(process.env.TELEGRAM_DIALOGUE_TIMEOUT_MS || '10000', 10) || 10000, 4000),
@@ -31,7 +40,7 @@ const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
 
 function isDeepSeekDialogueModel(model) {
   const m = String(model || '').toLowerCase().trim();
-  return m === 'deepseek-chat' || m === 'deepseek-reasoner' || m.startsWith('deepseek-');
+  return m === 'deepseek-chat' || m === 'deepseek-reasoner';
 }
 
 function isDialogueLlmConfigured() {
@@ -461,7 +470,6 @@ function buildDialogueUserPayload(ctx) {
 }
 
 async function callChatCompletionsJson({ system, user }) {
-  const { OpenAI } = require('openai');
   const model = TELEGRAM_DIALOGUE_MODEL;
   const useDeepSeek = isDeepSeekDialogueModel(model);
   const apiKey = useDeepSeek ? process.env.DEEPSEEK_API_KEY : process.env.OPENAI_API_KEY;
@@ -1512,7 +1520,9 @@ function createLocalApiServer() {
  * 로컬 API 서버 항상 시작, Telegram polling은 토큰 있을 때만.
  */
 if (require.main === module) {
-  require('dotenv').config();
+  console.log('[bot] TELEGRAM_DIALOGUE_MODEL=' + TELEGRAM_DIALOGUE_MODEL);
+  console.log('[bot] OPENAI_API_KEY=' + (process.env.OPENAI_API_KEY ? 'loaded' : 'missing'));
+  console.log('[bot] DEEPSEEK_API_KEY=' + (process.env.DEEPSEEK_API_KEY ? 'loaded' : 'missing'));
   const token = process.env.TELEGRAM_BOT_TOKEN;
 
   const apiServer = createLocalApiServer();
