@@ -637,8 +637,16 @@ function buildDialogueSystemPrompt(kind) {
   ];
   if (kind === 'FIND_CLUE') {
     tail.push('FIND_CLUE: crew reactions only; never put clue body in JSON (server adds [시스템]).');
+  } else if (kind === 'THREATEN') {
+    tail.push(
+      'THREATEN: focusTargetRole (threatened crew) must NEVER repeat, echo, or copy captain.text — write a wholly different sentence.'
+    );
+    tail.push(
+      'Target block only: their own reaction to pressure (tension, defense, pushback, fear) in new words; do not quote or paraphrase the captain\'s threat as their line.'
+    );
+    tail.push('Non-target crew blocks must name focusTargetKorean in text or narration.');
   } else {
-    tail.push('SUSPECT/THREATEN: every non-target crew block names focusTargetKorean in text or narration.');
+    tail.push('SUSPECT: every non-target crew block names focusTargetKorean in text or narration.');
   }
   tail.push('Respond JSON only.');
   return [...jsonContract, ...tail].join('\n');
@@ -742,7 +750,10 @@ async function tryGenerateLlmDialogueLogs(ctx) {
   } else if (kind === 'CHECK_LOG') {
     strictRetry +=
       ' CHECK_LOG: 엔지니어 중심 로그/접근/타임스탬프 불일치만. role은 captain|doctor|engineer|navigator|pilot 만; header 금지.';
-  } else if (kind === 'SUSPECT' || kind === 'THREATEN') {
+  } else if (kind === 'THREATEN') {
+    strictRetry +=
+      ' THREATEN: 타깃 블록은 함장 문장 복창·인용 금지; 압박에 대한 본인 반응만. 비타깃에 focusTargetKorean.';
+  } else if (kind === 'SUSPECT') {
     strictRetry += ' 비타깃에 focusTargetKorean.';
   } else if (kind === 'FIND_CLUE') {
     strictRetry += ' FIND_CLUE: 단서 본문 금지.';
