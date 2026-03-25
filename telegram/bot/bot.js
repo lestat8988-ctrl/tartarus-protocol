@@ -125,6 +125,142 @@ function hasExcessiveLineRepetition(blocks, maxSame) {
   return false;
 }
 
+/** deterministic display에서 [함장] 직후 본문 — 사용자 액션/엔진 고정 문장 유지용 */
+function extractCaptainSpokenFromDisplayLogs(displayLogs) {
+  const d = displayLogs || [];
+  if (d.length >= 2 && String(d[0].type || '').trim() === '[함장]') {
+    const body = String(d[1].type || '').trim();
+    if (body) return body;
+  }
+  return '';
+}
+
+/** 베르셀 톤과 어긋나는 공허 훈계·진정 멘트 등 */
+const BANNED_CREW_DIALOGUE_RES = [
+  /우리는\s*신중해야/,
+  /신중해야\s*해/,
+  /신중히\s*행동/,
+  /모두\s*진정/,
+  /진정하세/,
+  /침착하게/,
+  /함께\s*힘을/,
+  /서로\s*믿/,
+  /일단\s*진정/,
+  /훈계/,
+  /교훈/,
+  /도덕적/,
+  /과도하게\s*긴장/,
+  /불필요한\s*갈등/,
+  /화\s*내지\s*말/,
+  /차분히\s*대화/
+];
+
+/** 함장 3인칭 서술(미니앱 deterministic과 겹치는 generic) */
+const BANNED_CAPTAIN_NARRATION_RES = [
+  /함장이\s*교량/,
+  /함장은\s*교량/,
+  /함장이\s*관찰/,
+  /함장은\s*.*표정/,
+  /함장이\s*.*표정/,
+  /함장은\s*긴장/,
+  /함장이\s*긴장/,
+  /함장이\s*한숨/,
+  /함장은\s*한숨/,
+  /긴장한\s*표정으로/,
+  /단호한\s*눈빛으로/,
+  /깊은\s*한숨을/
+];
+
+function combinedBlockText(b) {
+  return `${String(b.text || '')}\n${String(b.narration || '')}`;
+}
+
+function hasBannedCrewOrCaptainPatterns(sorted) {
+  for (const b of sorted) {
+    const role = String(b.role || '').toLowerCase();
+    const pack = combinedBlockText(b);
+    if (!pack.trim()) continue;
+    for (const re of BANNED_CREW_DIALOGUE_RES) {
+      if (re.test(pack)) return true;
+    }
+    if (role === 'captain') {
+      const narr = String(b.narration || '').trim();
+      if (narr) {
+        for (const re of BANNED_CAPTAIN_NARRATION_RES) {
+          if (re.test(narr)) return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+/** 승무원 narration: 짧고 액션 연관만 (과장·중복 내레이션 억제) */
+const MAX_CREW_NARRATION_CHARS = 72;
+
+function crewNarrationAcceptable(sorted) {
+  for (const b of sorted) {
+    const role = String(b.role || '').toLowerCase();
+    if (role === 'captain') continue;
+    const narr = String(b.narration || '').trim();
+    if (!narr) continue;
+    if (narr.length > MAX_CREW_NARRATION_CHARS) return false;
+    if (/^(?:그|저|음)\s*[,，]?$/i.test(narr)) return false;
+  }
+  return true;
+}
+
+/**
+ * QUESTION/SUSPECT/THREATEN: 타깃이 아닌 승무원 발화에 타깃 역할명(한글)이 들어가야 함.
+ * CHECK_LOG: 로그·기록·시스템 등 함선 조사 맥락 키워드 1개 이상.
+ * FIND_CLUE: 단서/정보/로그 등 수집 맥락.
+ */
+function crewLinesSituationAnchored(sorted, kind, target) {
+  const LOG_HINT_RES = /로그|기록|타임스탬프|접근|CCTV|버퍼|시스템|패널|동기화|항로|데이터|쿼리|센서|터미널|동기|구역/;
+  const CLUE_HINT_RES = /단서|정보|기록|로그|데이터|확보|분석|패널|파일|스캔/;
+
+  const targetKo = roleNameKo(target);
+
+  for (const b of sorted) {
+    const role = String(b.role || '').toLowerCase();
+    if (role === 'captain') continue;
+    const pack = combinedBlockText(b);
+
+    if (kind === 'CHECK_LOG') {
+      if (!LOG_HINT_RES.test(pack)) return false;
+      continue;
+    }
+    if (kind === 'FIND_CLUE') {
+      if (!CLUE_HINT_RES.test(pack)) return false;
+      continue;
+    }
+    if ((kind === 'QUESTION' || kind === 'SUSPECT' || kind === 'THREATEN') && targetKo) {
+      if (role === String(target || '').toLowerCase()) continue;
+      if (!pack.includes(targetKo)) return false;
+    }
+  }
+  return true;
+}
+
+/** 함장 블록은 LLM 대신 deterministic 본문으로 고정, 함장 narration 제거 */
+function applyForcedCaptainToSorted(sorted, forcedCaptainText) {
+  const ft = String(forcedCaptainText || '').trim();
+  const rest = sorted.filter((b) => String(b.role || '').toLowerCase() !== 'captain');
+  if (ft) {
+    rest.unshift({
+      role: 'captain',
+      header: '[함장]',
+      text: ft,
+      narration: ''
+    });
+    return rest;
+  }
+  const copy = sorted.map((b) => ({ ...b }));
+  const cap = copy.find((x) => String(x.role || '').toLowerCase() === 'captain');
+  if (cap) cap.narration = '';
+  return copy;
+}
+
 function sortLlmBlocksByExpected(blocks, crewOrder) {
   const byRole = new Map();
   for (const b of blocks) {
@@ -142,13 +278,21 @@ function sortLlmBlocksByExpected(blocks, crewOrder) {
   return ordered;
 }
 
-function validateLlmDialogueBlocks(parsed, kind, expectedCrew) {
+function validateLlmDialogueBlocks(parsed, kind, expectedCrew, opts) {
+  opts = opts || {};
+  const forcedCaptainText = String(opts.forcedCaptainText || '').trim();
+  const target = opts.target != null ? String(opts.target).toLowerCase() : null;
+
   if (!parsed || typeof parsed !== 'object') return null;
   const blocks = parsed.blocks;
   if (!Array.isArray(blocks) || blocks.length === 0) return null;
-  const sorted = sortLlmBlocksByExpected(blocks, expectedCrew);
+  let sorted = sortLlmBlocksByExpected(blocks, expectedCrew);
+  sorted = applyForcedCaptainToSorted(sorted, forcedCaptainText);
+
   const cap = sorted.find((b) => String(b.role || '').toLowerCase() === 'captain');
   if (!cap || !String(cap.text || '').trim()) return null;
+  if (String(cap.narration || '').trim()) return null;
+
   for (const r of expectedCrew) {
     const b = sorted.find((x) => String(x.role || '').toLowerCase() === r);
     if (!b || !String(b.text || '').trim()) return null;
@@ -158,6 +302,11 @@ function validateLlmDialogueBlocks(parsed, kind, expectedCrew) {
     const r = String(b.role || '').toLowerCase();
     if (!allowed.has(r)) return null;
   }
+
+  if (hasBannedCrewOrCaptainPatterns(sorted)) return null;
+  if (!crewNarrationAcceptable(sorted)) return null;
+  if (!crewLinesSituationAnchored(sorted, kind, target)) return null;
+
   const allTexts = [];
   for (const b of sorted) {
     allTexts.push(String(b.text || ''));
@@ -199,15 +348,34 @@ function mergeFindClueDeterministicClue(displayLogs, clueText, batchKey) {
 
 function buildDialogueSystemPrompt() {
   return [
-    'You write Korean dialogue ONLY for the sci-fi horror scenario USSC Tartarus (Episode 1).',
-    'You do NOT decide game rules, outcomes, deaths, clues data, timers, or who is the impostor.',
-    'Output MUST be a single JSON object with key "blocks" (array). No markdown outside JSON.',
-    'Each block: { "role": "captain"|"doctor"|"engineer"|"navigator"|"pilot", "header": "[함장]" etc., "text": "spoken line", "narration": optional third-person Korean line }.',
-    'Tone: captain = command, terse; doctor = medical/anxiety; engineer = systems/logs; navigator = routes/alibi; pilot = cockpit/instinct.',
-    'If a targetRole is given, crew lines must center on that crew member.',
-    'Use natural Korean. Headers must match: [함장] [닥터] [엔지니어] [네비게이터] [파일럿].',
-    'Include one narration line per crew block when it improves readability (optional for captain).',
-    'Do not repeat the same long sentence across blocks. Keep lines distinct.',
+    'You write Korean in-universe dialogue for USSC Tartarus (Episode 1), 베르셀 성공본 톤: 구체적·함선 내 상황에 박힌 대사만.',
+    'You NEVER decide rules, outcomes, deaths, clue facts, timers, or impostor identity.',
+    'Output: one JSON object with key "blocks" (array) only. No markdown.',
+    'Block shape: { "role", "header", "text", "narration?" }. Headers exactly: [함장] [닥터] [엔지니어] [네비게이터] [파일럿].',
+    '',
+    'HARD RULES:',
+    '- Every line must tie to the current action and (if given) focusTargetRole. No generic life advice, sermons, morals, or abstract warnings.',
+    '- FORBIDDEN vibes/phrases (non-exhaustive): "모두 진정", "신중해야", "침착하게", "우리는 함께", "서로 믿", "훈계", "교훈", empty reassurance.',
+    '- No vague "teamwork" talk. Replace with concrete ship facts: logs, timestamps, zones, biometrics, routes, cockpit readings.',
+    '',
+    'ROLE LOCKS (spoken "text" must follow):',
+    '- doctor: biometrics, stress, vitals, psychological tells, medical observation of crew.',
+    '- engineer: logs, access records, system glitches, CCTV buffers, sync anomalies.',
+    '- navigator: routes, timestamps, alibi holes, bridge/helm position challenges.',
+    '- pilot: atmosphere in cockpit/bridge, gut feel, subtle environmental wrongness.',
+    '- captain: copy captainSpokenLineVerbatim from user JSON EXACTLY into captain.text; captain.narration MUST be empty string "" always.',
+    '',
+    'CREW narration:',
+    '- At most ONE short third-person line per crew block; omit narration if unnecessary.',
+    '- narration must describe a concrete physical/technical action tied to that line (max ~35 Korean syllables worth).',
+    '- No duplicate stock narration across crew. No "…삼켰다" chains for everyone.',
+    '',
+    'TARGET FOCUS:',
+    '- QUESTION / SUSPECT / THREATEN: every non-target crew block must explicitly name the focus target in Korean (e.g. 네비게이터) in text or narration.',
+    '- Target crew\'s own block may use first-person defense; still about the accusation/question.',
+    '- CHECK_LOG: all crew lines must reference logs, records, CCTV, timestamps, or ship systems — no off-topic small talk.',
+    '- FIND_CLUE: reactions to gathering intel; do not invent the clue text (server injects [시스템]).',
+    '',
     'Respond with JSON only.'
   ].join('\n');
 }
@@ -216,14 +384,20 @@ function buildDialogueUserPayload(ctx) {
   return JSON.stringify(
     {
       action: ctx.kind,
-      targetRole: ctx.target || null,
+      focusTargetRole: ctx.target || null,
+      focusTargetKorean: ctx.targetKo || null,
       crewSpeakingOrder: ctx.expectedCrew,
       deadRoles: ctx.deadRoles || [],
       captainPlayerInput: ctx.playerText || '',
+      captainSpokenLineVerbatim: ctx.captainSpokenLineVerbatim || null,
       clueTextToQuoteVerbatim: ctx.clueText || null,
+      instructionCaptain:
+        ctx.captainSpokenLineVerbatim
+          ? 'Set captain.text EXACTLY equal to captainSpokenLineVerbatim (character-for-character). Set captain.narration to "".'
+          : 'Captain.text short and decisive; captain.narration must be "".',
       note:
         ctx.clueText != null
-          ? 'For FIND_CLUE: do NOT put the clue fact text in your JSON; only reactions. The server will append the real clue as [시스템].'
+          ? 'FIND_CLUE: never put the real clue sentence in JSON; server appends [시스템] clue. Only crew reactions to collecting intel.'
           : undefined
     },
     null,
@@ -251,7 +425,7 @@ async function callChatCompletionsJson({ system, user }) {
       { role: 'system', content: system },
       { role: 'user', content: user }
     ],
-    temperature: 0.65,
+    temperature: 0.42,
     max_tokens: 2500
   };
   if (!useDeepSeek) {
@@ -268,44 +442,56 @@ async function callChatCompletionsJson({ system, user }) {
  */
 async function tryGenerateLlmDialogueLogs(ctx) {
   if (!isDialogueLlmConfigured()) return null;
-  const { kind, rawEvents, match, playerText, clueText } = ctx;
+  const { kind, rawEvents, match, playerText, clueText, forcedCaptainText } = ctx;
   const gs = match?.game_state || {};
   const deadRoles = gs.dead_roles || [];
   const ev0 = rawEvents && rawEvents[0];
   const target = ev0?.target ? String(ev0.target).toLowerCase() : null;
   const expectedCrew = expectedCrewOrderForLlm(kind, target, deadRoles, rawEvents);
   const batchKey = `llm|${kind}|${Date.now()}`;
+  const captainForced = String(forcedCaptainText || '').trim();
 
   const system = buildDialogueSystemPrompt();
-  const user = buildDialogueUserPayload({
+  const userBase = buildDialogueUserPayload({
     kind,
     target,
+    targetKo: roleNameKo(target),
     expectedCrew,
     deadRoles,
     playerText: playerText || '',
-    clueText: kind === 'FIND_CLUE' ? clueText : null
+    clueText: kind === 'FIND_CLUE' ? clueText : null,
+    captainSpokenLineVerbatim: captainForced || null
   });
+  const strictRetry =
+    '\n\n[STRICT_RETRY] 검증 실패. 금지: 진정/신중/침착/함께/훈계/교훈/공허한 조언. QUESTION·SUSPECT·THREATEN에서는 focusTargetKorean을 타깃이 아닌 모든 승무원 블록에 반드시 포함. CHECK_LOG는 매 승무원 블록에 로그·기록·CCTV·타임스탬프·접근·시스템 중 하나. narration은 짧게, 같은 패턴 반복 금지.';
 
-  let raw;
-  try {
-    raw = await callChatCompletionsJson({ system, user });
-  } catch (err) {
-    log('LLM_DIALOGUE', 'call_failed', { kind, err: String(err && err.message) });
-    return null;
+  let lastRaw = '';
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const user = userBase + (attempt ? strictRetry : '');
+    let raw;
+    try {
+      raw = await callChatCompletionsJson({ system, user });
+    } catch (err) {
+      log('LLM_DIALOGUE', 'call_failed', { kind, attempt, err: String(err && err.message) });
+      return null;
+    }
+    lastRaw = raw;
+    const parsed = extractJsonObjectFromLlmText(raw);
+    const valid = validateLlmDialogueBlocks(parsed, kind, expectedCrew, {
+      forcedCaptainText: captainForced,
+      target
+    });
+    if (valid) {
+      let logs = llmBlocksToDisplayLogs(valid, batchKey);
+      if (kind === 'FIND_CLUE' && clueText) {
+        logs = mergeFindClueDeterministicClue(logs, clueText, batchKey);
+      }
+      return logs.length ? logs : null;
+    }
+    log('LLM_DIALOGUE', 'validate_failed', { kind, attempt });
   }
-
-  const parsed = extractJsonObjectFromLlmText(raw);
-  const valid = validateLlmDialogueBlocks(parsed, kind, expectedCrew);
-  if (!valid) {
-    log('LLM_DIALOGUE', 'validate_failed', { kind });
-    return null;
-  }
-
-  let logs = llmBlocksToDisplayLogs(valid, batchKey);
-  if (kind === 'FIND_CLUE' && clueText) {
-    logs = mergeFindClueDeterministicClue(logs, clueText, batchKey);
-  }
-  return logs.length ? logs : null;
+  log('LLM_DIALOGUE', 'aborted_after_retry', { kind, rawHead: String(lastRaw).slice(0, 120) });
+  return null;
 }
 
 async function maybeDialogueLogsFromLlmOrDeterministic({
@@ -317,12 +503,14 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
 }) {
   const kind = getDialogueLlmKind(rawEvents);
   if (!kind) return deterministicLogs;
+  const forcedCaptainText = extractCaptainSpokenFromDisplayLogs(deterministicLogs);
   const llmLogs = await tryGenerateLlmDialogueLogs({
     kind,
     rawEvents,
     match,
     playerText: playerText || '',
-    clueText: clueTextFromEvent != null ? clueTextFromEvent : undefined
+    clueText: clueTextFromEvent != null ? clueTextFromEvent : undefined,
+    forcedCaptainText
   });
   if (llmLogs && llmLogs.length) return llmLogs;
   return deterministicLogs;
