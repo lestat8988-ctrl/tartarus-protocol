@@ -124,6 +124,59 @@ const LLM_ROLE_HEADERS = {
   pilot: '[파일럿]'
 };
 
+/** LLM이 한글·대괄호·영문으로 준 role/header 토큰 → canonical role 키 */
+function canonicalRoleFromLlmToken(raw) {
+  if (raw == null) return null;
+  let s = String(raw).trim();
+  if (!s) return null;
+  s = s.replace(/^\[/, '').replace(/\]$/, '').trim();
+  const k = s.toLowerCase();
+  const MAP = {
+    captain: 'captain',
+    함장: 'captain',
+    doctor: 'doctor',
+    닥터: 'doctor',
+    engineer: 'engineer',
+    엔지니어: 'engineer',
+    navigator: 'navigator',
+    네비게이터: 'navigator',
+    pilot: 'pilot',
+    파일럿: 'pilot'
+  };
+  return MAP[k] || null;
+}
+
+/**
+ * 검증 전: role/header 정규화, 역할별 1블록으로 병합(빈 text면 나중 비어 있지 않은 쪽 선호)
+ */
+function normalizeLlmDialogueBlocksArray(blocks) {
+  if (!Array.isArray(blocks)) return [];
+  const merged = new Map();
+  for (const b of blocks) {
+    if (!b || typeof b !== 'object') continue;
+    let canon = canonicalRoleFromLlmToken(b.role);
+    if (!canon) canon = canonicalRoleFromLlmToken(b.header);
+    if (!canon) continue;
+    const text = String(b.text != null ? b.text : '').trim();
+    const narr = b.narration != null ? String(b.narration).trim() : '';
+    const hdr = LLM_ROLE_HEADERS[canon];
+    const prev = merged.get(canon);
+    if (!prev) {
+      merged.set(canon, { role: canon, header: hdr, text, narration: narr });
+      continue;
+    }
+    const pt = String(prev.text || '').trim();
+    const nt = text;
+    merged.set(canon, {
+      role: canon,
+      header: hdr,
+      text: pt || nt,
+      narration: String(prev.narration || '').trim() || narr
+    });
+  }
+  return Array.from(merged.values());
+}
+
 /** role 키 → 베르셀 고정 헤더 (대괄호 포함) */
 function canonicalHeaderFromRoleKey(roleKey) {
   const r = String(roleKey || '').toLowerCase();
@@ -287,53 +340,6 @@ function hasBannedCrewOrCaptainPatterns(sorted) {
   return false;
 }
 
-/** 승무원 narration: 짧고 액션 연관만 (과장·중복 내레이션 억제) */
-const MAX_CREW_NARRATION_CHARS = 72;
-
-function crewNarrationAcceptable(sorted) {
-  for (const b of sorted) {
-    const role = String(b.role || '').toLowerCase();
-    if (role === 'captain') continue;
-    const narr = String(b.narration || '').trim();
-    if (!narr) continue;
-    if (narr.length > MAX_CREW_NARRATION_CHARS) return false;
-    if (/^(?:그|저|음)\s*[,，]?$/i.test(narr)) return false;
-  }
-  return true;
-}
-
-/**
- * QUESTION/SUSPECT/THREATEN: 타깃이 아닌 승무원 발화에 타깃 역할명(한글)이 들어가야 함.
- * CHECK_LOG: 로그·기록·시스템 등 함선 조사 맥락 키워드 1개 이상.
- * FIND_CLUE: 단서/정보/로그 등 수집 맥락.
- */
-function crewLinesSituationAnchored(sorted, kind, target) {
-  const LOG_HINT_RES = /로그|기록|타임스탬프|접근|CCTV|버퍼|시스템|패널|동기화|항로|데이터|쿼리|센서|터미널|동기|구역/;
-  const CLUE_HINT_RES = /단서|정보|기록|로그|데이터|확보|분석|패널|파일|스캔/;
-
-  const targetKo = roleNameKo(target);
-
-  for (const b of sorted) {
-    const role = String(b.role || '').toLowerCase();
-    if (role === 'captain') continue;
-    const pack = combinedBlockText(b);
-
-    if (kind === 'CHECK_LOG') {
-      if (!LOG_HINT_RES.test(pack)) return false;
-      continue;
-    }
-    if (kind === 'FIND_CLUE') {
-      if (!CLUE_HINT_RES.test(pack)) return false;
-      continue;
-    }
-    if ((kind === 'QUESTION' || kind === 'SUSPECT' || kind === 'THREATEN') && targetKo) {
-      if (role === String(target || '').toLowerCase()) continue;
-      if (!pack.includes(targetKo)) return false;
-    }
-  }
-  return true;
-}
-
 /** 함장 블록은 LLM 대신 deterministic 본문으로 고정, 함장 narration 제거 */
 function applyForcedCaptainToSorted(sorted, forcedCaptainText) {
   const ft = String(forcedCaptainText || '').trim();
@@ -370,42 +376,55 @@ function sortLlmBlocksByExpected(blocks, crewOrder) {
   return ordered;
 }
 
+/** 정렬 후 헤더·함장 narration 정리 */
+function finalizeNormalizedLlmBlocks(sorted) {
+  return sorted.map((b) => {
+    const r = String(b.role || '').toLowerCase();
+    const hdr = LLM_ROLE_HEADERS[r];
+    const out = { ...b, role: r, header: hdr || b.header };
+    if (r === 'captain') out.narration = '';
+    return out;
+  });
+}
+
 function validateLlmDialogueBlocks(parsed, kind, expectedCrew, opts) {
   opts = opts || {};
   const forcedCaptainText = String(opts.forcedCaptainText || '').trim();
-  const target = opts.target != null ? String(opts.target).toLowerCase() : null;
 
   if (!parsed || typeof parsed !== 'object') return null;
   const blocks = parsed.blocks;
   if (!Array.isArray(blocks) || blocks.length === 0) return null;
-  let sorted = sortLlmBlocksByExpected(blocks, expectedCrew);
-  sorted = applyForcedCaptainToSorted(sorted, forcedCaptainText);
 
-  const cap = sorted.find((b) => String(b.role || '').toLowerCase() === 'captain');
+  const normalized = normalizeLlmDialogueBlocksArray(blocks);
+  if (normalized.length === 0) return null;
+
+  let sorted = sortLlmBlocksByExpected(normalized, expectedCrew);
+  sorted = applyForcedCaptainToSorted(sorted, forcedCaptainText);
+  sorted = finalizeNormalizedLlmBlocks(sorted);
+
+  const allowed = new Set(['captain', ...expectedCrew]);
+  sorted = sorted.filter((b) => allowed.has(String(b.role || '').toLowerCase()));
+  sorted = sortLlmBlocksByExpected(sorted, expectedCrew);
+  sorted = applyForcedCaptainToSorted(sorted, forcedCaptainText);
+  sorted = finalizeNormalizedLlmBlocks(sorted);
+
+  const cap = sorted.find((b) => b.role === 'captain');
   if (!cap || !String(cap.text || '').trim()) return null;
-  if (String(cap.narration || '').trim()) return null;
 
   for (const r of expectedCrew) {
-    const b = sorted.find((x) => String(x.role || '').toLowerCase() === r);
+    const b = sorted.find((x) => x.role === r);
     if (!b || !String(b.text || '').trim()) return null;
-  }
-  const allowed = new Set(['captain', ...expectedCrew]);
-  for (const b of sorted) {
-    const r = String(b.role || '').toLowerCase();
-    if (!allowed.has(r)) return null;
   }
 
   if (hasBannedCrewOrCaptainPatterns(sorted)) return null;
-  if (!crewNarrationAcceptable(sorted)) return null;
-  if (!crewLinesSituationAnchored(sorted, kind, target)) return null;
 
   const allTexts = [];
   for (const b of sorted) {
     allTexts.push(String(b.text || ''));
     if (b.narration) allTexts.push(String(b.narration));
   }
-  if (!koreanHeavyEnoughForDialogue(allTexts, 0.38)) return null;
-  if (hasExcessiveLineRepetition(sorted, 2)) return null;
+  if (!koreanHeavyEnoughForDialogue(allTexts, 0.2)) return null;
+  if (hasExcessiveLineRepetition(sorted, 3)) return null;
   return sorted;
 }
 
@@ -572,6 +591,10 @@ async function tryGenerateLlmDialogueLogs(ctx) {
       target
     });
     if (valid) {
+      console.log(
+        '[bot] LLM_DIALOGUE normalized ' +
+          JSON.stringify({ kind, roles: valid.map((b) => b.role) })
+      );
       let logs = llmBlocksToDisplayLogs(valid, batchKey);
       if (kind === 'FIND_CLUE' && clueText) {
         logs = mergeFindClueDeterministicClue(logs, clueText, batchKey);
