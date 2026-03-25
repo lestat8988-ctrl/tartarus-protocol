@@ -7,6 +7,13 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; height: 100%; }
+    :root {
+      --captain-status-color-idle: #2aef2a;
+      --captain-status-color-pending: #5eff5e;
+      --captain-status-font-size: 0.78rem;
+      --captain-status-letter-spacing: 0.04em;
+      --captain-status-min-height: 1.35em;
+    }
     body {
       background: #0a0a0a;
       color: #2aef2a;
@@ -63,6 +70,37 @@
     .outcome-badge.crew_win { background: #0a3a0a; border: 2px solid #2aef2a; color: #4aff4a; box-shadow: 0 0 12px rgba(42,239,42,0.3); }
     .outcome-badge.impostor_win { background: #3a0a0a; border: 2px solid #ef2a2a; color: #ff4a4a; box-shadow: 0 0 12px rgba(239,42,42,0.3); }
     .outcome-badge.accuse_failed { background: #3a1a0a; border: 2px solid #ef8a2a; color: #ffaa4a; box-shadow: 0 0 12px rgba(239,138,42,0.25); }
+
+    /* 함장 입력 / 크루 응답 상태 (public index phase-status와 동일 역할, 단일 플래그로만 갱신) */
+    .captain-phase-status {
+      display: block;
+      text-align: center;
+      font-size: var(--captain-status-font-size);
+      letter-spacing: var(--captain-status-letter-spacing);
+      min-height: var(--captain-status-min-height);
+      margin: 4px 0 8px;
+      padding: 6px 8px;
+      border-radius: 4px;
+      border: 1px solid transparent;
+      transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+    }
+    .captain-phase-status.captain-phase-idle {
+      color: var(--captain-status-color-idle);
+      background: #0d1a0d;
+      border-color: #2aef2a33;
+    }
+    .captain-phase-status.captain-phase-pending {
+      color: var(--captain-status-color-pending);
+      background: #0f2210;
+      border-color: #2aef2a55;
+      font-weight: 600;
+    }
+    .captain-phase-status.captain-phase-hidden {
+      display: none;
+    }
+    body.crew-response-pending #game-screen .input-area input {
+      opacity: 0.45;
+    }
 
     /* Status card — 플레이 중 숨김 (베르셀처럼 로그 중심) */
     .status-card {
@@ -561,6 +599,8 @@
 
     <div class="outcome-badge" id="outcome-badge"></div>
 
+    <p id="captain-phase-status" class="captain-phase-status captain-phase-idle" role="status" aria-live="polite"></p>
+
     <section class="game-briefing-viewport" id="game-briefing-viewport">
       <div class="game-briefing-scroll" id="game-briefing-scroll">
         <div class="game-briefing-line briefing-title" id="briefing-boot-title">[SYSTEM INITIALIZE…]</div>
@@ -795,6 +835,9 @@
           clue: '단서 수집',
           execute: '[ 처형 프로토콜 실행 (ACCUSE) ]',
           freeInput: '명령 입력...',
+          statusCaptainIdle: '함장 입력 대기',
+          statusCrewPending: '크루 반응 진행 중...',
+          statusInputLocked: '입력 잠김 — 크루 반응 대기',
           gameOverPlaceholder: '게임 종료됨',
           send: '전송',
           restart: '다시 시작',
@@ -853,6 +896,9 @@
           clue: 'FIND CLUE',
           execute: '[ INITIATE PURGE PROTOCOL (ACCUSE) ]',
           freeInput: 'Enter command...',
+          statusCaptainIdle: 'Awaiting captain input',
+          statusCrewPending: 'Crew responding...',
+          statusInputLocked: 'Input locked — crew responding',
           gameOverPlaceholder: 'Game Over',
           send: 'SEND',
           restart: 'RESTART',
@@ -933,6 +979,7 @@
       const resultRestartBtn = document.getElementById('result-restart-btn');
       const executeConfirmBtn = document.getElementById('execute-confirm');
       const threatConfirmBtn = document.getElementById('threat-confirm');
+      const captainPhaseStatusEl = document.getElementById('captain-phase-status');
 
       var isGameOver = false;
       var previousGameOver = false;
@@ -952,6 +999,108 @@
       var lastDeadRoles = [];
       /** [함장] 줄 이후 같은 턴의 크루 반응 append 시 맨 아래로 스크롤하지 않음 */
       var logInActiveTurn = false;
+      /**
+       * /api/message·/api/action 등 서버·LLM 응답 대기 (public index의 gamePhase crew_resolving에 대응).
+       * 단일 플래그로만 잠금 — 리스너 중복 등록 없음, finally + rAF로 해제 누락 방지.
+       */
+      var crewResponsePending = false;
+
+      function refreshCaptainPhaseStatusUi() {
+        if (!captainPhaseStatusEl) return;
+        var L = getL();
+        if (isGameOver) {
+          captainPhaseStatusEl.textContent = '';
+          captainPhaseStatusEl.classList.add('captain-phase-hidden');
+          captainPhaseStatusEl.classList.remove('captain-phase-idle', 'captain-phase-pending');
+          return;
+        }
+        captainPhaseStatusEl.classList.remove('captain-phase-hidden');
+        if (crewResponsePending) {
+          captainPhaseStatusEl.textContent = L.statusCrewPending || '';
+          captainPhaseStatusEl.classList.remove('captain-phase-idle');
+          captainPhaseStatusEl.classList.add('captain-phase-pending');
+        } else {
+          captainPhaseStatusEl.textContent = L.statusCaptainIdle || '';
+          captainPhaseStatusEl.classList.remove('captain-phase-pending');
+          captainPhaseStatusEl.classList.add('captain-phase-idle');
+        }
+      }
+
+      function applyCaptainInputChrome() {
+        var L = getL();
+        var locked = isGameOver || crewResponsePending;
+        document.body.classList.toggle('crew-response-pending', !!crewResponsePending && !isGameOver);
+        if (inputArea) inputArea.classList.toggle('disabled', locked);
+        if (freeInput) {
+          freeInput.disabled = locked;
+          if (isGameOver) freeInput.placeholder = L.gameOverPlaceholder;
+          else if (crewResponsePending) freeInput.placeholder = L.statusInputLocked || L.statusCrewPending || '';
+          else freeInput.placeholder = L.freeInput;
+        }
+        if (sendBtn) sendBtn.disabled = locked;
+        actionBtns.forEach(function(b) {
+          b.disabled = locked;
+          b.classList.toggle('locked', locked);
+        });
+        if (episodeUnlockBtn) episodeUnlockBtn.disabled = locked;
+      }
+
+      /** rAF 미동작(텔레그램 WebView 등) 시 pending 고착 방지용 백업 타이머 */
+      var captainIdleBackupTimer = null;
+
+      function cancelCaptainIdleBackup() {
+        if (captainIdleBackupTimer != null) {
+          clearTimeout(captainIdleBackupTimer);
+          captainIdleBackupTimer = null;
+        }
+      }
+
+      function setCrewResponsePending(on) {
+        if (on) cancelCaptainIdleBackup();
+        crewResponsePending = !!on;
+        if (!on) cancelCaptainIdleBackup();
+        if (crewResponsePending) {
+          if (executeModal && executeModal.classList.contains('visible')) closeExecuteModal();
+          if (threatModal && threatModal.classList.contains('visible')) closeThreatModal();
+          if (freeInput) freeInput.blur();
+        }
+        applyCaptainInputChrome();
+        refreshCaptainPhaseStatusUi();
+      }
+
+      /**
+       * 크루 로그 동기 append 이후, 스크롤용 rAF(appendLog)까지 반영된 뒤 idle.
+       * 마지막 완료 시점: appendSummaryOrEvents/appendLog 동기 실행 종료 → (최대 3프레임 + 0ms task) → setIdle.
+       */
+      function scheduleCaptainIdleAfterResponse() {
+        cancelCaptainIdleBackup();
+        captainIdleBackupTimer = setTimeout(function() {
+          captainIdleBackupTimer = null;
+          if (crewResponsePending) setCrewResponsePending(false);
+        }, 750);
+
+        var finishIdle = function() {
+          cancelCaptainIdleBackup();
+          setCrewResponsePending(false);
+        };
+
+        var afterPaint = function() {
+          try {
+            if (logPanel) void logPanel.offsetHeight;
+          } catch (e) {}
+          setTimeout(finishIdle, 0);
+        };
+
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(function() {
+            requestAnimationFrame(function() {
+              requestAnimationFrame(afterPaint);
+            });
+          });
+        } else {
+          setTimeout(afterPaint, 0);
+        }
+      }
 
       function setRestartButtonsDisabled(disabled) {
         if (restartBtn) restartBtn.disabled = !!disabled;
@@ -1013,6 +1162,12 @@
         if (logPanel) logPanel.innerHTML = '';
       }
       function resetResultUI() {
+        cancelCaptainIdleBackup();
+        crewResponsePending = false;
+        accuseRequestInFlight = false;
+        threatRequestInFlight = false;
+        takePistolRequestInFlight = false;
+        collectClueRequestInFlight = false;
         previousGameOver = false;
         previousOutcome = null;
         if (executeModalUnlockTimer) {
@@ -1060,6 +1215,10 @@
         if (targets.length) targets.forEach(function(b) { b.classList.remove('selected'); });
         var execNoTargetHint = document.getElementById('execute-no-target-hint');
         if (execNoTargetHint) execNoTargetHint.classList.remove('visible');
+        updateExecuteConfirmEnabled();
+        updateThreatConfirmEnabled();
+        applyCaptainInputChrome();
+        refreshCaptainPhaseStatusUi();
       }
 
       function getPlayerId() {
@@ -1165,13 +1324,19 @@
       }
       function updateExecuteConfirmEnabled() {
         if (!executeConfirmBtn) return;
-        if (accuseRequestInFlight) return;
+        if (accuseRequestInFlight) {
+          executeConfirmBtn.disabled = true;
+          return;
+        }
         var alive = selectedExecuteTarget && !isRoleDead(selectedExecuteTarget);
         executeConfirmBtn.disabled = !alive;
       }
       function updateThreatConfirmEnabled() {
         if (!threatConfirmBtn) return;
-        if (threatRequestInFlight) return;
+        if (threatRequestInFlight) {
+          threatConfirmBtn.disabled = true;
+          return;
+        }
         var alive = selectedThreatTarget && !isRoleDead(selectedThreatTarget);
         threatConfirmBtn.disabled = !alive;
       }
@@ -1215,16 +1380,9 @@
 
       function setGameOverLock(locked) {
         isGameOver = !!locked;
-        var L = getL();
-        if (inputArea) inputArea.classList.toggle('disabled', locked);
-        if (freeInput) freeInput.placeholder = locked ? L.gameOverPlaceholder : L.freeInput;
-        if (actionPanel) {
-          actionBtns.forEach(function(b) {
-            b.classList.toggle('locked', locked);
-            if (!locked) b.disabled = false;
-          });
-        }
         if (restartSection) restartSection.classList.toggle('visible', locked);
+        applyCaptainInputChrome();
+        refreshCaptainPhaseStatusUi();
       }
 
       function ensureIntroButtonsEnabled() {
@@ -1304,7 +1462,11 @@
           else if (a === 'clue') b.textContent = L.clue;
           else if (a === 'execute') b.textContent = L.execute;
         });
-        if (freeInput) freeInput.placeholder = isGameOver ? L.gameOverPlaceholder : L.freeInput;
+        if (freeInput) {
+          if (isGameOver) freeInput.placeholder = L.gameOverPlaceholder;
+          else if (crewResponsePending) freeInput.placeholder = L.statusInputLocked || L.statusCrewPending || '';
+          else freeInput.placeholder = L.freeInput;
+        }
         if (sendBtn) sendBtn.textContent = L.send;
         if (restartBtn) restartBtn.textContent = L.restart;
         if (resultRestartBtn) {
@@ -1342,6 +1504,8 @@
           threatNoTarget.textContent = L.threatNoTargetHint || '';
           threatNoTarget.classList.remove('visible');
         }
+        refreshCaptainPhaseStatusUi();
+        applyCaptainInputChrome();
       }
 
       function formatOutcomeDisplay(outcome) {
@@ -1437,6 +1601,8 @@
         if (hudCountdown) hudCountdown.textContent = getL().countdown + ' : ' + timeStr;
 
         if (gs.game_over && gs.outcome) {
+          cancelCaptainIdleBackup();
+          crewResponsePending = false;
           statusThreat.textContent = 'GAME OVER';
           statusThreat.classList.remove('nominal');
           statusThreat.classList.add('threat');
@@ -1450,6 +1616,8 @@
           var allowResultModal = opts.fromStart === true || opts.forApiMessage === true;
           if (!prevWasGameOver && allowResultModal) showResultModal(state);
         } else if (gs.game_over && !gs.outcome) {
+          cancelCaptainIdleBackup();
+          crewResponsePending = false;
           statusThreat.textContent = 'GAME OVER';
           statusThreat.classList.remove('nominal');
           statusThreat.classList.add('threat');
@@ -1500,6 +1668,9 @@
 
       function doStart(restart) {
         if (startRequestInFlight) return;
+        crewResponsePending = false;
+        applyCaptainInputChrome();
+        refreshCaptainPhaseStatusUi();
         startRequestInFlight = true;
         setRestartButtonsDisabled(true);
         var playerId = getPlayerId();
@@ -1536,11 +1707,13 @@
           .finally(function() {
             startRequestInFlight = false;
             setRestartButtonsDisabled(false);
+            setCrewResponsePending(false);
           });
       }
 
       function doMessage(text) {
-        if (isGameOver) return;
+        if (isGameOver || crewResponsePending) return;
+        setCrewResponsePending(true);
         var playerId = getPlayerId();
         fetch(API_BASE + '/api/message', {
           method: 'POST',
@@ -1562,14 +1735,20 @@
           })
           .catch(function(err) {
             appendLog('Connection failed: ' + err.message, true);
+          })
+          .finally(function() {
+            scheduleCaptainIdleAfterResponse();
           });
       }
 
-      /** 처형 확정 전용 — /api/message·doMessage 경로 미사용, 텍스트 파싱 없음 */
+      /** 처형 확정 전용 — /api/message·doMessage 경로 미사용, 텍스트 파싱 없음 (플래그는 confirmAccuse에서 선설정) */
       function postAccuse(targetKey) {
-        if (isGameOver || accuseRequestInFlight) return;
-        accuseRequestInFlight = true;
-        setAccuseConfirmDisabled(true);
+        if (isGameOver) {
+          accuseRequestInFlight = false;
+          setAccuseConfirmDisabled(false);
+          updateExecuteConfirmEnabled();
+          return;
+        }
         var playerId = getPlayerId();
         fetch(API_BASE + '/api/accuse', {
           method: 'POST',
@@ -1600,9 +1779,9 @@
 
       /** 권총 획득 — /api/message·텍스트 파싱 없이 POST /api/action */
       function postTakePistol() {
-        if (isGameOver || takePistolRequestInFlight) return;
+        if (isGameOver || takePistolRequestInFlight || crewResponsePending) return;
         takePistolRequestInFlight = true;
-        if (pistolActionBtn) pistolActionBtn.disabled = true;
+        setCrewResponsePending(true);
         var playerId = getPlayerId();
         fetch(API_BASE + '/api/action', {
           method: 'POST',
@@ -1627,15 +1806,15 @@
           })
           .finally(function() {
             takePistolRequestInFlight = false;
-            if (pistolActionBtn) pistolActionBtn.disabled = !!isGameOver;
+            scheduleCaptainIdleAfterResponse();
           });
       }
 
       /** 단서 수집 — /api/message·텍스트 파싱 없이 POST /api/action */
       function postCollectClue() {
-        if (isGameOver || collectClueRequestInFlight) return;
+        if (isGameOver || collectClueRequestInFlight || crewResponsePending) return;
         collectClueRequestInFlight = true;
-        if (clueActionBtn) clueActionBtn.disabled = true;
+        setCrewResponsePending(true);
         var playerId = getPlayerId();
         fetch(API_BASE + '/api/action', {
           method: 'POST',
@@ -1660,15 +1839,19 @@
           })
           .finally(function() {
             collectClueRequestInFlight = false;
-            if (clueActionBtn) clueActionBtn.disabled = !!isGameOver;
+            scheduleCaptainIdleAfterResponse();
           });
       }
 
-      /** 위협 — 타깃 선택 후 POST /api/action threaten (비처형) */
+      /** 위협 — 타깃 선택 후 POST /api/action threaten (비처형); threatRequestInFlight는 confirmThreat에서 선설정 */
       function postThreaten(targetKey) {
-        if (isGameOver || threatRequestInFlight) return;
-        threatRequestInFlight = true;
-        if (threatConfirmBtn) threatConfirmBtn.disabled = true;
+        if (isGameOver) {
+          threatRequestInFlight = false;
+          updateThreatConfirmEnabled();
+          scheduleCaptainIdleAfterResponse();
+          return;
+        }
+        setCrewResponsePending(true);
         var playerId = getPlayerId();
         fetch(API_BASE + '/api/action', {
           method: 'POST',
@@ -1694,6 +1877,7 @@
           .finally(function() {
             threatRequestInFlight = false;
             updateThreatConfirmEnabled();
+            scheduleCaptainIdleAfterResponse();
           });
       }
 
@@ -1724,6 +1908,7 @@
 
       /** 처형 확정 단일 진입점 — /api/accuse (confirm 버튼·모달 위임만 이 함수 호출) */
       function confirmAccuse() {
+        if (accuseRequestInFlight || crewResponsePending) return;
         var targetKey = selectedExecuteTarget;
         if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
           var sel = executeModal ? executeModal.querySelector('.modal-target-btn.selected') : null;
@@ -1743,7 +1928,8 @@
           updateExecuteConfirmEnabled();
           return;
         }
-        if (accuseRequestInFlight) return;
+        accuseRequestInFlight = true;
+        setAccuseConfirmDisabled(true);
         var warnEl = document.getElementById('execute-no-target-hint');
         if (warnEl) warnEl.classList.remove('visible');
         if (freeInput) {
@@ -1755,7 +1941,7 @@
       }
 
       function openExecuteModal() {
-        if (isGameOver) return;
+        if (isGameOver || crewResponsePending) return;
         if (executeModalUnlockTimer) {
           clearTimeout(executeModalUnlockTimer);
           executeModalUnlockTimer = null;
@@ -1784,6 +1970,7 @@
       }
 
       function confirmThreat() {
+        if (threatRequestInFlight || crewResponsePending) return;
         var targetKey = selectedThreatTarget;
         if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
           var sel = threatModal ? threatModal.querySelector('.threat-target-btn.selected') : null;
@@ -1803,7 +1990,8 @@
           updateThreatConfirmEnabled();
           return;
         }
-        if (threatRequestInFlight) return;
+        threatRequestInFlight = true;
+        if (threatConfirmBtn) threatConfirmBtn.disabled = true;
         var wh = document.getElementById('threat-no-target-hint');
         if (wh) wh.classList.remove('visible');
         if (freeInput) {
@@ -1815,7 +2003,7 @@
       }
 
       function openThreatModal() {
-        if (isGameOver) return;
+        if (isGameOver || crewResponsePending) return;
         if (threatModalUnlockTimer) {
           clearTimeout(threatModalUnlockTimer);
           threatModalUnlockTimer = null;
@@ -1848,7 +2036,7 @@
 
       document.querySelectorAll('.modal-target-btn').forEach(function(btn) {
         btn.addEventListener('click', function() {
-          if (this.disabled || this.classList.contains('dead')) return;
+          if (crewResponsePending || this.disabled || this.classList.contains('dead')) return;
           var rid = String(this.getAttribute('data-target') || '').toLowerCase();
           if (isRoleDead(rid)) return;
           selectedExecuteTarget = VALID_ACCUSE_TARGETS.indexOf(rid) >= 0 ? rid : null;
@@ -1867,6 +2055,7 @@
           if (confirmEl) {
             e.preventDefault();
             e.stopPropagation();
+            if (crewResponsePending) return;
             confirmAccuse();
             return;
           }
@@ -1884,7 +2073,7 @@
       if (threatModal) {
         threatModal.querySelectorAll('.threat-target-btn').forEach(function(btn) {
           btn.addEventListener('click', function() {
-            if (this.disabled || this.classList.contains('dead')) return;
+            if (crewResponsePending || this.disabled || this.classList.contains('dead')) return;
             var rid = String(this.getAttribute('data-target') || '').toLowerCase();
             if (isRoleDead(rid)) return;
             selectedThreatTarget = VALID_ACCUSE_TARGETS.indexOf(rid) >= 0 ? rid : null;
@@ -1901,6 +2090,7 @@
           if (confirmEl) {
             e.preventDefault();
             e.stopPropagation();
+            if (crewResponsePending) return;
             confirmThreat();
             return;
           }
@@ -1916,7 +2106,7 @@
       }
 
       sendBtn.addEventListener('click', function() {
-        if (isGameOver) return;
+        if (isGameOver || crewResponsePending) return;
         var text = (freeInput.value || '').trim();
         if (!text) return;
         doMessage(text);
@@ -1924,12 +2114,17 @@
       });
 
       freeInput.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') sendBtn.click();
+        if (e.key !== 'Enter') return;
+        if (isGameOver || crewResponsePending) {
+          e.preventDefault();
+          return;
+        }
+        sendBtn.click();
       });
 
       actionBtns.forEach(function(btn) {
         btn.addEventListener('click', function() {
-          if (isGameOver) return;
+          if (isGameOver || crewResponsePending) return;
           var action = this.dataset.action || '';
           if (action === 'question') {
             doMessage(lang === 'ko' ? '네비게이터 어디 있었어' : 'Where was the navigator');
@@ -1953,6 +2148,8 @@
 
       function doRestart() {
         if (!isGameOver || startRequestInFlight) return;
+        cancelCaptainIdleBackup();
+        crewResponsePending = false;
         stopStatePolling();
         clearGameLogPanelAndState();
         previousGameOver = false;
