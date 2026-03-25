@@ -268,13 +268,89 @@ function canonicalBracketHeaderFromTypeString(s) {
   return null;
 }
 
+/**
+ * 단독 줄 "함장이 …" / "함장은 …" 서술을 베르셀 형식 [함장] + 본문으로 승격.
+ * [시스템], 단독 역할 헤더([닥터] 등)는 그대로 둠. 직전이 [함장]+본문이면 헤더 생략하고 본문만 이어붙임.
+ */
+function promoteCaptainStandaloneDisplayLogs(logs) {
+  if (!Array.isArray(logs) || !logs.length) return logs;
+  const out = [];
+
+  function tryMergeOrPushCaptainBody(srcItem, body) {
+    const b = String(body || '').trim();
+    if (!b) return;
+    const n = out.length;
+    if (n >= 2) {
+      const hdr = out[n - 2];
+      const bodyLine = out[n - 1];
+      const hdrT = String(hdr.type || '').trim();
+      const lineT = String(bodyLine.type || '').trim();
+      if (hdrT === '[함장]' && lineT && !/^\s*\[/.test(lineT)) {
+        bodyLine.type = lineT ? `${lineT}\n${b}` : b;
+        return;
+      }
+    }
+    const base = { ...srcItem };
+    delete base.type;
+    out.push({ ...base, type: '[함장]', _key: (srcItem._key != null ? String(srcItem._key) : '') + '|promo-cap-h' });
+    out.push({ ...base, type: b, _key: (srcItem._key != null ? String(srcItem._key) : '') + '|promo-cap-b' });
+  }
+
+  let i = 0;
+  while (i < logs.length) {
+    const item = logs[i];
+    const t = String(item.type || '').trim();
+
+    if (t.startsWith('[시스템]')) {
+      out.push({ ...item });
+      i++;
+      continue;
+    }
+
+    if (t === '[함장]') {
+      out.push({ ...item });
+      i++;
+      while (i < logs.length) {
+        const nt = String(logs[i].type || '').trim();
+        if (nt === '[함장]') break;
+        if (nt.startsWith('[')) break;
+        out.push({ ...logs[i] });
+        i++;
+      }
+      continue;
+    }
+
+    if (/^\[[^\]]+\]$/.test(t)) {
+      out.push({ ...item });
+      i++;
+      continue;
+    }
+
+    if (/^\s*함장(?:이|은)\s+/i.test(t)) {
+      let body = t
+        .replace(/^\s*함장이\s+/i, '')
+        .replace(/^\s*함장은\s+/i, '')
+        .trim();
+      if (/확인했다\.?$/.test(body)) body = body.replace(/확인했다\.?$/, '확인한다.');
+      tryMergeOrPushCaptainBody(item, body);
+      i++;
+      continue;
+    }
+
+    out.push({ ...item });
+    i++;
+  }
+  return out;
+}
+
 function normalizePlayerFacingDisplayLogs(logs) {
   if (!Array.isArray(logs) || !logs.length) return logs;
-  return logs.map((item) => {
+  const mapped = logs.map((item) => {
     const c = canonicalBracketHeaderFromTypeString(item.type);
     if (c != null) return { ...item, type: c };
     return item;
   });
+  return promoteCaptainStandaloneDisplayLogs(mapped);
 }
 
 /** LLM block → 표시용 헤더: role 우선, 없으면 header 문자열에서 역할 추론 */
