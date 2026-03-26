@@ -2037,20 +2037,45 @@ async function handleWebhook(req, res) {
 /**
  * 로컬 개발용 HTTP API 서버 (포트 8788)
  * TELEGRAM_BOT_TOKEN 없어도 실행됨.
+ * CORS 공통: 비-OPTIONS 요청마다 applyApiCorsHeaders → /api/start|state|message|action|accuse·기타 동일 헤더.
+ * OPTIONS 는 204 + buildApiCorsHeaders 후 즉시 종료.
  * miniapp·loca.lt·Vercel 등 cross-origin + credentials 미사용 시 Allow-Origin: *
+ * Preflight: Access-Control-Request-Headers 가 오면 그 값을 Allow-Headers에 반영 (브라우저 요구).
  */
-function getApiCorsHeaders() {
+function allowHeadersForCors(req) {
+  const raw = req.headers['access-control-request-headers'];
+  if (raw != null && String(raw).trim() !== '') {
+    return String(raw).trim();
+  }
+  return [
+    'Content-Type',
+    'Accept',
+    'Accept-Language',
+    'Authorization',
+    'X-Requested-With',
+    'Origin',
+    'Cache-Control',
+    'Pragma',
+    'DNT',
+    'User-Agent',
+    'Referer',
+    'sec-ch-ua',
+    'sec-ch-ua-mobile',
+    'sec-ch-ua-platform'
+  ].join(', ');
+}
+
+function buildApiCorsHeaders(req) {
   return {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, HEAD',
-    'Access-Control-Allow-Headers':
-      'Content-Type, Accept, Accept-Language, Authorization, X-Requested-With, Origin, Cache-Control, Pragma',
+    'Access-Control-Allow-Headers': allowHeadersForCors(req),
     'Access-Control-Max-Age': '86400'
   };
 }
 
-function applyApiCorsHeaders(res) {
-  Object.entries(getApiCorsHeaders()).forEach(([k, v]) => res.setHeader(k, v));
+function applyApiCorsHeaders(res, req) {
+  Object.entries(buildApiCorsHeaders(req)).forEach(([k, v]) => res.setHeader(k, v));
 }
 
 function createLocalApiServer() {
@@ -2060,13 +2085,22 @@ function createLocalApiServer() {
     if (req.method === 'OPTIONS') {
       const origin = req.headers.origin || '(no origin)';
       console.log('[bot] CORS preflight handled path=' + url.pathname + ' origin=' + origin);
-      res.writeHead(204, getApiCorsHeaders());
+      res.writeHead(204, buildApiCorsHeaders(req));
       res.end();
       return;
     }
 
-    applyApiCorsHeaders(res);
+    applyApiCorsHeaders(res, req);
     res.setHeader('Content-Type', 'application/json');
+
+    if (req.method === 'POST' && url.pathname.startsWith('/api/')) {
+      console.log(
+        '[bot] CORS applied path=' +
+          url.pathname +
+          ' origin=' +
+          (req.headers.origin || '(no origin)')
+      );
+    }
 
     let body = '';
     req.on('data', (chunk) => { body += chunk; });

@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <!-- 선택: 공개 bot API base (비우면 스크립트의 DEFAULT_PUBLIC_API_BASE 등 사용) -->
+  <meta name="telegram-api-base" content="" />
   <title>Tartarus Protocol - Mini App</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
@@ -805,7 +807,44 @@
 
   <script>
     (function() {
-      var API_BASE = (typeof location !== 'undefined' && location.origin === 'http://localhost:8788') ? '' : 'http://localhost:8788';
+      /**
+       * 공개 tunnel 주소가 바뀌면 이 한 줄만 수정하면 됨.
+       * 우선순위: window.TELEGRAM_API_BASE > meta[name=telegram-api-base] > (페이지가 localhost면) http://localhost:8788 > 이 상수
+       */
+      var DEFAULT_PUBLIC_API_BASE = 'https://cruel-ends-taste.loca.lt';
+
+      function trimApiBase(s) {
+        if (s == null || s === '') return '';
+        return String(s).trim().replace(/\/$/, '');
+      }
+
+      function resolveApiBase() {
+        try {
+          if (typeof window !== 'undefined' && window.TELEGRAM_API_BASE) {
+            var wb = trimApiBase(window.TELEGRAM_API_BASE);
+            if (wb) return wb;
+          }
+        } catch (e0) {}
+        try {
+          var meta = document.querySelector('meta[name="telegram-api-base"]');
+          if (meta) {
+            var mc = trimApiBase(meta.getAttribute('content'));
+            if (mc) return mc;
+          }
+        } catch (e1) {}
+        try {
+          var h = location.hostname || '';
+          if (h === 'localhost' || h === '127.0.0.1' || h === '[::1]') {
+            return 'http://localhost:8788';
+          }
+        } catch (e2) {}
+        var fb = trimApiBase(DEFAULT_PUBLIC_API_BASE);
+        return fb || 'http://localhost:8788';
+      }
+
+      var API_BASE = resolveApiBase();
+      try { console.log('[miniapp] apiBase=' + API_BASE); } catch (e) {}
+
       const PLAYER_KEY = 'tartarus_miniapp_playerId';
       const LANG_KEY = 'tartarus_miniapp_lang';
 
