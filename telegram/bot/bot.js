@@ -66,6 +66,75 @@ function isDialogueLlmConfigured() {
   return !!process.env.OPENAI_API_KEY;
 }
 
+function normalizeLocaleToken(raw) {
+  if (raw == null) return null;
+  let s = String(raw).trim().toLowerCase();
+  if (!s) return null;
+  s = s.split(',')[0].trim().split(';')[0].trim();
+  if (s === 'en' || s.startsWith('en-')) return 'en';
+  if (s === 'ko' || s.startsWith('ko-')) return 'ko';
+  return null;
+}
+
+/**
+ * body.lang → body.locale → query lang/locale → Accept-Language.
+ * Default ko (기존 동작).
+ */
+function resolveRequestLocale(body, urlQuery, reqHeaders) {
+  const q = body && typeof body === 'object' ? body : {};
+  const fromBody = normalizeLocaleToken(q.lang) ?? normalizeLocaleToken(q.locale);
+  if (fromBody) return fromBody;
+  if (urlQuery) {
+    const fromQuery =
+      normalizeLocaleToken(urlQuery.get('lang')) ?? normalizeLocaleToken(urlQuery.get('locale'));
+    if (fromQuery) return fromQuery;
+  }
+  const h = reqHeaders && typeof reqHeaders === 'object' ? reqHeaders : {};
+  const accept = h['accept-language'] || h['Accept-Language'];
+  const fromAccept = normalizeLocaleToken(accept);
+  if (fromAccept) return fromAccept;
+  return 'ko';
+}
+
+function getLlmRoleHeaders(locale) {
+  if (locale === 'en') {
+    return {
+      captain: '[Captain]',
+      doctor: '[Doctor]',
+      engineer: '[Engineer]',
+      navigator: '[Navigator]',
+      pilot: '[Pilot]'
+    };
+  }
+  return {
+    captain: '[함장]',
+    doctor: '[닥터]',
+    engineer: '[엔지니어]',
+    navigator: '[네비게이터]',
+    pilot: '[파일럿]'
+  };
+}
+
+function systemHeader(locale) {
+  return locale === 'en' ? '[System]' : '[시스템]';
+}
+
+function captainHeader(locale) {
+  return getLlmRoleHeaders(locale).captain;
+}
+
+const ROLE_NAMES_EN = {
+  doctor: 'Doctor',
+  engineer: 'Engineer',
+  navigator: 'Navigator',
+  pilot: 'Pilot',
+  captain: 'Captain'
+};
+
+function roleNameEn(r) {
+  return ROLE_NAMES_EN[String(r || '').toLowerCase()] || (r ? String(r) : '');
+}
+
 /**
  * non-terminal 배치만: QUESTION / SUSPECT / CHECK_LOG / THREATEN / TAKE_PISTOL / FIND_CLUE(단서 확보)
  * 에러용 CREW_DIALOGUE 단독 배치는 null
@@ -147,14 +216,6 @@ function expectedCrewOrderForLlm(kind, target, deadRoles, rawEvents) {
   return alive;
 }
 
-const LLM_ROLE_HEADERS = {
-  captain: '[함장]',
-  doctor: '[닥터]',
-  engineer: '[엔지니어]',
-  navigator: '[네비게이터]',
-  pilot: '[파일럿]'
-};
-
 /** LLM이 한글·대괄호·영문으로 준 role/header 토큰 → canonical role 키 */
 function canonicalRoleFromLlmToken(raw) {
   if (raw == null) return null;
@@ -208,14 +269,16 @@ function resolveLlmBlockRoleAndLines(b) {
 /**
  * 검증 전: role/header 정규화, 역할별 1블록으로 병합(빈 text면 나중 비어 있지 않은 쪽 선호)
  */
-function normalizeLlmDialogueBlocksArray(blocks) {
+function normalizeLlmDialogueBlocksArray(blocks, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const headers = getLlmRoleHeaders(loc);
   if (!Array.isArray(blocks)) return [];
   const merged = new Map();
   for (const b of blocks) {
     const res = resolveLlmBlockRoleAndLines(b);
     if (!res) continue;
     const { canon, text, narration: narr } = res;
-    const hdr = LLM_ROLE_HEADERS[canon];
+    const hdr = headers[canon];
     const prev = merged.get(canon);
     if (!prev) {
       merged.set(canon, { role: canon, header: hdr, text, narration: narr });
@@ -234,47 +297,56 @@ function normalizeLlmDialogueBlocksArray(blocks) {
 }
 
 /** role 키 → 베르셀 고정 헤더 (대괄호 포함) */
-function canonicalHeaderFromRoleKey(roleKey) {
+function canonicalHeaderFromRoleKey(roleKey, locale) {
   const r = String(roleKey || '').toLowerCase();
-  return LLM_ROLE_HEADERS[r] || null;
+  return getLlmRoleHeaders(locale === 'en' ? 'en' : 'ko')[r] || null;
+}
+
+function resolveBracketInnerToRole(inner) {
+  const key = String(inner || '').trim().toLowerCase();
+  const MAP = {
+    captain: 'captain',
+    함장: 'captain',
+    doctor: 'doctor',
+    닥터: 'doctor',
+    engineer: 'engineer',
+    엔지니어: 'engineer',
+    navigator: 'navigator',
+    네비게이터: 'navigator',
+    pilot: 'pilot',
+    파일럿: 'pilot'
+  };
+  return MAP[key] || null;
 }
 
 /**
- * 플레이어 로그 한 줄이 역할 헤더로 쓰일 수 있는 문자열이면 베르셀 형식으로 통일.
+ * 플레이어 로그 한 줄이 역할 헤더로 쓰일 수 있는 문자열이면 locale 기준 대괄호로 통일.
  * 본문 대사는 길이·매칭 실패 시 그대로 둠.
  */
-function canonicalBracketHeaderFromTypeString(s) {
+function canonicalBracketHeaderFromTypeString(s, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
   const raw = String(s || '').trim();
   if (!raw) return null;
-  if (raw === '[시스템]') return '[시스템]';
+  const sys = systemHeader(loc);
+  if (raw === '[시스템]' || raw === '[System]') return sys;
 
   let inner = raw;
   if (raw.startsWith('[') && raw.endsWith(']') && raw.length >= 3) {
     inner = raw.slice(1, -1).trim();
   }
-  const key = inner.toLowerCase();
-  const MAP = {
-    captain: '[함장]',
-    함장: '[함장]',
-    doctor: '[닥터]',
-    닥터: '[닥터]',
-    engineer: '[엔지니어]',
-    엔지니어: '[엔지니어]',
-    navigator: '[네비게이터]',
-    네비게이터: '[네비게이터]',
-    pilot: '[파일럿]',
-    파일럿: '[파일럿]'
-  };
-  if (MAP[key]) return MAP[key];
-  if (MAP[raw.toLowerCase()]) return MAP[raw.toLowerCase()];
+  const roleKey = resolveBracketInnerToRole(inner);
+  if (roleKey) return getLlmRoleHeaders(loc)[roleKey];
   return null;
 }
 
 /**
- * 단독 줄 "함장이 …" / "함장은 …" 서술을 베르셀 형식 [함장] + 본문으로 승격.
- * [시스템], 단독 역할 헤더([닥터] 등)는 그대로 둠. 직전이 [함장]+본문이면 헤더 생략하고 본문만 이어붙임.
+ * 단독 줄 "함장이 …" / "The captain …" 서술을 locale 기준 함장 헤더 + 본문으로 승격.
+ * 시스템·단독 역할 헤더는 그대로. 직전이 함장+본문이면 본문만 이어붙임.
  */
-function promoteCaptainStandaloneDisplayLogs(logs) {
+function promoteCaptainStandaloneDisplayLogs(logs, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const capH = captainHeader(loc);
+  const sysH = systemHeader(loc);
   if (!Array.isArray(logs) || !logs.length) return logs;
   const out = [];
 
@@ -287,14 +359,14 @@ function promoteCaptainStandaloneDisplayLogs(logs) {
       const bodyLine = out[n - 1];
       const hdrT = String(hdr.type || '').trim();
       const lineT = String(bodyLine.type || '').trim();
-      if (hdrT === '[함장]' && lineT && !/^\s*\[/.test(lineT)) {
+      if (hdrT === capH && lineT && !/^\s*\[/.test(lineT)) {
         bodyLine.type = lineT ? `${lineT}\n${b}` : b;
         return;
       }
     }
     const base = { ...srcItem };
     delete base.type;
-    out.push({ ...base, type: '[함장]', _key: (srcItem._key != null ? String(srcItem._key) : '') + '|promo-cap-h' });
+    out.push({ ...base, type: capH, _key: (srcItem._key != null ? String(srcItem._key) : '') + '|promo-cap-h' });
     out.push({ ...base, type: b, _key: (srcItem._key != null ? String(srcItem._key) : '') + '|promo-cap-b' });
   }
 
@@ -303,18 +375,18 @@ function promoteCaptainStandaloneDisplayLogs(logs) {
     const item = logs[i];
     const t = String(item.type || '').trim();
 
-    if (t.startsWith('[시스템]')) {
+    if (t === sysH) {
       out.push({ ...item });
       i++;
       continue;
     }
 
-    if (t === '[함장]') {
+    if (t === capH) {
       out.push({ ...item });
       i++;
       while (i < logs.length) {
         const nt = String(logs[i].type || '').trim();
-        if (nt === '[함장]') break;
+        if (nt === capH) break;
         if (nt.startsWith('[')) break;
         out.push({ ...logs[i] });
         i++;
@@ -328,12 +400,20 @@ function promoteCaptainStandaloneDisplayLogs(logs) {
       continue;
     }
 
-    if (/^\s*함장(?:이|은)\s+/i.test(t)) {
+    if (loc === 'ko' && /^\s*함장(?:이|은)\s+/i.test(t)) {
       let body = t
         .replace(/^\s*함장이\s+/i, '')
         .replace(/^\s*함장은\s+/i, '')
         .trim();
       if (/확인했다\.?$/.test(body)) body = body.replace(/확인했다\.?$/, '확인한다.');
+      tryMergeOrPushCaptainBody(item, body);
+      i++;
+      continue;
+    }
+
+    if (loc === 'en' && /^\s*(?:The\s+)?captain\s+/i.test(t)) {
+      let body = t.replace(/^\s*(?:The\s+)?captain\s+/i, '').trim();
+      if (/^checked\b/i.test(body)) body = body.replace(/^checked\b/i, 'checks');
       tryMergeOrPushCaptainBody(item, body);
       i++;
       continue;
@@ -345,24 +425,27 @@ function promoteCaptainStandaloneDisplayLogs(logs) {
   return out;
 }
 
-function normalizePlayerFacingDisplayLogs(logs) {
+function normalizePlayerFacingDisplayLogs(logs, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
   if (!Array.isArray(logs) || !logs.length) return logs;
   const mapped = logs.map((item) => {
-    const c = canonicalBracketHeaderFromTypeString(item.type);
+    const c = canonicalBracketHeaderFromTypeString(item.type, loc);
     if (c != null) return { ...item, type: c };
     return item;
   });
-  return promoteCaptainStandaloneDisplayLogs(mapped);
+  return promoteCaptainStandaloneDisplayLogs(mapped, loc);
 }
 
 /** LLM block → 표시용 헤더: role 우선, 없으면 header 문자열에서 역할 추론 */
-function canonicalHeaderForLlmBlock(b) {
+function canonicalHeaderForLlmBlock(b, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const sys = systemHeader(loc);
   const role = String(b.role || '').toLowerCase();
-  const fromRole = canonicalHeaderFromRoleKey(role);
+  const fromRole = canonicalHeaderFromRoleKey(role, loc);
   if (fromRole) return fromRole;
-  const fromHeader = canonicalBracketHeaderFromTypeString(String(b.header || '').trim());
-  if (fromHeader && fromHeader !== '[시스템]') return fromHeader;
-  return '[함장]';
+  const fromHeader = canonicalBracketHeaderFromTypeString(String(b.header || '').trim(), loc);
+  if (fromHeader && fromHeader !== sys) return fromHeader;
+  return captainHeader(loc);
 }
 
 function extractJsonObjectFromLlmText(raw) {
@@ -388,6 +471,17 @@ function koreanHeavyEnoughForDialogue(texts, minRatio) {
   return hangul / total >= minRatio;
 }
 
+function dialogueLanguageOk(texts, locale) {
+  const s = texts.join('\n');
+  if (locale === 'en') {
+    const hangul = (s.match(/[\uAC00-\uD7A3]/g) || []).length;
+    if (hangul > 12) return false;
+    const latin = (s.match(/[a-zA-Z]/g) || []).length;
+    return latin >= 20;
+  }
+  return koreanHeavyEnoughForDialogue(texts, 0.2);
+}
+
 function hasExcessiveLineRepetition(blocks, maxSame) {
   const norm = (x) => String(x || '').replace(/\s+/g, ' ').trim().toLowerCase();
   const counts = new Map();
@@ -402,10 +496,12 @@ function hasExcessiveLineRepetition(blocks, maxSame) {
   return false;
 }
 
-/** deterministic display에서 [함장] 직후 본문 — 사용자 액션/엔진 고정 문장 유지용 */
-function extractCaptainSpokenFromDisplayLogs(displayLogs) {
+/** deterministic display에서 함장 헤더 직후 본문 — 사용자 액션/엔진 고정 문장 유지용 */
+function extractCaptainSpokenFromDisplayLogs(displayLogs, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const capH = captainHeader(loc);
   const d = displayLogs || [];
-  if (d.length >= 2 && String(d[0].type || '').trim() === '[함장]') {
+  if (d.length >= 2 && String(d[0].type || '').trim() === capH) {
     const body = String(d[1].type || '').trim();
     if (body) return body;
   }
@@ -473,13 +569,15 @@ function hasBannedCrewOrCaptainPatterns(sorted) {
 }
 
 /** 함장 블록은 LLM 대신 deterministic 본문으로 고정, 함장 narration 제거 */
-function applyForcedCaptainToSorted(sorted, forcedCaptainText) {
+function applyForcedCaptainToSorted(sorted, forcedCaptainText, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const capHdr = captainHeader(loc);
   const ft = String(forcedCaptainText || '').trim();
   const rest = sorted.filter((b) => String(b.role || '').toLowerCase() !== 'captain');
   if (ft) {
     rest.unshift({
       role: 'captain',
-      header: '[함장]',
+      header: capHdr,
       text: ft,
       narration: ''
     });
@@ -509,10 +607,12 @@ function sortLlmBlocksByExpected(blocks, crewOrder) {
 }
 
 /** 정렬 후 헤더·함장 narration 정리 */
-function finalizeNormalizedLlmBlocks(sorted) {
+function finalizeNormalizedLlmBlocks(sorted, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const headers = getLlmRoleHeaders(loc);
   return sorted.map((b) => {
     const r = String(b.role || '').toLowerCase();
-    const hdr = LLM_ROLE_HEADERS[r];
+    const hdr = headers[r];
     const out = { ...b, role: r, header: hdr || b.header };
     if (r === 'captain') out.narration = '';
     return out;
@@ -521,24 +621,25 @@ function finalizeNormalizedLlmBlocks(sorted) {
 
 function validateLlmDialogueBlocks(parsed, kind, expectedCrew, opts) {
   opts = opts || {};
+  const locale = opts.locale === 'en' ? 'en' : 'ko';
   const forcedCaptainText = String(opts.forcedCaptainText || '').trim();
 
   if (!parsed || typeof parsed !== 'object') return null;
   const blocks = parsed.blocks;
   if (!Array.isArray(blocks) || blocks.length === 0) return null;
 
-  const normalized = normalizeLlmDialogueBlocksArray(blocks);
+  const normalized = normalizeLlmDialogueBlocksArray(blocks, locale);
   if (normalized.length === 0) return null;
 
   let sorted = sortLlmBlocksByExpected(normalized, expectedCrew);
-  sorted = applyForcedCaptainToSorted(sorted, forcedCaptainText);
-  sorted = finalizeNormalizedLlmBlocks(sorted);
+  sorted = applyForcedCaptainToSorted(sorted, forcedCaptainText, locale);
+  sorted = finalizeNormalizedLlmBlocks(sorted, locale);
 
   const allowed = new Set(['captain', ...expectedCrew]);
   sorted = sorted.filter((b) => allowed.has(String(b.role || '').toLowerCase()));
   sorted = sortLlmBlocksByExpected(sorted, expectedCrew);
-  sorted = applyForcedCaptainToSorted(sorted, forcedCaptainText);
-  sorted = finalizeNormalizedLlmBlocks(sorted);
+  sorted = applyForcedCaptainToSorted(sorted, forcedCaptainText, locale);
+  sorted = finalizeNormalizedLlmBlocks(sorted, locale);
 
   const cap = sorted.find((b) => b.role === 'captain');
   if (!cap || !String(cap.text || '').trim()) return null;
@@ -548,23 +649,24 @@ function validateLlmDialogueBlocks(parsed, kind, expectedCrew, opts) {
     if (!b || !String(b.text || '').trim()) return null;
   }
 
-  if (hasBannedCrewOrCaptainPatterns(sorted)) return null;
+  if (locale === 'ko' && hasBannedCrewOrCaptainPatterns(sorted)) return null;
 
   const allTexts = [];
   for (const b of sorted) {
     allTexts.push(String(b.text || ''));
     if (b.narration) allTexts.push(String(b.narration));
   }
-  if (!koreanHeavyEnoughForDialogue(allTexts, 0.2)) return null;
+  if (!dialogueLanguageOk(allTexts, locale)) return null;
   if (hasExcessiveLineRepetition(sorted, 3)) return null;
   return sorted;
 }
 
-function llmBlocksToDisplayLogs(sortedBlocks, batchKey) {
+function llmBlocksToDisplayLogs(sortedBlocks, batchKey, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
   const out = [];
   let i = 0;
   for (const b of sortedBlocks) {
-    const header = canonicalHeaderForLlmBlock(b);
+    const header = canonicalHeaderForLlmBlock(b, loc);
     const text = String(b.text || '').trim();
     const narr = b.narration != null ? String(b.narration).trim() : '';
     const keyBase = `${batchKey}|${i++}`;
@@ -572,23 +674,97 @@ function llmBlocksToDisplayLogs(sortedBlocks, batchKey) {
     if (text) out.push({ type: text, role: 'system', target: null, _key: `${keyBase}|t` });
     if (narr) out.push({ type: narr, role: 'system', target: null, _key: `${keyBase}|n` });
   }
-  return normalizePlayerFacingDisplayLogs(out);
+  return normalizePlayerFacingDisplayLogs(out, loc);
 }
 
 /** FIND_CLUE: 단서 본문은 엔진 값만 사용 (LLM이 사실 조작 불가) */
-function mergeFindClueDeterministicClue(displayLogs, clueText, batchKey) {
+function mergeFindClueDeterministicClue(displayLogs, clueText, batchKey, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const sysH = systemHeader(loc);
   const clue = String(clueText || '').trim();
   if (!clue) return displayLogs;
-  const filtered = (displayLogs || []).filter((item) => item.type !== '[시스템]');
+  const filtered = (displayLogs || []).filter((item) => {
+    const t = String(item.type || '').trim();
+    return t !== '[시스템]' && t !== '[System]';
+  });
   const k = `${batchKey}|engine-clue`;
-  return normalizePlayerFacingDisplayLogs([
-    ...filtered,
-    { type: '[시스템]', role: 'system', target: null, _key: `${k}|h` },
-    { type: clue, role: 'system', target: null, _key: `${k}|b` }
-  ]);
+  return normalizePlayerFacingDisplayLogs(
+    [
+      ...filtered,
+      { type: sysH, role: 'system', target: null, _key: `${k}|h` },
+      { type: clue, role: 'system', target: null, _key: `${k}|b` }
+    ],
+    loc
+  );
 }
 
-function buildDialogueSystemPrompt(kind) {
+function buildDialogueSystemPrompt(kind, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+
+  if (loc === 'en') {
+    const jsonContractEn = [
+      'USSC Tartarus E1. Natural English dialogue and summary only — absolutely NO Korean (no Hangul).',
+      'Output JSON only: {"blocks":[...]} — no markdown.',
+      'Block: {"role","text","narration?"}. UI headers are [Captain] [Doctor] [Engineer] [Navigator] [Pilot] [System].',
+      'Never decide rules, deaths, clue facts, timers, or impostor.',
+      'captain.text = captainSpokenLineVerbatim exactly when user JSON provides it; captain.narration always "".',
+      'Forbidden: empty reassurance, generic teamwork sermons, calm-down platitudes, moralizing.'
+    ];
+
+    if (kind === 'QUESTION') {
+      return [
+        ...jsonContractEn,
+        'ROLE FIELD: each block.role MUST be captain|doctor|engineer|navigator|pilot (lowercase) only.',
+        'Each block: {"role","text","narration?"} — no "header" key.',
+        'BLOCK ORDER: blocks[0]=captain; blocks[1]=focusTargetRole (answers first); then remaining alive crew in crewSpeakingOrder.',
+        'QUESTION: Target answers immediately — short, direct. Others: one tight reaction each.',
+        'Every non-target crew block must name focusTargetEnglish (e.g. Navigator) in text or narration.',
+        'Respond JSON only.'
+      ].join('\n');
+    }
+
+    if (kind === 'CHECK_LOG') {
+      return [
+        ...jsonContractEn,
+        'ROLE FIELD: captain|doctor|engineer|navigator|pilot only.',
+        'BLOCK ORDER: blocks[0]=captain; blocks[1]=engineer; then doctor, navigator, pilot (omit dead).',
+        'CHECK_LOG: Engineer leads with logs/access/timestamp mismatch/gap/unauthorized-query — audit-narrow.',
+        'doctor: biometrics/stress-log only as auxiliary. navigator: route/alibi auxiliary. pilot: mood/gut auxiliary.',
+        'Stay on audit facts; no unrelated small talk.',
+        'Respond JSON only.'
+      ].join('\n');
+    }
+
+    if (kind === 'TAKE_PISTOL') {
+      return [
+        ...jsonContractEn,
+        'ROLE FIELD: captain|doctor|engineer|navigator|pilot only.',
+        'BLOCK ORDER: blocks[0]=captain; then doctor, engineer, navigator, pilot (omit dead).',
+        'TAKE_PISTOL: Captain is armed with the sidearm. Crew react to that — never echo or copy captain.text.',
+        'doctor: tension/vitals/stress. engineer: locks, access audit, security logs. navigator: corridors, readiness. pilot: bridge atmosphere.',
+        'Respond JSON only.'
+      ].join('\n');
+    }
+
+    const tailEn = [
+      'Concrete ship facts only (zones, logs, biometrics, routes, cockpit).',
+      'Roles: doctor biometrics; engineer logs/access; navigator routes/alibi; pilot cockpit feel.',
+      'At most one short optional narration per crew; no duplicate stock narration.'
+    ];
+    if (kind === 'FIND_CLUE') {
+      tailEn.push('FIND_CLUE: crew reactions only; never put clue body in JSON (server adds [System]).');
+    } else if (kind === 'THREATEN') {
+      tailEn.push(
+        'THREATEN: threatened crew never echoes captain.text — wholly different sentence; reaction to pressure only.'
+      );
+      tailEn.push('Non-target crew blocks must name focusTargetEnglish in text or narration.');
+    } else {
+      tailEn.push('SUSPECT: every non-target crew block names focusTargetEnglish in text or narration.');
+    }
+    tailEn.push('Respond JSON only.');
+    return [...jsonContractEn, ...tailEn].join('\n');
+  }
+
   const jsonContract = [
     'USSC Tartarus E1. Korean spoken lines. Output JSON only: {"blocks":[...]} — no markdown.',
     'Block: {"role","header","text","narration?"}. Headers exactly: [함장] [닥터] [엔지니어] [네비게이터] [파일럿].',
@@ -674,10 +850,13 @@ function buildDialogueSystemPrompt(kind) {
 }
 
 function buildDialogueUserPayload(ctx) {
+  const loc = ctx.locale === 'en' ? 'en' : 'ko';
   const o = {
     action: ctx.kind,
+    locale: loc,
     focusTargetRole: ctx.target || null,
-    focusTargetKorean: ctx.targetKo || null,
+    focusTargetKorean: loc === 'ko' ? ctx.targetKo || null : null,
+    focusTargetEnglish: loc === 'en' ? ctx.targetEn || null : null,
     crewSpeakingOrder: ctx.expectedCrew,
     deadRoles: ctx.deadRoles || [],
     captainPlayerInput: ctx.playerText || '',
@@ -702,7 +881,10 @@ function buildDialogueUserPayload(ctx) {
     o.pacing = 'Short lines; each crew one tight reaction to the captain being armed; no echo of captain.text.';
   }
   if (ctx.clueText != null) {
-    o.note = 'FIND_CLUE: no clue text in JSON; server injects [시스템].';
+    o.note =
+      loc === 'en'
+        ? 'FIND_CLUE: no clue text in JSON; server injects [System].'
+        : 'FIND_CLUE: no clue text in JSON; server injects [시스템].';
   }
   return JSON.stringify(o, null, 0);
 }
@@ -749,6 +931,7 @@ async function callChatCompletionsJson({ system, user, timeoutMs, maxTokens }) {
 async function tryGenerateLlmDialogueLogs(ctx) {
   if (!isDialogueLlmConfigured()) return null;
   const { kind, rawEvents, match, playerText, clueText, forcedCaptainText } = ctx;
+  const locale = ctx.locale === 'en' ? 'en' : 'ko';
   const gs = match?.game_state || {};
   const deadRoles = gs.dead_roles || [];
   const ev0 = rawEvents && rawEvents[0];
@@ -757,11 +940,13 @@ async function tryGenerateLlmDialogueLogs(ctx) {
   const batchKey = `llm|${kind}|${Date.now()}`;
   const captainForced = String(forcedCaptainText || '').trim();
 
-  const system = buildDialogueSystemPrompt(kind);
+  const system = buildDialogueSystemPrompt(kind, locale);
   const userBase = buildDialogueUserPayload({
     kind,
     target,
     targetKo: roleNameKo(target),
+    targetEn: roleNameEn(target),
+    locale,
     expectedCrew,
     deadRoles,
     playerText: playerText || '',
@@ -769,23 +954,41 @@ async function tryGenerateLlmDialogueLogs(ctx) {
     captainSpokenLineVerbatim: captainForced || null
   });
   let strictRetry =
-    '\n\n[STRICT_RETRY] 검증 실패. 금지: 진정/신중/침착/함께/훈계/교훈. narration 짧게·반복 금지.';
-  if (kind === 'QUESTION') {
-    strictRetry +=
-      ' QUESTION: 비타깃 블록에 focusTargetKorean 필수. 더 짧게. role은 captain|doctor|engineer|navigator|pilot 만; header 금지.';
-  } else if (kind === 'CHECK_LOG') {
-    strictRetry +=
-      ' CHECK_LOG: 엔지니어 중심 로그/접근/타임스탬프 불일치만. role은 captain|doctor|engineer|navigator|pilot 만; header 금지.';
-  } else if (kind === 'THREATEN') {
-    strictRetry +=
-      ' THREATEN: 타깃 블록은 함장 문장 복창·인용 금지; 압박에 대한 본인 반응만. 비타깃에 focusTargetKorean.';
-  } else if (kind === 'SUSPECT') {
-    strictRetry += ' 비타깃에 focusTargetKorean.';
-  } else if (kind === 'FIND_CLUE') {
-    strictRetry += ' FIND_CLUE: 단서 본문 금지.';
-  } else if (kind === 'TAKE_PISTOL') {
-    strictRetry +=
-      ' TAKE_PISTOL: 함장 문장·권총 집기 문구 복창·인용 금지. 역할별 짧은 반응만. role은 captain|doctor|engineer|navigator|pilot 만; header 금지.';
+    locale === 'en'
+      ? '\n\n[STRICT_RETRY] Validation failed. No Korean. No platitudes. Short lines; no repetition. roles: captain|doctor|engineer|navigator|pilot only; no header key.'
+      : '\n\n[STRICT_RETRY] 검증 실패. 금지: 진정/신중/침착/함께/훈계/교훈. narration 짧게·반복 금지.';
+  if (locale === 'ko') {
+    if (kind === 'QUESTION') {
+      strictRetry +=
+        ' QUESTION: 비타깃 블록에 focusTargetKorean 필수. 더 짧게. role은 captain|doctor|engineer|navigator|pilot 만; header 금지.';
+    } else if (kind === 'CHECK_LOG') {
+      strictRetry +=
+        ' CHECK_LOG: 엔지니어 중심 로그/접근/타임스탬프 불일치만. role은 captain|doctor|engineer|navigator|pilot 만; header 금지.';
+    } else if (kind === 'THREATEN') {
+      strictRetry +=
+        ' THREATEN: 타깃 블록은 함장 문장 복창·인용 금지; 압박에 대한 본인 반응만. 비타깃에 focusTargetKorean.';
+    } else if (kind === 'SUSPECT') {
+      strictRetry += ' 비타깃에 focusTargetKorean.';
+    } else if (kind === 'FIND_CLUE') {
+      strictRetry += ' FIND_CLUE: 단서 본문 금지.';
+    } else if (kind === 'TAKE_PISTOL') {
+      strictRetry +=
+        ' TAKE_PISTOL: 함장 문장·권총 집기 문구 복창·인용 금지. 역할별 짧은 반응만. role은 captain|doctor|engineer|navigator|pilot 만; header 금지.';
+    }
+  } else {
+    if (kind === 'QUESTION') {
+      strictRetry += ' QUESTION: non-target blocks must name focusTargetEnglish. Shorter.';
+    } else if (kind === 'CHECK_LOG') {
+      strictRetry += ' CHECK_LOG: engineer-first audit lines only.';
+    } else if (kind === 'THREATEN') {
+      strictRetry += ' THREATEN: target never echoes captain; non-target names focusTargetEnglish.';
+    } else if (kind === 'SUSPECT') {
+      strictRetry += ' SUSPECT: non-target names focusTargetEnglish.';
+    } else if (kind === 'FIND_CLUE') {
+      strictRetry += ' FIND_CLUE: no clue body in JSON.';
+    } else if (kind === 'TAKE_PISTOL') {
+      strictRetry += ' TAKE_PISTOL: no echo of captain line.';
+    }
   }
 
   const maxAttempts = dialogueMaxAttemptsForKind(kind);
@@ -807,16 +1010,17 @@ async function tryGenerateLlmDialogueLogs(ctx) {
     const parsed = extractJsonObjectFromLlmText(raw);
     const valid = validateLlmDialogueBlocks(parsed, kind, expectedCrew, {
       forcedCaptainText: captainForced,
-      target
+      target,
+      locale
     });
     if (valid) {
       console.log(
         '[bot] LLM_DIALOGUE normalized ' +
           JSON.stringify({ kind, roles: valid.map((b) => b.role) })
       );
-      let logs = llmBlocksToDisplayLogs(valid, batchKey);
+      let logs = llmBlocksToDisplayLogs(valid, batchKey, locale);
       if (kind === 'FIND_CLUE' && clueText) {
-        logs = mergeFindClueDeterministicClue(logs, clueText, batchKey);
+        logs = mergeFindClueDeterministicClue(logs, clueText, batchKey, locale);
       }
       return logs.length ? logs : null;
     }
@@ -831,8 +1035,10 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
   deterministicLogs,
   match,
   playerText,
-  clueTextFromEvent
+  clueTextFromEvent,
+  locale
 }) {
+  const loc = locale === 'en' ? 'en' : 'ko';
   const kind = getDialogueLlmKind(rawEvents);
   if (!kind) return deterministicLogs;
   const actionSlug = dialogueActionKindSlug(kind);
@@ -845,14 +1051,15 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
     return deterministicLogs;
   }
 
-  const forcedCaptainText = extractCaptainSpokenFromDisplayLogs(deterministicLogs);
+  const forcedCaptainText = extractCaptainSpokenFromDisplayLogs(deterministicLogs, loc);
   const llmLogs = await tryGenerateLlmDialogueLogs({
     kind,
     rawEvents,
     match,
     playerText: playerText || '',
     clueText: clueTextFromEvent != null ? clueTextFromEvent : undefined,
-    forcedCaptainText
+    forcedCaptainText,
+    locale: loc
   });
   if (llmLogs && llmLogs.length) {
     logDialogueTrace(actionSlug, apiProvider, modelStr, 'llm', eventsCount);
@@ -894,6 +1101,9 @@ function roleWithObjectParticle(roleKey) {
  */
 function toPlayerDisplayLogs(rawEvents, opts = {}) {
   if (!rawEvents || !Array.isArray(rawEvents)) return [];
+  const locale = opts.locale === 'en' ? 'en' : 'ko';
+  const capHdr = captainHeader(locale);
+  const sysHdr = systemHeader(locale);
   const captainInputLine = String(opts.captainInputLine || '').trim();
   const out = [];
 
@@ -904,19 +1114,35 @@ function toPlayerDisplayLogs(rawEvents, opts = {}) {
     const baseKey = [ev?.ts ?? '', t, role, target ?? ''].join('|');
 
     if (t === 'QUESTION' && target) {
-      const qBody = `${roleNameKo(target)}, 그때 어디 있었지?`;
-      const body = (qBody || ev.dialogue || ev.text || '함장이 질문했다.').trim();
+      const qBody =
+        locale === 'en'
+          ? `${roleNameEn(target)}, where were you then?`
+          : `${roleNameKo(target)}, 그때 어디 있었지?`;
+      const body = (
+        qBody ||
+        ev.dialogue ||
+        ev.text ||
+        (locale === 'en' ? 'The captain asks a question.' : '함장이 질문했다.')
+      ).trim();
       if (body) {
-        out.push({ type: '[함장]', role: 'system', target: null, _key: baseKey + '|hdr' });
+        out.push({ type: capHdr, role: 'system', target: null, _key: baseKey + '|hdr' });
         out.push({ type: body, role: 'system', target: null, _key: baseKey + '|body' });
       }
       continue;
     }
     if (t === 'SUSPECT' && target) {
-      const sBody = `${roleWithObjectParticle(target)} 의심한다`;
-      const body = (sBody || ev.dialogue || ev.text || `${roleNameKo(target)}를 의심한다`).trim();
+      const sBody =
+        locale === 'en'
+          ? `Suspects ${roleNameEn(target)}.`
+          : `${roleWithObjectParticle(target)} 의심한다`;
+      const body = (
+        sBody ||
+        ev.dialogue ||
+        ev.text ||
+        (locale === 'en' ? `Suspects ${roleNameEn(target)}.` : `${roleNameKo(target)}를 의심한다`)
+      ).trim();
       if (body) {
-        out.push({ type: '[함장]', role: 'system', target: null, _key: baseKey + '|hdr' });
+        out.push({ type: capHdr, role: 'system', target: null, _key: baseKey + '|hdr' });
         out.push({ type: body, role: 'system', target: null, _key: baseKey + '|body' });
       }
       continue;
@@ -926,18 +1152,26 @@ function toPlayerDisplayLogs(rawEvents, opts = {}) {
       const body =
         fromUser ||
         captainInputLine ||
-        (target ? `${roleNameKo(target)} 구역 로그를 확인한다` : '시스템 로그를 확인한다');
+        (locale === 'en'
+          ? target
+            ? `Checking ${roleNameEn(target)} sector logs`
+            : 'Checking system logs'
+          : target
+            ? `${roleNameKo(target)} 구역 로그를 확인한다`
+            : '시스템 로그를 확인한다');
       if (body) {
-        out.push({ type: '[함장]', role: 'system', target: null, _key: baseKey + '|hdr' });
+        out.push({ type: capHdr, role: 'system', target: null, _key: baseKey + '|hdr' });
         out.push({ type: body, role: 'system', target: null, _key: baseKey + '|body' });
       }
       continue;
     }
     if (t === 'THREATEN' && target) {
-      const obj = roleWithObjectParticle(target);
-      const body = `${obj} 위협한다`.replace(/\s+/g, ' ').trim();
+      const body =
+        locale === 'en'
+          ? `Threatens ${roleNameEn(target)}.`
+          : `${roleWithObjectParticle(target)} 위협한다`.replace(/\s+/g, ' ').trim();
       const tk = [ev?.ts ?? '', t, role, target].join('|');
-      out.push({ type: '[함장]', role: 'system', target: null, _key: tk + '|hdr' });
+      out.push({ type: capHdr, role: 'system', target: null, _key: tk + '|hdr' });
       out.push({ type: body, role: 'system', target: null, _key: tk + '|body' });
       continue;
     }
@@ -945,33 +1179,51 @@ function toPlayerDisplayLogs(rawEvents, opts = {}) {
       const clueId = ev.clue_id ? String(ev.clue_id) : '';
       const clueKey = clueId || [ev?.ts ?? '', t, role, target ?? ''].join('|');
       const sysBody = (ev.clue_text || '').trim();
-      const capBody = (ev.captain_action || '단서를 수집한다').trim();
+      const capBody =
+        (ev.captain_action || '').trim() ||
+        (locale === 'en' ? 'Collects clues.' : '단서를 수집한다');
       if (sysBody) {
-        out.push({ type: '[함장]', role: 'system', target: null, _key: clueKey + '|hdr' });
+        out.push({ type: capHdr, role: 'system', target: null, _key: clueKey + '|hdr' });
         out.push({ type: capBody, role: 'system', target: null, _key: clueKey + '|body' });
-        out.push({ type: '[시스템]', role: 'system', target: null, _key: clueKey + '|sys-hdr' });
+        out.push({ type: sysHdr, role: 'system', target: null, _key: clueKey + '|sys-hdr' });
         out.push({ type: sysBody, role: 'system', target: null, _key: clueKey + '|sys-body' });
       } else {
-        out.push({ type: '함장이 단서를 수집했다.', role: 'system', target: null, _key: clueKey });
+        out.push({
+          type: locale === 'en' ? 'The captain collects clues.' : '함장이 단서를 수집했다.',
+          role: 'system',
+          target: null,
+          _key: clueKey
+        });
       }
       continue;
     }
 
     let text = null;
     if (t === 'OBSERVE') {
-      text = '함장이 교량을 관찰했다.';
+      text = locale === 'en' ? 'The captain observes the bridge.' : '함장이 교량을 관찰했다.';
     } else if (t === 'ACCUSE' && target) {
-      text = `함장이 ${roleWithObjectParticle(target)} 처형했다.`;
+      text =
+        locale === 'en'
+          ? `The captain executes ${roleNameEn(target)}.`
+          : `함장이 ${roleWithObjectParticle(target)} 처형했다.`;
     } else if (t === 'DEATH') {
-      const victim = roleNameKo(ev.role || target);
-      text = victim ? `[시스템] ${victim} 생체 신호 소실.` : '[시스템] 생체 신호 소실.';
+      const victimKo = roleNameKo(ev.role || target);
+      const victimEn = roleNameEn(ev.role || target);
+      text =
+        locale === 'en'
+          ? victimEn
+            ? `${sysHdr} ${victimEn} life signs lost.`
+            : `${sysHdr} Life signs lost.`
+          : victimKo
+            ? `${sysHdr} ${victimKo} 생체 신호 소실.`
+            : `${sysHdr} 생체 신호 소실.`;
     } else if (t === 'TIMEOUT') {
-      text = '[시스템] 시간 종료.';
+      text = locale === 'en' ? `${sysHdr} Time expired.` : `${sysHdr} 시간 종료.`;
     } else if (t === 'TAKE_PISTOL') {
       const fromUser = (ev.dialogue || ev.text || '').trim();
-      const body = fromUser || '권총을 획득했다.';
+      const body = fromUser || (locale === 'en' ? 'Acquires the sidearm.' : '권총을 획득했다.');
       if (body) {
-        out.push({ type: '[함장]', role: 'system', target: null, _key: baseKey + '|hdr' });
+        out.push({ type: capHdr, role: 'system', target: null, _key: baseKey + '|hdr' });
         out.push({ type: body, role: 'system', target: null, _key: baseKey + '|body' });
       }
       continue;
@@ -993,7 +1245,7 @@ function toPlayerDisplayLogs(rawEvents, opts = {}) {
       out.push({ type: text, role: 'system', target: null, _key: baseKey });
     }
   }
-  return normalizePlayerFacingDisplayLogs(out);
+  return normalizePlayerFacingDisplayLogs(out, locale);
 }
 
 /** 내부 요약/debug 문장 패턴 (플레이어 로그에서 제외) */
@@ -1006,8 +1258,10 @@ function normalizeDisplayLine(s) {
     .trim();
 }
 
-/** 함장 로그 확인 과거형 서술 (구 CHECK_LOG fallback). [함장]+현재형 본문 직후면 제거 */
+/** 함장 로그 확인 과거형 서술 (구 CHECK_LOG fallback). 함장+현재형 본문 직후면 제거 */
 const CAPTAIN_LOG_PAST_NARRATION = /^함장이 (?:시스템|닥터|엔지니어|네비게이터|파일럿)(?: 구역)? 로그를 확인했다\.?$/;
+const CAPTAIN_LOG_PAST_NARRATION_EN =
+  /^The captain checked (?:the )?(?:system|doctor|engineer|navigator|pilot)(?: sector)? logs\.?$/i;
 
 /**
  * 같은 이벤트가 여러 번 내려가지 않도록 _key(ts+type+role+target) 기준 dedupe.
@@ -1016,7 +1270,9 @@ const CAPTAIN_LOG_PAST_NARRATION = /^함장이 (?:시스템|닥터|엔지니어|
  * [함장] + 로그 확인 본문 다음에 오는 동일 의미의 함장 과거형 서술은 제거.
  * @param {object[]} displayLogs - toPlayerDisplayLogs 출력
  */
-function dedupeDisplayLogs(displayLogs) {
+function dedupeDisplayLogs(displayLogs, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const capH = captainHeader(loc);
   if (!displayLogs || !displayLogs.length) return [];
   const seen = new Set();
   const out = [];
@@ -1035,17 +1291,24 @@ function dedupeDisplayLogs(displayLogs) {
   for (const item of out) {
     const norm = normalizeDisplayLine(item.type);
     if (norm && norm === prevNorm) continue;
-    if (norm && CAPTAIN_LOG_PAST_NARRATION.test(norm) && final.length >= 2) {
+    if (norm && loc === 'ko' && CAPTAIN_LOG_PAST_NARRATION.test(norm) && final.length >= 2) {
       const prev = final[final.length - 1];
       const hdr = final[final.length - 2];
-      if (hdr && hdr.type === '[함장]' && prev && prev.type && /확인/.test(String(prev.type))) {
+      if (hdr && hdr.type === capH && prev && prev.type && /확인/.test(String(prev.type))) {
+        continue;
+      }
+    }
+    if (norm && loc === 'en' && CAPTAIN_LOG_PAST_NARRATION_EN.test(norm) && final.length >= 2) {
+      const prev = final[final.length - 1];
+      const hdr = final[final.length - 2];
+      if (hdr && hdr.type === capH && prev && prev.type && /check/i.test(String(prev.type))) {
         continue;
       }
     }
     prevNorm = norm;
     final.push(item);
   }
-  return normalizePlayerFacingDisplayLogs(final);
+  return normalizePlayerFacingDisplayLogs(final, loc);
 }
 
 /**
@@ -1153,11 +1416,14 @@ async function handleTextMessage(playerId, text, opts = {}) {
   } else {
     log('ACTION', 'ok', { playerId, matchId, action: parsed.intent_type, target: parsed.target });
   }
+  const locale = opts.locale === 'en' ? 'en' : 'ko';
   const isCheckLogMsg = String(parsed.intent_type || '').toLowerCase() === 'check_log';
   const deterministicLogs = dedupeDisplayLogs(
     toPlayerDisplayLogs(result.events || [], {
-      captainInputLine: isCheckLogMsg ? String(text || '').trim() : ''
-    })
+      captainInputLine: isCheckLogMsg ? String(text || '').trim() : '',
+      locale
+    }),
+    locale
   );
   const clueEv = (result.events || []).find((e) => e && String(e.type).toUpperCase() === 'FIND_CLUE');
   const clueTextFromEvent = clueEv && clueEv.clue_text ? String(clueEv.clue_text) : undefined;
@@ -1167,8 +1433,10 @@ async function handleTextMessage(playerId, text, opts = {}) {
       deterministicLogs,
       match: updated,
       playerText: String(text || '').trim(),
-      clueTextFromEvent
-    })
+      clueTextFromEvent,
+      locale
+    }),
+    locale
   );
   if (recentDisplay.length > 0) {
     reply += '\n\nRecent: ' + recentDisplay.map((e) => e.type).join(', ');
@@ -1190,9 +1458,62 @@ async function routeMessage(playerId, text, opts = {}) {
   return handleTextMessage(playerId, t, opts);
 }
 
+const CREW_IMPOSTOR_KEYS = new Set(['doctor', 'engineer', 'navigator', 'pilot']);
+/** /api/state 폴링 시 동일 outcome+role 반복 로그 방지 */
+let lastResultNormalizedLogSig = '';
+
+function normalizeImpostorRoleKey(raw) {
+  if (raw == null) return null;
+  const s = String(raw).trim().toLowerCase();
+  if (!s || s === 'unknown' || s === 'null' || s === 'undefined') return null;
+  return CREW_IMPOSTOR_KEYS.has(s) ? s : null;
+}
+
+/**
+ * 매치/상태에서 권위 있는 실제 임포스터 역할만 추출 (추측 없음).
+ * 우선순위: explicit 필드들 → hidden_host_role(엔진 매치의 정식 비밀 역할).
+ */
+function pickAuthoritativeImpostorRole(match) {
+  if (!match || typeof match !== 'object') return null;
+  const candidates = [
+    match.actual_imposter,
+    match.actualImposter,
+    match.impostor_role,
+    match.impostorRole,
+    match.impostor,
+    match.true_impostor,
+    match.trueImpostor,
+    match.actual_imposter_role
+  ];
+  for (const c of candidates) {
+    const n = normalizeImpostorRoleKey(c);
+    if (n) return n;
+  }
+  return normalizeImpostorRoleKey(match.hidden_host_role);
+}
+
+/**
+ * game_state.game_over === true 일 때만 actual_imposter / impostor_role 설정 (miniapp 공통 키).
+ */
+function attachActualImposterIfGameOverResult(ret, match) {
+  if (!ret || !match) return;
+  const gs = match.game_state || {};
+  if (!gs.game_over) return;
+  const role = pickAuthoritativeImpostorRole(match);
+  if (!role) return;
+  ret.actual_imposter = role;
+  ret.impostor_role = role;
+  const oc = gs.outcome || ret.outcome || 'unknown';
+  const sig = String(match.match_id || '') + '|' + oc + '|' + role;
+  if (sig !== lastResultNormalizedLogSig) {
+    lastResultNormalizedLogSig = sig;
+    console.log('[bot] RESULT_NORMALIZED outcome=' + oc + ' actual_imposter=' + role);
+  }
+}
+
 /**
  * API용 /start 상태 반환
- * actual_imposter: game_over=true일 때만 match.impostor_role을 포함. game_over=false면 미포함.
+ * actual_imposter: game_over=true일 때만 권위 필드에서 정규화. game_over=false면 미포함.
  * @param {string} playerId
  * @param {object} opts - { restart?: boolean } restart=true면 새 매치 생성
  * @returns {Promise<object>}
@@ -1224,7 +1545,8 @@ async function getStartStateApi(playerId, opts = {}) {
   const match = await matchStore.getMatch(matchId);
   const timer = ep1Engine.getTimerStatus ? ep1Engine.getTimerStatus(match) : { remaining_sec: 420 };
   const gs = match?.game_state || {};
-  const displayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(match?.events || []));
+  const locale = opts.locale === 'en' ? 'en' : 'ko';
+  const displayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(match?.events || [], { locale }), locale);
   const out = {
     ok: true,
     match_id: matchId,
@@ -1234,8 +1556,7 @@ async function getStartStateApi(playerId, opts = {}) {
     events: displayLogs
   };
   if (gs.game_over) {
-    const imp = match?.impostor_role ?? match?.hidden_host_role;
-    if (imp) out.actual_imposter = imp;
+    attachActualImposterIfGameOverResult(out, match);
     const evs = match?.events || [];
     if (evs.some((e) => e && e.type === 'TIMEOUT')) out.is_timeout = true;
   }
@@ -1244,13 +1565,14 @@ async function getStartStateApi(playerId, opts = {}) {
 
 /**
  * API용 메시지 처리 (구조화된 결과 반환)
- * actual_imposter: game_over=true일 때만 match.impostor_role을 포함. game_over=false면 미포함.
+ * actual_imposter: game_over=true일 때만 권위 필드에서 정규화. game_over=false면 미포함.
  * @param {string} playerId
  * @param {string} text
  * @param {object} opts - { now? }
  * @returns {Promise<object>}
  */
 async function processMessageApi(playerId, text, opts = {}) {
+  const locale = opts.locale === 'en' ? 'en' : 'ko';
   let player = await playerStore.getPlayer(playerId);
   let matchId = player?.match_id;
   if (!matchId) {
@@ -1264,14 +1586,17 @@ async function processMessageApi(playerId, text, opts = {}) {
   if (match.game_state?.game_over) {
     const ret = {
       ok: true,
-      summary: `Game over. Outcome: ${match.game_state.outcome || 'unknown'}`,
+      summary:
+        locale === 'en'
+          ? `Game over. Outcome: ${match.game_state.outcome || 'unknown'}`
+          : `게임 종료. 결과: ${match.game_state.outcome || 'unknown'}`,
       game_over: true,
       outcome: match.game_state.outcome,
       remaining_sec: 0,
       events: [],
       match_state: { ...match.game_state }
     };
-    if (match.impostor_role != null) ret.actual_imposter = match.impostor_role;
+    attachActualImposterIfGameOverResult(ret, match);
     const evs = match?.events || [];
     if (evs.some((e) => e && e.type === 'TIMEOUT')) ret.is_timeout = true;
     return ret;
@@ -1292,8 +1617,10 @@ async function processMessageApi(playerId, text, opts = {}) {
   const isCheckLogMsg = String(parsed.intent_type || '').toLowerCase() === 'check_log';
   const deterministicLogs = dedupeDisplayLogs(
     toPlayerDisplayLogs(result.events || [], {
-      captainInputLine: isCheckLogMsg ? String(text || '').trim() : ''
-    })
+      captainInputLine: isCheckLogMsg ? String(text || '').trim() : '',
+      locale
+    }),
+    locale
   );
   const clueEv = (result.events || []).find((e) => e && String(e.type).toUpperCase() === 'FIND_CLUE');
   const clueTextFromEvent = clueEv && clueEv.clue_text ? String(clueEv.clue_text) : undefined;
@@ -1303,10 +1630,13 @@ async function processMessageApi(playerId, text, opts = {}) {
       deterministicLogs,
       match: updated,
       playerText: String(text || '').trim(),
-      clueTextFromEvent
-    })
+      clueTextFromEvent,
+      locale
+    }),
+    locale
   );
-  const isCaptainBlock = newDisplayLogs.length >= 2 && newDisplayLogs[0].type === '[함장]';
+  const capH = captainHeader(locale);
+  const isCaptainBlock = newDisplayLogs.length >= 2 && newDisplayLogs[0].type === capH;
   const captainBody = isCaptainBlock ? (newDisplayLogs[1].type || '').trim() : '';
   const hasCompleteCaptainBlock = isCaptainBlock && captainBody.length > 0;
   const summaryText = hasCompleteCaptainBlock
@@ -1324,7 +1654,7 @@ async function processMessageApi(playerId, text, opts = {}) {
     match_state: updated?.game_state || {}
   };
   if (gameOver) {
-    if (updated?.impostor_role != null) ret.actual_imposter = updated.impostor_role;
+    attachActualImposterIfGameOverResult(ret, updated);
     const evs = result.events || updated?.events || [];
     if (evs.some((e) => e && e.type === 'TIMEOUT')) ret.is_timeout = true;
   }
@@ -1342,6 +1672,7 @@ const ACCUSE_API_TARGETS = new Set(['doctor', 'engineer', 'navigator', 'pilot'])
  * @returns {Promise<object>}
  */
 async function processAccuseApi(playerId, targetRaw, opts = {}) {
+  const locale = opts.locale === 'en' ? 'en' : 'ko';
   const target = String(targetRaw || '').toLowerCase().trim();
   if (!ACCUSE_API_TARGETS.has(target)) {
     return { ok: false, error: 'Invalid target' };
@@ -1360,7 +1691,10 @@ async function processAccuseApi(playerId, targetRaw, opts = {}) {
   if (match.game_state?.game_over) {
     const ret = {
       ok: true,
-      summary: `Game over. Outcome: ${match.game_state.outcome || 'unknown'}`,
+      summary:
+        locale === 'en'
+          ? `Game over. Outcome: ${match.game_state.outcome || 'unknown'}`
+          : `게임 종료. 결과: ${match.game_state.outcome || 'unknown'}`,
       game_over: true,
       outcome: match.game_state.outcome,
       remaining_sec: 0,
@@ -1368,7 +1702,7 @@ async function processAccuseApi(playerId, targetRaw, opts = {}) {
       recent_events: [],
       match_state: { ...match.game_state }
     };
-    if (match.impostor_role != null) ret.actual_imposter = match.impostor_role;
+    attachActualImposterIfGameOverResult(ret, match);
     const evs = match?.events || [];
     if (evs.some((e) => e && e.type === 'TIMEOUT')) ret.is_timeout = true;
     return ret;
@@ -1385,8 +1719,9 @@ async function processAccuseApi(playerId, targetRaw, opts = {}) {
 
   const updated = await matchStore.getMatch(matchId);
   const gameOver = result.game_over || updated?.game_state?.game_over;
-  const newDisplayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(result.events || [], {}));
-  const isCaptainBlock = newDisplayLogs.length >= 2 && newDisplayLogs[0].type === '[함장]';
+  const newDisplayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(result.events || [], { locale }), locale);
+  const capH = captainHeader(locale);
+  const isCaptainBlock = newDisplayLogs.length >= 2 && newDisplayLogs[0].type === capH;
   const captainBody = isCaptainBlock ? (newDisplayLogs[1].type || '').trim() : '';
   const hasCompleteCaptainBlock = isCaptainBlock && captainBody.length > 0;
   const summaryText = hasCompleteCaptainBlock
@@ -1404,7 +1739,7 @@ async function processAccuseApi(playerId, targetRaw, opts = {}) {
     match_state: updated?.game_state || {}
   };
   if (gameOver) {
-    if (updated?.impostor_role != null) ret.actual_imposter = updated.impostor_role;
+    attachActualImposterIfGameOverResult(ret, updated);
     const evs = result.events || updated?.events || [];
     if (evs.some((e) => e && e.type === 'TIMEOUT')) ret.is_timeout = true;
   }
@@ -1422,6 +1757,7 @@ async function processAccuseApi(playerId, targetRaw, opts = {}) {
  * @returns {Promise<object>}
  */
 async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
+  const locale = opts.locale === 'en' ? 'en' : 'ko';
   const actionKey = String(actionRaw || '').toLowerCase().trim();
   const actionPayloadByKey = {
     take_pistol: { actor: 'captain', role: 'captain', action: 'take_pistol' },
@@ -1452,7 +1788,10 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
   if (match.game_state?.game_over) {
     const ret = {
       ok: true,
-      summary: `Game over. Outcome: ${match.game_state.outcome || 'unknown'}`,
+      summary:
+        locale === 'en'
+          ? `Game over. Outcome: ${match.game_state.outcome || 'unknown'}`
+          : `게임 종료. 결과: ${match.game_state.outcome || 'unknown'}`,
       game_over: true,
       outcome: match.game_state.outcome,
       remaining_sec: 0,
@@ -1460,7 +1799,7 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
       recent_events: [],
       match_state: { ...match.game_state }
     };
-    if (match.impostor_role != null) ret.actual_imposter = match.impostor_role;
+    attachActualImposterIfGameOverResult(ret, match);
     const evs = match?.events || [];
     if (evs.some((e) => e && e.type === 'TIMEOUT')) ret.is_timeout = true;
     return ret;
@@ -1480,25 +1819,34 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
 
   const updated = await matchStore.getMatch(matchId);
   const gameOver = result.game_over || updated?.game_state?.game_over;
-  const deterministicLogs = dedupeDisplayLogs(toPlayerDisplayLogs(result.events || [], {}));
+  const deterministicLogs = dedupeDisplayLogs(toPlayerDisplayLogs(result.events || [], { locale }), locale);
   const clueEv = (result.events || []).find((e) => e && String(e.type).toUpperCase() === 'FIND_CLUE');
   const clueTextFromEvent = clueEv && clueEv.clue_text ? String(clueEv.clue_text) : undefined;
   const actionHint =
     actionKey === 'threaten'
-      ? `[위협 action] target=${String(targetRaw || '').toLowerCase()}`
+      ? locale === 'en'
+        ? `[threaten action] target=${String(targetRaw || '').toLowerCase()}`
+        : `[위협 action] target=${String(targetRaw || '').toLowerCase()}`
       : actionKey === 'take_pistol'
-        ? `[권총 획득 action]`
-        : `[단서수집 action]`;
+        ? locale === 'en'
+          ? `[take_pistol action]`
+          : `[권총 획득 action]`
+        : locale === 'en'
+          ? `[collect_clue action]`
+          : `[단서수집 action]`;
   const newDisplayLogs = dedupeDisplayLogs(
     await maybeDialogueLogsFromLlmOrDeterministic({
       rawEvents: result.events || [],
       deterministicLogs,
       match: updated,
       playerText: actionHint,
-      clueTextFromEvent
-    })
+      clueTextFromEvent,
+      locale
+    }),
+    locale
   );
-  const isCaptainBlock = newDisplayLogs.length >= 2 && newDisplayLogs[0].type === '[함장]';
+  const capH = captainHeader(locale);
+  const isCaptainBlock = newDisplayLogs.length >= 2 && newDisplayLogs[0].type === capH;
   const captainBody = isCaptainBlock ? (newDisplayLogs[1].type || '').trim() : '';
   const hasCompleteCaptainBlock = isCaptainBlock && captainBody.length > 0;
   const summaryText = hasCompleteCaptainBlock
@@ -1516,7 +1864,7 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
     match_state: updated?.game_state || {}
   };
   if (gameOver) {
-    if (updated?.impostor_role != null) ret.actual_imposter = updated.impostor_role;
+    attachActualImposterIfGameOverResult(ret, updated);
     const evs = result.events || updated?.events || [];
     if (evs.some((e) => e && e.type === 'TIMEOUT')) ret.is_timeout = true;
   }
@@ -1686,7 +2034,9 @@ function createLocalApiServer() {
         const data = body ? JSON.parse(body) : {};
         const playerId = data.playerId || 'miniapp_' + Date.now();
         const restart = !!data.restart;
-        const state = await getStartStateApi(playerId, { restart });
+        const locale = resolveRequestLocale(data, url.searchParams, req.headers);
+        console.log('[bot] LOCALE_RESOLVED locale=' + locale + ' action=start');
+        const state = await getStartStateApi(playerId, { restart, locale });
         res.writeHead(200);
         res.end(JSON.stringify({ ok: true, playerId, ...state }));
         return;
@@ -1699,6 +2049,8 @@ function createLocalApiServer() {
           res.end(JSON.stringify({ ok: false, error: 'playerId required' }));
           return;
         }
+        const locale = resolveRequestLocale({}, url.searchParams, req.headers);
+        console.log('[bot] LOCALE_RESOLVED locale=' + locale + ' action=state');
         const player = await playerStore.getPlayer(playerId);
         const matchId = player?.match_id;
         if (!matchId) {
@@ -1716,8 +2068,8 @@ function createLocalApiServer() {
         match = await matchStore.getMatch(matchId);
         const timer = ep1Engine.getTimerStatus(match, new Date());
         const gs = match?.game_state || {};
-        const displayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(match?.events || []));
-        const recentDisplay = dedupeDisplayLogs(toPlayerDisplayLogs(deltaRaw));
+        const displayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(match?.events || [], { locale }), locale);
+        const recentDisplay = dedupeDisplayLogs(toPlayerDisplayLogs(deltaRaw, { locale }), locale);
         const statePayload = {
           ok: true,
           match_id: matchId,
@@ -1729,7 +2081,7 @@ function createLocalApiServer() {
           game_over: !!gs.game_over
         };
         if (gs.game_over) {
-          if (match.impostor_role != null) statePayload.actual_imposter = match.impostor_role;
+          attachActualImposterIfGameOverResult(statePayload, match);
           const evs = match?.events || [];
           if (evs.some((e) => e && e.type === 'TIMEOUT')) statePayload.is_timeout = true;
         }
@@ -1742,12 +2094,14 @@ function createLocalApiServer() {
         const data = body ? JSON.parse(body) : {};
         const playerId = data.playerId;
         const text = data.text || '';
+        const locale = resolveRequestLocale(data, url.searchParams, req.headers);
+        console.log('[bot] LOCALE_RESOLVED locale=' + locale + ' action=message');
         if (!playerId) {
           res.writeHead(400);
           res.end(JSON.stringify({ ok: false, error: 'playerId required' }));
           return;
         }
-        const result = await processMessageApi(playerId, text);
+        const result = await processMessageApi(playerId, text, { locale });
         res.writeHead(200);
         res.end(JSON.stringify(result));
         return;
@@ -1757,6 +2111,8 @@ function createLocalApiServer() {
         const data = body ? JSON.parse(body) : {};
         const playerId = data.playerId;
         const target = data.target;
+        const locale = resolveRequestLocale(data, url.searchParams, req.headers);
+        console.log('[bot] LOCALE_RESOLVED locale=' + locale + ' action=accuse');
         if (!playerId) {
           res.writeHead(400);
           res.end(JSON.stringify({ ok: false, error: 'playerId required' }));
@@ -1767,7 +2123,7 @@ function createLocalApiServer() {
           res.end(JSON.stringify({ ok: false, error: 'target required' }));
           return;
         }
-        const result = await processAccuseApi(playerId, target);
+        const result = await processAccuseApi(playerId, target, { locale });
         res.writeHead(200);
         res.end(JSON.stringify(result));
         return;
@@ -1778,6 +2134,8 @@ function createLocalApiServer() {
         const playerId = data.playerId;
         const actionName = data.action;
         const targetOpt = data.target;
+        const locale = resolveRequestLocale(data, url.searchParams, req.headers);
+        console.log('[bot] LOCALE_RESOLVED locale=' + locale + ' action=api_action');
         if (!playerId) {
           res.writeHead(400);
           res.end(JSON.stringify({ ok: false, error: 'playerId required' }));
@@ -1788,7 +2146,7 @@ function createLocalApiServer() {
           res.end(JSON.stringify({ ok: false, error: 'action required' }));
           return;
         }
-        const result = await processActionApi(playerId, actionName, targetOpt);
+        const result = await processActionApi(playerId, actionName, targetOpt, { locale });
         res.writeHead(200);
         res.end(JSON.stringify(result));
         return;

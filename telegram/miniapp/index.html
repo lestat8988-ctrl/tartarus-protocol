@@ -48,7 +48,8 @@
     }
     /* 처형 모달 열림: 아래 게임 UI로 터치가 새지 않게 (고스트 클릭으로 전송 버튼·이전 입력 재전송 방지) */
     body.execute-modal-open #game-screen,
-    body.threat-modal-open #game-screen {
+    body.threat-modal-open #game-screen,
+    body.question-modal-open #game-screen {
       pointer-events: none;
     }
     #app {
@@ -534,7 +535,8 @@
     .modal-execute-warn.visible { display: block; }
     .modal-targets { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
     .modal-target-btn,
-    .threat-target-btn {
+    .threat-target-btn,
+    .question-target-btn {
       padding: 14px;
       background: #1a1a1a;
       border: 1px solid #2aef2a55;
@@ -546,11 +548,14 @@
       -webkit-tap-highlight-color: transparent;
     }
     .modal-target-btn.selected,
-    .threat-target-btn.selected { border-color: #2aef2a; background: #1a3a1a; }
+    .threat-target-btn.selected,
+    .question-target-btn.selected { border-color: #2aef2a; background: #1a3a1a; }
     .modal-target-btn.dead,
     .threat-target-btn.dead,
+    .question-target-btn.dead,
     .modal-target-btn:disabled,
-    .threat-target-btn:disabled {
+    .threat-target-btn:disabled,
+    .question-target-btn:disabled {
       opacity: 0.42;
       cursor: not-allowed;
       border-color: #444;
@@ -559,9 +564,11 @@
       box-shadow: none;
     }
     .modal-target-btn.dead.selected,
-    .threat-target-btn.dead.selected { border-color: #444; background: #141414; color: #666; }
+    .threat-target-btn.dead.selected,
+    .question-target-btn.dead.selected { border-color: #444; background: #141414; color: #666; }
     .modal-target-btn:active:not(:disabled),
-    .threat-target-btn:active:not(:disabled) { background: #222; }
+    .threat-target-btn:active:not(:disabled),
+    .question-target-btn:active:not(:disabled) { background: #222; }
     .modal-actions { display: flex; gap: 10px; }
     .modal-actions button {
       flex: 1;
@@ -578,7 +585,8 @@
     #restart-btn:disabled,
     #result-restart-btn:disabled,
     #execute-confirm:disabled,
-    #threat-confirm:disabled {
+    #threat-confirm:disabled,
+    #question-confirm:disabled {
       opacity: 0.45;
       cursor: not-allowed;
       pointer-events: none;
@@ -586,7 +594,8 @@
     @media (max-width: 480px) {
       .modal-box { padding: 24px; }
       .modal-target-btn,
-      .threat-target-btn { padding: 16px; min-height: 48px; }
+      .threat-target-btn,
+      .question-target-btn { padding: 16px; min-height: 48px; }
     }
 
     /* Result modal (game over) */
@@ -775,6 +784,25 @@
     </div>
   </div>
 
+  <!-- Question target modal (자유 입력 심문 — 선택한 승무원만 문장에 포함) -->
+  <div class="modal-overlay" id="question-modal">
+    <div class="modal-box">
+      <div class="modal-title" id="question-modal-title">심문 대상 선택</div>
+      <div class="modal-instruction" id="question-modal-instruction">질문할 승무원 1명을 선택하십시오.</div>
+      <div class="modal-execute-warn" id="question-no-target-hint" role="status"></div>
+      <div class="modal-targets">
+        <button type="button" class="question-target-btn" data-target="doctor" id="question-target-doctor">닥터</button>
+        <button type="button" class="question-target-btn" data-target="engineer" id="question-target-engineer">엔지니어</button>
+        <button type="button" class="question-target-btn" data-target="navigator" id="question-target-navigator">네비게이터</button>
+        <button type="button" class="question-target-btn" data-target="pilot" id="question-target-pilot">파일럿</button>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="modal-cancel" id="question-cancel">취소</button>
+        <button type="button" class="modal-confirm" id="question-confirm" disabled>확정</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     (function() {
       var API_BASE = (typeof location !== 'undefined' && location.origin === 'http://localhost:8788') ? '' : 'http://localhost:8788';
@@ -785,6 +813,13 @@
       var storedLang;
       try { storedLang = (localStorage.getItem(LANG_KEY) || '').trim(); } catch (e) { storedLang = ''; }
       var lang = (storedLang === 'ko' || storedLang === 'en') ? storedLang : 'en';
+
+      function getLangForApi() {
+        return (lang === 'ko' || lang === 'en') ? lang : 'en';
+      }
+      function logMiniappApiLang(endpoint) {
+        try { console.log('[miniapp] sending lang=' + getLangForApi() + ' endpoint=' + endpoint); } catch (e) {}
+      }
 
       /* public/index.html INTRO_TEXT에서 그대로 복사 (lines 배열) */
       var OPENING_LINES = {
@@ -907,6 +942,9 @@
           threatModalTitle: '위협 대상 선택',
           threatModalInstruction: '압박할 승무원 1명을 선택하십시오. 처형 프로토콜이 아닙니다.',
           threatNoTargetHint: '위협 대상을 먼저 선택하십시오. (닥터 / 엔지니어 / 네비게이터 / 파일럿)',
+          questionModalTitle: '심문 대상 선택',
+          questionModalInstruction: '질문할 승무원 1명을 선택하십시오.',
+          questionNoTargetHint: '심문 대상을 먼저 선택하십시오. (닥터 / 엔지니어 / 네비게이터 / 파일럿)',
           cancel: '취소',
           confirm: '확정',
           doctor: '닥터',
@@ -968,6 +1006,9 @@
           threatModalTitle: 'SELECT THREAT TARGET',
           threatModalInstruction: 'Choose one crew member to pressure. This is not execution.',
           threatNoTargetHint: 'Select a threat target first. (Doctor / Engineer / Navigator / Pilot)',
+          questionModalTitle: 'SELECT INTERROGATION TARGET',
+          questionModalInstruction: 'Choose one crew member to question.',
+          questionNoTargetHint: 'Select a crew member first. (Doctor / Engineer / Navigator / Pilot)',
           cancel: 'CANCEL',
           confirm: 'CONFIRM',
           doctor: 'Doctor',
@@ -1026,6 +1067,8 @@
       const resultRestartBtn = document.getElementById('result-restart-btn');
       const executeConfirmBtn = document.getElementById('execute-confirm');
       const threatConfirmBtn = document.getElementById('threat-confirm');
+      const questionModal = document.getElementById('question-modal');
+      const questionConfirmBtn = document.getElementById('question-confirm');
       const captainPhaseStatusEl = document.getElementById('captain-phase-status');
 
       var isGameOver = false;
@@ -1040,8 +1083,10 @@
       var collectClueRequestInFlight = false;
       var threatRequestInFlight = false;
       var threatModalUnlockTimer = null;
+      var questionModalUnlockTimer = null;
       var selectedThreatTarget = null;
       var selectedExecuteTarget = null;
+      var selectedQuestionTarget = null;
       /** 현재 매치의 사망 역할 — updateStatus(game_state.dead_roles)에서 갱신 */
       var lastDeadRoles = [];
       /** [함장] 줄 이후 같은 턴의 크루 반응 append 시 맨 아래로 스크롤하지 않음 */
@@ -1117,10 +1162,13 @@
         if (userActionPending) {
           if (executeModal && executeModal.classList.contains('visible')) closeExecuteModal();
           if (threatModal && threatModal.classList.contains('visible')) closeThreatModal();
+          if (questionModal && questionModal.classList.contains('visible')) closeQuestionModal();
           if (freeInput) freeInput.blur();
         }
         applyCaptainInputChrome();
         refreshCaptainPhaseStatusUi();
+        updateThreatConfirmEnabled();
+        updateQuestionConfirmEnabled();
       }
 
       /** setPending: 오직 사용자 턴 요청 시작 시 */
@@ -1179,6 +1227,8 @@
         userActionPending = false;
         applyCaptainInputChrome();
         refreshCaptainPhaseStatusUi();
+        updateThreatConfirmEnabled();
+        updateQuestionConfirmEnabled();
       }
 
       function setRestartButtonsDisabled(disabled) {
@@ -1205,7 +1255,7 @@
         if (statePollInFlight) return;
         statePollInFlight = true;
         var playerId = getPlayerId();
-        fetch(API_BASE + '/api/state?playerId=' + encodeURIComponent(playerId))
+        fetch(API_BASE + '/api/state?playerId=' + encodeURIComponent(playerId) + '&lang=' + encodeURIComponent(getLangForApi()))
           .then(function(r) { return r.json(); })
           .then(function(data) {
             if (!data.ok) return;
@@ -1258,17 +1308,28 @@
           clearTimeout(threatModalUnlockTimer);
           threatModalUnlockTimer = null;
         }
+        if (questionModalUnlockTimer) {
+          clearTimeout(questionModalUnlockTimer);
+          questionModalUnlockTimer = null;
+        }
         document.body.classList.remove('execute-modal-open');
         document.body.classList.remove('threat-modal-open');
+        document.body.classList.remove('question-modal-open');
         var execM = document.getElementById('execute-modal');
         if (execM) execM.classList.remove('visible');
         var threatM = document.getElementById('threat-modal');
         if (threatM) threatM.classList.remove('visible');
+        if (questionModal) questionModal.classList.remove('visible');
         selectedThreatTarget = null;
         document.querySelectorAll('.threat-target-btn').forEach(function(b) { b.classList.remove('selected'); });
         if (threatConfirmBtn) threatConfirmBtn.disabled = true;
         var threatNoTargetHintEl = document.getElementById('threat-no-target-hint');
         if (threatNoTargetHintEl) threatNoTargetHintEl.classList.remove('visible');
+        selectedQuestionTarget = null;
+        document.querySelectorAll('.question-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+        if (questionConfirmBtn) questionConfirmBtn.disabled = true;
+        var questionNoTargetHintEl = document.getElementById('question-no-target-hint');
+        if (questionNoTargetHintEl) questionNoTargetHintEl.classList.remove('visible');
         closeResultModal();
         var resultModal = document.getElementById('result-modal');
         if (resultModal) resultModal.classList.remove('result-win', 'result-lose');
@@ -1297,6 +1358,7 @@
         if (execNoTargetHint) execNoTargetHint.classList.remove('visible');
         updateExecuteConfirmEnabled();
         updateThreatConfirmEnabled();
+        updateQuestionConfirmEnabled();
         applyCaptainInputChrome();
         refreshCaptainPhaseStatusUi();
       }
@@ -1516,13 +1578,25 @@
         var alive = selectedThreatTarget && !isRoleDead(selectedThreatTarget);
         threatConfirmBtn.disabled = !alive;
       }
+      function updateQuestionConfirmEnabled() {
+        if (!questionConfirmBtn) return;
+        if (userActionPending) {
+          questionConfirmBtn.disabled = true;
+          return;
+        }
+        var sel = questionModal ? questionModal.querySelector('.question-target-btn.selected') : null;
+        var rid = sel ? String(sel.getAttribute('data-target') || '').toLowerCase() : '';
+        var alive = rid && VALID_ACCUSE_TARGETS.indexOf(rid) >= 0 && !isRoleDead(rid);
+        questionConfirmBtn.disabled = !alive;
+      }
       function applyDeadStateToModalButtons() {
         VALID_ACCUSE_TARGETS.forEach(function(r) {
           var dead = isRoleDead(r);
           var label = getTargetButtonLabel(r, dead);
           var execBtn = document.getElementById('target-' + r);
           var threatBtn = document.getElementById('threat-target-' + r);
-          [execBtn, threatBtn].forEach(function(btn) {
+          var qBtn = document.getElementById('question-target-' + r);
+          [execBtn, threatBtn, qBtn].forEach(function(btn) {
             if (!btn) return;
             btn.textContent = label;
             btn.classList.toggle('dead', dead);
@@ -1537,8 +1611,13 @@
           selectedThreatTarget = null;
           document.querySelectorAll('.threat-target-btn').forEach(function(b) { b.classList.remove('selected'); });
         }
+        if (selectedQuestionTarget && isRoleDead(selectedQuestionTarget)) {
+          selectedQuestionTarget = null;
+          document.querySelectorAll('.question-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+        }
         updateExecuteConfirmEnabled();
         updateThreatConfirmEnabled();
+        updateQuestionConfirmEnabled();
       }
 
       function syncLangFromStorage() {
@@ -1680,6 +1759,21 @@
           threatNoTarget.textContent = L.threatNoTargetHint || '';
           threatNoTarget.classList.remove('visible');
         }
+        var qTitle = document.getElementById('question-modal-title');
+        var qInst = document.getElementById('question-modal-instruction');
+        var qCancel = document.getElementById('question-cancel');
+        if (qTitle) qTitle.textContent = L.questionModalTitle || '';
+        if (qInst) qInst.textContent = L.questionModalInstruction || '';
+        if (qCancel) qCancel.textContent = L.cancel;
+        if (questionConfirmBtn) {
+          questionConfirmBtn.textContent = L.confirm;
+          updateQuestionConfirmEnabled();
+        }
+        var qNoTarget = document.getElementById('question-no-target-hint');
+        if (qNoTarget) {
+          qNoTarget.textContent = L.questionNoTargetHint || '';
+          qNoTarget.classList.remove('visible');
+        }
         refreshCaptainPhaseStatusUi();
         applyCaptainInputChrome();
       }
@@ -1688,6 +1782,19 @@
         if (!outcome) return 'unknown';
         var map = { crew_win: 'crew_win', accuse_failed: 'accuse_failed', impostor_win: 'impostor_win', timeout: 'timeout' };
         return (map[outcome] || outcome).replace(/_/g, ' ').toUpperCase();
+      }
+
+      /** API actual_imposter가 신뢰 가능한 역할 키일 때만 결과 모달에 노출 */
+      function canonicalActualImposterRole(raw) {
+        if (raw == null) return null;
+        var s = String(raw).trim();
+        if (!s) return null;
+        var low = s.toLowerCase();
+        if (low === 'unknown' || low === 'null' || low === 'undefined') return null;
+        if (low === '(unknown)' || low === 'n/a' || low === 'none') return null;
+        if (/(확인\s*불가)/.test(s)) return null;
+        if (['doctor', 'engineer', 'navigator', 'pilot'].indexOf(low) >= 0) return low;
+        return null;
       }
 
       function showResultModal(state) {
@@ -1730,13 +1837,14 @@
           resultOutcomeRow.style.display = 'block';
         }
 
-        if (actualImposter) {
-          var roleLabel = (L[actualImposter] || actualImposter);
+        var imposterKey = canonicalActualImposterRole(actualImposter);
+        if (imposterKey && resultImposter) {
+          var roleLabel = L[imposterKey] || imposterKey;
           resultImposter.textContent = L.resultImposterPrefix + roleLabel;
           resultImposter.style.display = 'block';
-        } else {
-          resultImposter.textContent = L.resultImposterPrefix + (L.resultImposterFallback || '(unknown)');
-          resultImposter.style.display = 'block';
+        } else if (resultImposter) {
+          resultImposter.textContent = '';
+          resultImposter.style.display = 'none';
         }
 
         if (deadRoles.length > 0) {
@@ -1836,7 +1944,8 @@
         if (data.recent_events && data.recent_events.length) {
           applyEvents(data.recent_events);
         } else {
-          var s = String(data.summary || 'Captain acted.').replace(/\s+/g, ' ').trim();
+          var fb = (getLangForApi() === 'ko') ? '함장이 행동했다.' : 'Captain acted.';
+          var s = String(data.summary || fb).replace(/\s+/g, ' ').trim();
           if (s && s !== '\u200b') appendLog(s, false);
         }
       }
@@ -1847,10 +1956,11 @@
         startRequestInFlight = true;
         setRestartButtonsDisabled(true);
         var playerId = getPlayerId();
+        logMiniappApiLang('/api/start');
         fetch(API_BASE + '/api/start', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ playerId: playerId, restart: !!restart })
+          body: JSON.stringify({ playerId: playerId, restart: !!restart, lang: getLangForApi() })
         })
           .then(function(r) { return r.json(); })
           .then(function(data) {
@@ -1888,10 +1998,11 @@
         if (isGameOver || userActionPending) return;
         var userTurnLockSeq = beginCaptainUserActionLock();
         var playerId = getPlayerId();
+        logMiniappApiLang('/api/message');
         fetch(API_BASE + '/api/message', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ playerId: playerId, text: text })
+          body: JSON.stringify({ playerId: playerId, text: text, lang: getLangForApi() })
         })
           .then(function(r) { return r.json(); })
           .then(function(data) {
@@ -1923,10 +2034,11 @@
           return;
         }
         var playerId = getPlayerId();
+        logMiniappApiLang('/api/accuse');
         fetch(API_BASE + '/api/accuse', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ playerId: playerId, target: targetKey })
+          body: JSON.stringify({ playerId: playerId, target: targetKey, lang: getLangForApi() })
         })
           .then(function(r) { return r.json(); })
           .then(function(data) {
@@ -1956,10 +2068,11 @@
         takePistolRequestInFlight = true;
         var userTurnLockSeq = beginCaptainUserActionLock();
         var playerId = getPlayerId();
+        logMiniappApiLang('/api/action');
         fetch(API_BASE + '/api/action', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ playerId: playerId, action: 'take_pistol' })
+          body: JSON.stringify({ playerId: playerId, action: 'take_pistol', lang: getLangForApi() })
         })
           .then(function(r) { return r.json(); })
           .then(function(data) {
@@ -1989,10 +2102,11 @@
         collectClueRequestInFlight = true;
         var userTurnLockSeq = beginCaptainUserActionLock();
         var playerId = getPlayerId();
+        logMiniappApiLang('/api/action');
         fetch(API_BASE + '/api/action', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ playerId: playerId, action: 'collect_clue' })
+          body: JSON.stringify({ playerId: playerId, action: 'collect_clue', lang: getLangForApi() })
         })
           .then(function(r) { return r.json(); })
           .then(function(data) {
@@ -2025,10 +2139,11 @@
         }
         var userTurnLockSeq = beginCaptainUserActionLock();
         var playerId = getPlayerId();
+        logMiniappApiLang('/api/action');
         fetch(API_BASE + '/api/action', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ playerId: playerId, action: 'threaten', target: targetKey })
+          body: JSON.stringify({ playerId: playerId, action: 'threaten', target: targetKey, lang: getLangForApi() })
         })
           .then(function(r) { return r.json(); })
           .then(function(data) {
@@ -2206,6 +2321,77 @@
         if (threatConfirmBtn) threatConfirmBtn.disabled = true;
       }
 
+      function buildQuestionMessageForRole(roleKey) {
+        var L = getL();
+        var rk = String(roleKey || '').toLowerCase();
+        var name = L[rk] || rk;
+        if (lang === 'ko') {
+          return name + ', 그때 어디 있었지?';
+        }
+        return name + ', where were you then?';
+      }
+
+      function openQuestionModal() {
+        if (isGameOver || userActionPending) return;
+        if (questionModalUnlockTimer) {
+          clearTimeout(questionModalUnlockTimer);
+          questionModalUnlockTimer = null;
+        }
+        document.body.classList.add('question-modal-open');
+        if (freeInput) freeInput.blur();
+        selectedQuestionTarget = null;
+        var L = getL();
+        document.querySelectorAll('.question-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+        var qh = document.getElementById('question-no-target-hint');
+        if (qh) {
+          qh.textContent = L.questionNoTargetHint || '';
+          qh.classList.remove('visible');
+        }
+        if (questionModal) questionModal.classList.add('visible');
+        applyDeadStateToModalButtons();
+      }
+
+      function closeQuestionModal() {
+        if (questionModal) questionModal.classList.remove('visible');
+        if (questionModalUnlockTimer) clearTimeout(questionModalUnlockTimer);
+        questionModalUnlockTimer = setTimeout(function() {
+          questionModalUnlockTimer = null;
+          document.body.classList.remove('question-modal-open');
+        }, 200);
+        selectedQuestionTarget = null;
+        document.querySelectorAll('.question-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+        if (questionConfirmBtn) questionConfirmBtn.disabled = true;
+        updateQuestionConfirmEnabled();
+      }
+
+      function confirmQuestion() {
+        if (userActionPending || isGameOver) return;
+        var sel = questionModal ? questionModal.querySelector('.question-target-btn.selected') : null;
+        var targetKey = sel ? String(sel.getAttribute('data-target') || '').toLowerCase() : '';
+        if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
+          var w = document.getElementById('question-no-target-hint');
+          if (w) {
+            w.textContent = (getL().questionNoTargetHint || '').trim();
+            w.classList.add('visible');
+          }
+          return;
+        }
+        if (isRoleDead(targetKey)) {
+          selectedQuestionTarget = null;
+          if (questionModal) questionModal.querySelectorAll('.question-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+          updateQuestionConfirmEnabled();
+          return;
+        }
+        console.log('[miniapp] question target=' + targetKey);
+        var msg = buildQuestionMessageForRole(targetKey);
+        if (freeInput) {
+          freeInput.value = '';
+          freeInput.blur();
+        }
+        closeQuestionModal();
+        doMessage(msg);
+      }
+
       document.querySelectorAll('.modal-target-btn').forEach(function(btn) {
         btn.addEventListener('click', function() {
           if (userActionPending || this.disabled || this.classList.contains('dead')) return;
@@ -2277,6 +2463,41 @@
         });
       }
 
+      if (questionModal) {
+        questionModal.querySelectorAll('.question-target-btn').forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            if (userActionPending || this.disabled || this.classList.contains('dead')) return;
+            var rid = String(this.getAttribute('data-target') || '').toLowerCase();
+            if (isRoleDead(rid)) return;
+            selectedQuestionTarget = VALID_ACCUSE_TARGETS.indexOf(rid) >= 0 ? rid : null;
+            questionModal.querySelectorAll('.question-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+            this.classList.add('selected');
+            var qw = document.getElementById('question-no-target-hint');
+            if (qw) qw.classList.remove('visible');
+            updateQuestionConfirmEnabled();
+          });
+        });
+        questionModal.addEventListener('click', function(e) {
+          var t = e.target;
+          var confirmEl = t && t.closest ? t.closest('#question-confirm') : (t && t.id === 'question-confirm' ? t : null);
+          if (confirmEl) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (userActionPending) return;
+            confirmQuestion();
+            return;
+          }
+          var cancelEl = t && t.closest ? t.closest('#question-cancel') : (t && t.id === 'question-cancel' ? t : null);
+          if (cancelEl) {
+            e.preventDefault();
+            e.stopPropagation();
+            closeQuestionModal();
+            return;
+          }
+          if (e.target === questionModal) closeQuestionModal();
+        });
+      }
+
       sendBtn.addEventListener('click', function() {
         if (isGameOver || userActionPending) return;
         var text = (freeInput.value || '').trim();
@@ -2299,7 +2520,7 @@
           if (isGameOver || userActionPending) return;
           var action = this.dataset.action || '';
           if (action === 'question') {
-            doMessage(lang === 'ko' ? '네비게이터 어디 있었어' : 'Where was the navigator');
+            openQuestionModal();
           } else if (action === 'cctv') {
             doMessage(lang === 'ko' ? 'CCTV 로그를 확인한다.' : 'Checking CCTV logs.');
           } else if (action === 'engine') {
