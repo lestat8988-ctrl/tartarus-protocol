@@ -136,6 +136,54 @@ function roleNameEn(r) {
 }
 
 /**
+ * ep1Engine CLUE_CATALOG(id·한글 text)와 동기 — locale=en일 때 표시만 영어로 (엔진/저장 값 불변).
+ */
+const CLUE_TEXT_EN_BY_ID = {
+  bridge_log_gap: 'Bridge watch logs show a gap between 02:14 and 02:18.',
+  medbay_access: 'Medbay access logs show a short unauthorized presence.',
+  bio_spike: 'Lower-deck corridor biosensors captured a brief spike.',
+  engineering_checksum: 'Engine room safety log checksum does not match the previous cycle.',
+  nav_chart_drift: 'Slight trajectory drift between the nav chart backup and main log.',
+  cctv_sync: 'CCTV timestamps are several seconds off from ship NTP sync.'
+};
+
+const CLUE_TEXT_KO_TO_EN = {
+  '교량 감시 로그 02:14~02:18 구간이 공백으로 남아 있다.': CLUE_TEXT_EN_BY_ID.bridge_log_gap,
+  '의무실 출입 기록에 승인 없는 재실이 짧게 찍혀 있다.': CLUE_TEXT_EN_BY_ID.medbay_access,
+  '저선실 복도 생체 센서에 일시적 스파이크가 포착되었다.': CLUE_TEXT_EN_BY_ID.bio_spike,
+  '엔진실 안전 로그 체크섬이 이전 주기와 불일치한다.': CLUE_TEXT_EN_BY_ID.engineering_checksum,
+  '항법 차트 백업과 메인 항해 기록 사이에 미세한 궤적 어긋남이 있다.': CLUE_TEXT_EN_BY_ID.nav_chart_drift,
+  'CCTV 타임스탬프와 함선 NTP 동기 사이에 수 초 단위 어긋남이 있다.': CLUE_TEXT_EN_BY_ID.cctv_sync
+};
+
+/** FIND_CLUE 함장 액션 한 줄 — en은 엔진 한글 captain_action과 무관하게 고정 */
+function localizeFindClueCaptainLine(locale, captainActionRaw) {
+  if (locale === 'en') return 'Collects a clue.';
+  const a = String(captainActionRaw || '').trim();
+  return a || '단서를 수집한다';
+}
+
+/**
+ * FIND_CLUE 시스템 단서 본문 — en이면 id 또는 정확 한글 일치로 영어 표시문만 사용
+ * @param {boolean} [silent] - true면 debug 로그 생략 (merge 경로에서 이중 로그 방지)
+ */
+function localizeClueSystemLineForDisplay(locale, clueId, clueText, silent) {
+  const raw = String(clueText || '').trim();
+  if (locale !== 'en') return raw;
+  const id = clueId != null ? String(clueId).trim() : '';
+  let out = raw;
+  if (id && CLUE_TEXT_EN_BY_ID[id]) {
+    out = CLUE_TEXT_EN_BY_ID[id];
+  } else if (raw && CLUE_TEXT_KO_TO_EN[raw]) {
+    out = CLUE_TEXT_KO_TO_EN[raw];
+  }
+  if (!silent && out !== raw) {
+    console.log('[bot] CLUE_LOCALIZED locale=en source=system');
+  }
+  return out;
+}
+
+/**
  * non-terminal 배치만: QUESTION / SUSPECT / CHECK_LOG / THREATEN / TAKE_PISTOL / FIND_CLUE(단서 확보)
  * 에러용 CREW_DIALOGUE 단독 배치는 null
  */
@@ -678,10 +726,10 @@ function llmBlocksToDisplayLogs(sortedBlocks, batchKey, locale) {
 }
 
 /** FIND_CLUE: 단서 본문은 엔진 값만 사용 (LLM이 사실 조작 불가) */
-function mergeFindClueDeterministicClue(displayLogs, clueText, batchKey, locale) {
+function mergeFindClueDeterministicClue(displayLogs, clueText, batchKey, locale, clueIdOpt) {
   const loc = locale === 'en' ? 'en' : 'ko';
   const sysH = systemHeader(loc);
-  const clue = String(clueText || '').trim();
+  const clue = localizeClueSystemLineForDisplay(loc, clueIdOpt, clueText, true);
   if (!clue) return displayLogs;
   const filtered = (displayLogs || []).filter((item) => {
     const t = String(item.type || '').trim();
@@ -1020,7 +1068,8 @@ async function tryGenerateLlmDialogueLogs(ctx) {
       );
       let logs = llmBlocksToDisplayLogs(valid, batchKey, locale);
       if (kind === 'FIND_CLUE' && clueText) {
-        logs = mergeFindClueDeterministicClue(logs, clueText, batchKey, locale);
+        const clueIdOpt = ev0?.clue_id != null ? String(ev0.clue_id) : '';
+        logs = mergeFindClueDeterministicClue(logs, clueText, batchKey, locale, clueIdOpt);
       }
       return logs.length ? logs : null;
     }
@@ -1178,10 +1227,8 @@ function toPlayerDisplayLogs(rawEvents, opts = {}) {
     if (t === 'FIND_CLUE') {
       const clueId = ev.clue_id ? String(ev.clue_id) : '';
       const clueKey = clueId || [ev?.ts ?? '', t, role, target ?? ''].join('|');
-      const sysBody = (ev.clue_text || '').trim();
-      const capBody =
-        (ev.captain_action || '').trim() ||
-        (locale === 'en' ? 'Collects clues.' : '단서를 수집한다');
+      const sysBody = localizeClueSystemLineForDisplay(locale, ev.clue_id, ev.clue_text);
+      const capBody = localizeFindClueCaptainLine(locale, ev.captain_action);
       if (sysBody) {
         out.push({ type: capHdr, role: 'system', target: null, _key: clueKey + '|hdr' });
         out.push({ type: capBody, role: 'system', target: null, _key: clueKey + '|body' });
@@ -1189,7 +1236,7 @@ function toPlayerDisplayLogs(rawEvents, opts = {}) {
         out.push({ type: sysBody, role: 'system', target: null, _key: clueKey + '|sys-body' });
       } else {
         out.push({
-          type: locale === 'en' ? 'The captain collects clues.' : '함장이 단서를 수집했다.',
+          type: locale === 'en' ? 'The captain collects a clue.' : '함장이 단서를 수집했다.',
           role: 'system',
           target: null,
           _key: clueKey
@@ -1990,28 +2037,40 @@ async function handleWebhook(req, res) {
 /**
  * 로컬 개발용 HTTP API 서버 (포트 8788)
  * TELEGRAM_BOT_TOKEN 없어도 실행됨.
+ * miniapp·loca.lt·Vercel 등 cross-origin + credentials 미사용 시 Allow-Origin: *
  */
-function createLocalApiServer() {
-  const corsHeaders = {
+function getApiCorsHeaders() {
+  return {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type'
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, HEAD',
+    'Access-Control-Allow-Headers':
+      'Content-Type, Accept, Accept-Language, Authorization, X-Requested-With, Origin, Cache-Control, Pragma',
+    'Access-Control-Max-Age': '86400'
   };
+}
 
+function applyApiCorsHeaders(res) {
+  Object.entries(getApiCorsHeaders()).forEach(([k, v]) => res.setHeader(k, v));
+}
+
+function createLocalApiServer() {
   const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url || '/', 'http://localhost');
+
     if (req.method === 'OPTIONS') {
-      res.writeHead(204, corsHeaders);
+      const origin = req.headers.origin || '(no origin)';
+      console.log('[bot] CORS preflight handled path=' + url.pathname + ' origin=' + origin);
+      res.writeHead(204, getApiCorsHeaders());
       res.end();
       return;
     }
-    Object.entries(corsHeaders).forEach(([k, v]) => res.setHeader(k, v));
+
+    applyApiCorsHeaders(res);
     res.setHeader('Content-Type', 'application/json');
 
     let body = '';
     req.on('data', (chunk) => { body += chunk; });
     await new Promise((resolve) => req.on('end', resolve));
-
-    const url = new URL(req.url || '/', 'http://localhost');
     const route = url.pathname;
 
     try {
