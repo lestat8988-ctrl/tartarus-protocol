@@ -1309,19 +1309,12 @@
         if (executeConfirmBtn) executeConfirmBtn.disabled = !!disabled;
       }
 
-      /** 반복 폴링은 setTimeout 체인 1개만 사용 (poll 완료 후 다음 예약). 탭 숨김·game_over 시 완화·중단 */
+      /** /api/state는 scheduled polling loop 한 경로만 (setTimeout 체인 1개, poll 완료 후 다음 예약) */
       var STATE_POLL_BASE_MS = 1500;
       var STATE_POLL_SLOW_MS = 5000;
-      /** scheduled/background 재예약 하드 플로어 (250ms 급 연속 fetch 방지) */
-      var MIN_POLL_DELAY_MS = 1200;
-      var MIN_SCHEDULED_POLL_MS = 1500;
       var statePollTimer = null;
       var statePollInFlight = false;
       var statePollingEnabled = false;
-      /** 인플라이트 중 즉시 갱신 요청 시 현재 poll 종료 후 한 번 더 돌림 */
-      var statePollPendingKick = false;
-      /** queueImmediate(메시지/액션)에서 설정한 kick만 true — visibility·inflight 중복은 false */
-      var statePollPendingKickFromUser = false;
       /** /api/state 실제 fetch 직전마다 증가 (startStatePolling 시 0으로 리셋) */
       var statePollRequestId = 0;
 
@@ -1335,62 +1328,24 @@
       function stopStatePolling() {
         clearStatePollTimer();
         statePollingEnabled = false;
-        statePollPendingKick = false;
-        statePollPendingKickFromUser = false;
-      }
-
-      /** 사용자 액션 직후 refresh·visibility resume·pending kick flush 공통 최소 (0ms 재예약 금지) */
-      var STATE_POLL_USER_REFRESH_MS = 1200;
-
-      /**
-       * 0ms 재예약은 initial start 1회만 허용. 그 외 source는 최소 1200~1500ms.
-       */
-      function computeClampedDelay(delayMs, source) {
-        var s = String(source || '');
-        var d = typeof delayMs === 'number' ? delayMs : 0;
-        if (s === 'initial start') return d;
-        if (s === 'post-message refresh' || s === 'post-action refresh') {
-          return Math.max(d, STATE_POLL_USER_REFRESH_MS);
-        }
-        if (s === 'pending kick flush') {
-          return Math.max(d, STATE_POLL_USER_REFRESH_MS);
-        }
-        if (s === 'visibility resume') {
-          return Math.max(d, STATE_POLL_USER_REFRESH_MS);
-        }
-        if (s === 'hidden backoff') {
-          return Math.max(d, STATE_POLL_SLOW_MS);
-        }
-        if (s === 'scheduled polling loop') {
-          return Math.max(d, MIN_SCHEDULED_POLL_MS, MIN_POLL_DELAY_MS);
-        }
-        return Math.max(d, MIN_SCHEDULED_POLL_MS, MIN_POLL_DELAY_MS);
       }
 
       /**
-       * 다음 poll 1회만 예약. 호출 전 항상 기존 예약 제거 → 단일 타이머만 존재.
-       * @param {number} delayMs
-       * @param {string} source 디버그용 (주석과 함께 단일 루프 출처 표시)
+       * 다음 poll 1회만 예약. source는 항상 scheduled polling loop (즉시 refresh 경로 없음).
+       * @param {number} [delayMs] 기본 1500ms, hidden 시 getNextPollDelayMs()로 5000ms 전달 가능
        */
-      function scheduleNextStatePoll(delayMs, source) {
-        var rawMs = typeof delayMs === 'number' ? delayMs : 0;
-        var srcStr = String(source || '');
-        var effectiveMs = computeClampedDelay(rawMs, source);
-        if (rawMs === 0 && effectiveMs > 0 && srcStr !== 'initial start') {
-          try {
-            console.log('[miniapp] state_poll_clamped_from_zero=true source=' + srcStr);
-          } catch (e) {}
-        }
+      function scheduleNextStatePoll(delayMs) {
+        var d =
+          typeof delayMs === 'number' ? delayMs : STATE_POLL_BASE_MS;
         try {
-          console.log('[miniapp] state_poll_schedule_ms=' + effectiveMs + ' source=' + srcStr);
+          console.log('[miniapp] state_poll_schedule_ms=' + d + ' source=scheduled polling loop');
         } catch (e) {}
         if (!statePollingEnabled) return;
         clearStatePollTimer();
         statePollTimer = setTimeout(function() {
           statePollTimer = null;
-          // source: single scheduled polling loop (delayMs 위 인자 source가 pollStateOnce로 전달됨)
-          pollStateOnce(source);
-        }, effectiveMs);
+          pollStateOnce();
+        }, d);
       }
 
       function getNextPollDelayMs() {
@@ -1406,32 +1361,10 @@
             clearStatePollTimer();
           } else if (document.visibilityState === 'visible') {
             if (statePollingEnabled && screen === 'game' && !isGameOver) {
-              if (statePollInFlight) {
-                statePollPendingKick = true;
-                statePollPendingKickFromUser = false;
-              } else {
-                scheduleNextStatePoll(0, 'visibility resume');
-              }
+              scheduleNextStatePoll(STATE_POLL_BASE_MS);
             }
           }
         });
-      }
-
-      /**
-       * /api/message 또는 버튼 액션 성공 직후만 호출. /api/state 응답 경로에서는 호출하지 않음.
-       * @param {string} kind 'message' | 'action'
-       */
-      function queueImmediateStatePoll(kind) {
-        var src =
-          kind === 'action' ? 'post-action refresh' : 'post-message refresh';
-        if (!statePollingEnabled) return;
-        clearStatePollTimer();
-        if (statePollInFlight) {
-          statePollPendingKick = true;
-          statePollPendingKickFromUser = true;
-        } else {
-          scheduleNextStatePoll(0, src);
-        }
       }
 
       function buildRecentEventsSig(data) {
@@ -1472,37 +1405,40 @@
       }
 
       /**
-       * /api/state 1회 요청. 호출 경로는 오직 scheduleNextStatePoll의 단일 setTimeout 콜백뿐 (즉시 갱신도 그 경로로만).
-       * pollStateOnce 내부에서 pollStateOnce 재호출 금지 — 다음 tick은 finally에서 scheduleNextStatePoll로만 예약.
-       * @param {string} source
+       * /api/state 1회 요청. 호출은 scheduleNextStatePoll → 단일 setTimeout → 여기만.
+       * 다음 tick은 finally에서 scheduleNextStatePoll(getNextPollDelayMs())만.
        */
-      function pollStateOnce(source) {
+      function pollStateOnce() {
         if (!statePollingEnabled) return;
         if (screen !== 'game') {
           stopStatePolling();
           return;
         }
         if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-          scheduleNextStatePoll(STATE_POLL_SLOW_MS, 'hidden backoff');
+          scheduleNextStatePoll(STATE_POLL_SLOW_MS);
           return;
         }
         if (statePollInFlight) {
           try {
             console.log('[miniapp] state_poll_skip_inflight=true');
           } catch (e) {}
-          statePollPendingKick = true;
-          statePollPendingKickFromUser = false;
           return;
         }
         try {
-          console.log('[miniapp] state_poll_fire ts=' + Date.now() + ' source=' + String(source || ''));
+          console.log(
+            '[miniapp] state_poll_fire ts=' + Date.now() + ' source=scheduled polling loop'
+          );
         } catch (e) {}
         statePollInFlight = true;
         var chainStopped = false;
         var playerId = getPlayerId();
         statePollRequestId++;
         try {
-          console.log('[miniapp] state_poll_request_id=' + statePollRequestId + ' source=' + String(source || ''));
+          console.log(
+            '[miniapp] state_poll_request_id=' +
+              statePollRequestId +
+              ' source=scheduled polling loop'
+          );
         } catch (e) {}
         fetch(API_BASE + '/api/state?playerId=' + encodeURIComponent(playerId) + '&lang=' + encodeURIComponent(getLangForApi()))
           .then(function(r) { return r.json(); })
@@ -1542,24 +1478,11 @@
           .finally(function() {
             statePollInFlight = false;
             if (!statePollingEnabled || chainStopped) return;
-            if (statePollPendingKick) {
-              var kickFromUser = statePollPendingKickFromUser;
-              statePollPendingKick = false;
-              statePollPendingKickFromUser = false;
-              try {
-                console.log(
-                  '[miniapp] state_poll_pending_kick_flush=true source=pending kick flush origin=' +
-                    (kickFromUser ? 'user' : 'background')
-                );
-              } catch (e) {}
-              scheduleNextStatePoll(0, 'pending kick flush');
-              return;
-            }
-            scheduleNextStatePoll(getNextPollDelayMs(), 'scheduled polling loop');
+            scheduleNextStatePoll(getNextPollDelayMs());
           });
       }
 
-      /** 폴링 완전 리셋 후 단일 timeout 루프 시작 (setInterval 미사용) */
+      /** 폴링 리셋 후 첫 poll은 1500ms 뒤부터 (start 응답만으로 1차 렌더, 추가 즉시 /api/state 없음) */
       function startStatePolling() {
         try {
           console.log('[miniapp] state_poll_reset_on_start=true');
@@ -1568,12 +1491,17 @@
         statePollingEnabled = true;
         statePollRequestId = 0;
         try {
-          console.log('[miniapp] state_poll_mode=single_timeout_loop');
+          console.log('[miniapp] state_poll_mode=scheduled_only');
         } catch (e) {}
         try {
-          console.log('[miniapp] state_poll_schedule_ms=' + STATE_POLL_BASE_MS);
+          console.log('[miniapp] state_poll_immediate_refresh_removed=true');
         } catch (e) {}
-        scheduleNextStatePoll(0, 'initial start'); // source: initial start
+        try {
+          console.log(
+            '[miniapp] state_poll_schedule_ms=1500 source=scheduled polling loop'
+          );
+        } catch (e) {}
+        scheduleNextStatePoll(STATE_POLL_BASE_MS);
       }
 
       function clearGameLogPanelAndState() {
@@ -2358,7 +2286,6 @@
               updateStatus(st, { forApiMessage: true });
               if (data.game_over) stopStatePolling();
               appendSummaryOrEvents(data);
-              if (!data.game_over) queueImmediateStatePoll('message');
             } else {
               try {
                 console.log('[miniapp] /api/message failed', data.error || 'ok=false');
@@ -2401,7 +2328,6 @@
               updateStatus(st, { forApiMessage: true });
               if (data.game_over) stopStatePolling();
               appendSummaryOrEvents(data);
-              if (!data.game_over) queueImmediateStatePoll('action');
             } else {
               appendLog('Error: ' + (data.error || 'unknown'), true);
             }
@@ -2436,7 +2362,6 @@
               updateStatus(st, { forApiMessage: true });
               if (data.game_over) stopStatePolling();
               appendSummaryOrEvents(data);
-              if (!data.game_over) queueImmediateStatePoll('action');
             } else {
               appendLog('Error: ' + (data.error || 'unknown'), true);
             }
@@ -2471,7 +2396,6 @@
               updateStatus(st, { forApiMessage: true });
               if (data.game_over) stopStatePolling();
               appendSummaryOrEvents(data);
-              if (!data.game_over) queueImmediateStatePoll('action');
             } else {
               appendLog('Error: ' + (data.error || 'unknown'), true);
             }
@@ -2509,7 +2433,6 @@
               updateStatus(st, { forApiMessage: true });
               if (data.game_over) stopStatePolling();
               appendSummaryOrEvents(data);
-              if (!data.game_over) queueImmediateStatePoll('action');
             } else {
               appendLog('Error: ' + (data.error || 'unknown'), true);
             }
