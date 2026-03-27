@@ -811,7 +811,7 @@
        * 공개 tunnel 주소가 바뀌면 이 한 줄만 수정하면 됨.
        * 우선순위: window.TELEGRAM_API_BASE > meta[name=telegram-api-base] > (페이지가 localhost면) http://localhost:8788 > 이 상수
        */
-      var DEFAULT_PUBLIC_API_BASE = 'https://cruel-ends-taste.loca.lt';
+      var DEFAULT_PUBLIC_API_BASE = 'https://tartarus-protocol-production.up.railway.app';
 
       function trimApiBase(s) {
         if (s == null || s === '') return '';
@@ -2033,19 +2033,53 @@
           });
       }
 
+      function captainUserLinePrefix() {
+        return getLangForApi() === 'ko' ? '[함장] ' : '[Captain] ';
+      }
+
+      /**
+       * 자유입력 전송: 전송 버튼·Enter 공통 경로 (trim / 빈값·pending·game_over 가드)
+       */
+      function submitFreeMessage(evt) {
+        if (evt && evt.preventDefault) evt.preventDefault();
+        if (isGameOver || userActionPending) return;
+        var raw = (freeInput && freeInput.value || '').trim();
+        if (!raw) return;
+        try {
+          console.log('[miniapp] submit message text=' + JSON.stringify(raw));
+        } catch (e) {}
+        doMessage(raw);
+      }
+
+      /** /api/message — 액션 버튼·모달에서도 동일 경로 (베르셀: 함장 발화 로그 + 서버 응답) */
       function doMessage(text) {
+        var trimmed = String(text == null ? '' : text).trim();
+        if (!trimmed) return;
         if (isGameOver || userActionPending) return;
         var userTurnLockSeq = beginCaptainUserActionLock();
+        lastAppendedLogNorm = null;
+        appendLog(captainUserLinePrefix() + trimmed, false);
         var playerId = getPlayerId();
         logMiniappApiLang('/api/message');
         fetch(API_BASE + '/api/message', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ playerId: playerId, text: text, lang: getLangForApi() })
+          body: JSON.stringify({ playerId: playerId, text: trimmed, lang: getLangForApi() })
         })
-          .then(function(r) { return r.json(); })
+          .then(function(r) {
+            if (!r.ok) {
+              return r.text().then(function(t) {
+                throw new Error('HTTP ' + r.status + (t ? ': ' + String(t).slice(0, 120) : ''));
+              });
+            }
+            return r.json();
+          })
           .then(function(data) {
             if (data.ok) {
+              try {
+                console.log('[miniapp] /api/message ok');
+              } catch (e) {}
+              if (freeInput) freeInput.value = '';
               var st = { remaining_sec: data.remaining_sec, game_state: data.match_state };
               if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
               if (data.is_timeout) st.is_timeout = data.is_timeout;
@@ -2053,11 +2087,17 @@
               if (data.game_over) stopStatePolling();
               appendSummaryOrEvents(data);
             } else {
+              try {
+                console.log('[miniapp] /api/message failed', data.error || 'ok=false');
+              } catch (e) {}
               appendLog('Error: ' + (data.error || 'unknown'), true);
             }
           })
           .catch(function(err) {
-            appendLog('Connection failed: ' + err.message, true);
+            try {
+              console.log('[miniapp] /api/message failed', err && err.message); 
+            } catch (e) {}
+            appendLog('Connection failed: ' + (err.message || 'unknown'), true);
           })
           .finally(function() {
             scheduleTryReleaseUserActionAfterLogRender(userTurnLockSeq);
@@ -2537,22 +2577,19 @@
         });
       }
 
-      sendBtn.addEventListener('click', function() {
-        if (isGameOver || userActionPending) return;
-        var text = (freeInput.value || '').trim();
-        if (!text) return;
-        doMessage(text);
-        freeInput.value = '';
-      });
+      if (sendBtn) {
+        sendBtn.addEventListener('click', function(e) {
+          submitFreeMessage(e);
+        });
+      }
 
-      freeInput.addEventListener('keydown', function(e) {
-        if (e.key !== 'Enter') return;
-        if (isGameOver || userActionPending) {
+      if (freeInput) {
+        freeInput.addEventListener('keydown', function(e) {
+          if (e.key !== 'Enter') return;
           e.preventDefault();
-          return;
-        }
-        sendBtn.click();
-      });
+          submitFreeMessage(e);
+        });
+      }
 
       actionBtns.forEach(function(btn) {
         btn.addEventListener('click', function() {
