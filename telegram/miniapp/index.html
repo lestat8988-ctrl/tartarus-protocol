@@ -1312,11 +1312,16 @@
       /** 반복 폴링은 setTimeout 체인 1개만 사용 (poll 완료 후 다음 예약). 탭 숨김·game_over 시 완화·중단 */
       var STATE_POLL_BASE_MS = 1500;
       var STATE_POLL_SLOW_MS = 5000;
+      /** scheduled/background 재예약 하드 플로어 (250ms 급 연속 fetch 방지) */
+      var MIN_POLL_DELAY_MS = 1200;
+      var MIN_SCHEDULED_POLL_MS = 1500;
       var statePollTimer = null;
       var statePollInFlight = false;
       var statePollingEnabled = false;
-      /** 인플라이트 중 즉시 갱신 요청 시 현재 poll 종료 후 0ms로 한 번 더 돌림 */
+      /** 인플라이트 중 즉시 갱신 요청 시 현재 poll 종료 후 한 번 더 돌림 */
       var statePollPendingKick = false;
+      /** queueImmediate(메시지/액션)에서 설정한 kick만 true — visibility·inflight 중복은 false */
+      var statePollPendingKickFromUser = false;
       /** /api/state 실제 fetch 직전마다 증가 (startStatePolling 시 0으로 리셋) */
       var statePollRequestId = 0;
 
@@ -1331,6 +1336,25 @@
         clearStatePollTimer();
         statePollingEnabled = false;
         statePollPendingKick = false;
+        statePollPendingKickFromUser = false;
+      }
+
+      /**
+       * source별 하드 최소 간격 (immediate 허용: initial start, post-message/action refresh, user pending kick flush만).
+       */
+      function computeClampedDelay(delayMs, source) {
+        var s = String(source || '');
+        if (s === 'initial start') return delayMs;
+        if (s === 'post-message refresh' || s === 'post-action refresh') return delayMs;
+        if (s === 'pending kick flush') return delayMs;
+        if (s === 'hidden backoff') return Math.max(delayMs, STATE_POLL_SLOW_MS);
+        if (s === 'visibility resume') {
+          return Math.max(delayMs, MIN_SCHEDULED_POLL_MS, MIN_POLL_DELAY_MS);
+        }
+        if (s === 'scheduled polling loop') {
+          return Math.max(delayMs, MIN_SCHEDULED_POLL_MS, MIN_POLL_DELAY_MS);
+        }
+        return Math.max(delayMs, MIN_SCHEDULED_POLL_MS, MIN_POLL_DELAY_MS);
       }
 
       /**
@@ -1339,8 +1363,9 @@
        * @param {string} source 디버그용 (주석과 함께 단일 루프 출처 표시)
        */
       function scheduleNextStatePoll(delayMs, source) {
+        var effectiveMs = computeClampedDelay(delayMs, source);
         try {
-          console.log('[miniapp] state_poll_schedule_ms=' + delayMs + ' source=' + String(source || ''));
+          console.log('[miniapp] state_poll_schedule_ms=' + effectiveMs + ' source=' + String(source || ''));
         } catch (e) {}
         if (!statePollingEnabled) return;
         clearStatePollTimer();
@@ -1348,7 +1373,7 @@
           statePollTimer = null;
           // source: single scheduled polling loop (delayMs 위 인자 source가 pollStateOnce로 전달됨)
           pollStateOnce(source);
-        }, delayMs);
+        }, effectiveMs);
       }
 
       function getNextPollDelayMs() {
@@ -1366,8 +1391,9 @@
             if (statePollingEnabled && screen === 'game' && !isGameOver) {
               if (statePollInFlight) {
                 statePollPendingKick = true;
+                statePollPendingKickFromUser = false;
               } else {
-                scheduleNextStatePoll(0, 'visibility resume'); // source: visibility resume
+                scheduleNextStatePoll(0, 'visibility resume');
               }
             }
           }
@@ -1375,15 +1401,19 @@
       }
 
       /**
-       * 액션 직후 1회 동기화. 기존 예약만 취소하고 한 번만 다시 예약 (setInterval 중복 없음).
+       * /api/message 또는 버튼 액션 성공 직후만 호출. /api/state 응답 경로에서는 호출하지 않음.
+       * @param {string} kind 'message' | 'action'
        */
-      function queueImmediateStatePoll() {
+      function queueImmediateStatePoll(kind) {
+        var src =
+          kind === 'action' ? 'post-action refresh' : 'post-message refresh';
         if (!statePollingEnabled) return;
         clearStatePollTimer();
         if (statePollInFlight) {
           statePollPendingKick = true;
+          statePollPendingKickFromUser = true;
         } else {
-          scheduleNextStatePoll(0, 'post-message refresh'); // source: post-message refresh
+          scheduleNextStatePoll(0, src);
         }
       }
 
@@ -1436,7 +1466,7 @@
           return;
         }
         if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-          scheduleNextStatePoll(STATE_POLL_SLOW_MS, 'scheduled polling loop'); // source: hidden backoff
+          scheduleNextStatePoll(STATE_POLL_SLOW_MS, 'hidden backoff');
           return;
         }
         if (statePollInFlight) {
@@ -1444,6 +1474,7 @@
             console.log('[miniapp] state_poll_skip_inflight=true');
           } catch (e) {}
           statePollPendingKick = true;
+          statePollPendingKickFromUser = false;
           return;
         }
         try {
@@ -1495,14 +1526,22 @@
             statePollInFlight = false;
             if (!statePollingEnabled || chainStopped) return;
             if (statePollPendingKick) {
+              var kickFromUser = statePollPendingKickFromUser;
               statePollPendingKick = false;
+              statePollPendingKickFromUser = false;
               try {
-                console.log('[miniapp] state_poll_pending_kick_flush=true');
+                console.log(
+                  '[miniapp] state_poll_pending_kick_flush=true source=pending kick flush origin=' +
+                    (kickFromUser ? 'user' : 'background')
+                );
               } catch (e) {}
-              scheduleNextStatePoll(0, 'post-message refresh'); // source: post-message refresh (after inflight)
+              scheduleNextStatePoll(
+                kickFromUser ? 0 : MIN_SCHEDULED_POLL_MS,
+                'pending kick flush'
+              );
               return;
             }
-            scheduleNextStatePoll(getNextPollDelayMs(), 'scheduled polling loop'); // source: scheduled polling loop
+            scheduleNextStatePoll(getNextPollDelayMs(), 'scheduled polling loop');
           });
       }
 
@@ -2305,8 +2344,7 @@
               updateStatus(st, { forApiMessage: true });
               if (data.game_over) stopStatePolling();
               appendSummaryOrEvents(data);
-              // source: post-message refresh (queueImmediateStatePoll → 단일 timeout 예약)
-              if (!data.game_over) queueImmediateStatePoll();
+              if (!data.game_over) queueImmediateStatePoll('message');
             } else {
               try {
                 console.log('[miniapp] /api/message failed', data.error || 'ok=false');
@@ -2349,8 +2387,7 @@
               updateStatus(st, { forApiMessage: true });
               if (data.game_over) stopStatePolling();
               appendSummaryOrEvents(data);
-              // source: post-accuse refresh
-              if (!data.game_over) queueImmediateStatePoll();
+              if (!data.game_over) queueImmediateStatePoll('action');
             } else {
               appendLog('Error: ' + (data.error || 'unknown'), true);
             }
@@ -2385,8 +2422,7 @@
               updateStatus(st, { forApiMessage: true });
               if (data.game_over) stopStatePolling();
               appendSummaryOrEvents(data);
-              // source: post-action refresh (take_pistol)
-              if (!data.game_over) queueImmediateStatePoll();
+              if (!data.game_over) queueImmediateStatePoll('action');
             } else {
               appendLog('Error: ' + (data.error || 'unknown'), true);
             }
@@ -2421,8 +2457,7 @@
               updateStatus(st, { forApiMessage: true });
               if (data.game_over) stopStatePolling();
               appendSummaryOrEvents(data);
-              // source: post-action refresh (collect_clue)
-              if (!data.game_over) queueImmediateStatePoll();
+              if (!data.game_over) queueImmediateStatePoll('action');
             } else {
               appendLog('Error: ' + (data.error || 'unknown'), true);
             }
@@ -2460,8 +2495,7 @@
               updateStatus(st, { forApiMessage: true });
               if (data.game_over) stopStatePolling();
               appendSummaryOrEvents(data);
-              // source: post-action refresh (threaten)
-              if (!data.game_over) queueImmediateStatePoll();
+              if (!data.game_over) queueImmediateStatePoll('action');
             } else {
               appendLog('Error: ' + (data.error || 'unknown'), true);
             }
