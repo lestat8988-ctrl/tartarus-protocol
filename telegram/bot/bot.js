@@ -2137,17 +2137,13 @@ async function handleTextMessage(playerId, text, opts = {}) {
     locale
   );
   if (cls.kind === 'targeted_question') {
-    const nBefore = recentDisplay.length;
     if (captainBodyForTq) {
       recentDisplay = applyTargetedQuestionCaptainDisplayBody(recentDisplay, captainBodyForTq, locale);
     }
     recentDisplay = dedupeTargetedQuestionCaptainDisplayLogs(recentDisplay, locale);
     recentDisplay = collapseDuplicateCaptainBlocks(recentDisplay, locale);
-    if (recentDisplay.length < nBefore) {
-      console.log('[bot] targeted_question duplicate_captain_line_prevented=true');
-    }
-    console.log('[bot] targeted_question captain_display_source=final_only');
     console.log('[bot] targeted_question removed_midstage_captain_override=true');
+    console.log('[bot] targeted_question captain_display_source=final_only');
   }
   if (recentDisplay.length > 0) {
     reply += '\n\nRecent: ' + recentDisplay.map((e) => e.type).join(', ');
@@ -2439,17 +2435,13 @@ async function processMessageApi(playerId, text, opts = {}) {
     locale
   );
   if (cls.kind === 'targeted_question') {
-    const nBefore = newDisplayLogs.length;
     if (captainBodyForTq) {
       newDisplayLogs = applyTargetedQuestionCaptainDisplayBody(newDisplayLogs, captainBodyForTq, locale);
     }
     newDisplayLogs = dedupeTargetedQuestionCaptainDisplayLogs(newDisplayLogs, locale);
     newDisplayLogs = collapseDuplicateCaptainBlocks(newDisplayLogs, locale);
-    if (newDisplayLogs.length < nBefore) {
-      console.log('[bot] targeted_question duplicate_captain_line_prevented=true');
-    }
-    console.log('[bot] targeted_question captain_display_source=final_only');
     console.log('[bot] targeted_question removed_midstage_captain_override=true');
+    console.log('[bot] targeted_question captain_display_source=final_only');
   }
   const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
   const recentEvents = newDisplayLogs;
