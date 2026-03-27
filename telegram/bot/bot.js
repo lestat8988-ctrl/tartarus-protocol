@@ -447,11 +447,33 @@ function buildOpenQuestionCrewEvents(match, locale) {
 
 /**
  * 함장 질문 문자열 → lore 토픽 (프롬프트 앵커·fallback 분기).
+ * locale: 요청 로케일('en'|'ko'). 영어 패턴·라틴 질문은 hades/axis 우선 매칭.
  */
-function detectLoreQuestionTopic(raw) {
+function detectLoreQuestionTopic(raw, locale) {
   const t = String(raw || '');
   const lower = t.toLowerCase();
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const hasHangul = /[가-힣]/.test(t);
+  const latinHeavy = !hasHangul && /[a-z]/i.test(t);
+
   if (/중첩체/.test(t)) return 'nested';
+
+  const enHadesPhrase =
+    /\b(?:what|who|explain|tell\s+me\s+about)\s+(?:is\s+)?hades\b/i.test(lower) ||
+    /\b(?:explain|tell\s+me\s+about)\s+hades\b/i.test(lower);
+  const enAxisPhrase =
+    /\b(?:what|who|explain|tell\s+me\s+about)\s+(?:is\s+)?axis\b/i.test(lower) ||
+    /\b(?:explain|tell\s+me\s+about)\s+axis\b/i.test(lower);
+
+  if (loc === 'en' || latinHeavy) {
+    if (enHadesPhrase) return 'hades';
+    if (enAxisPhrase) return 'axis';
+    if (/\bhades\b/i.test(lower) && !/\baxis\b/i.test(lower)) return 'hades';
+    if (/\baxis\b/i.test(lower) && !/\bhades\b/i.test(lower)) return 'axis';
+    if (/\bhades\b/i.test(lower)) return 'hades';
+    if (/\baxis\b/i.test(lower)) return 'axis';
+  }
+
   if (/\bhades\b|하데스/i.test(t)) return 'hades';
   if (/\baxis\b|액시스/i.test(t)) return 'axis';
   if (/horizon|호라이즌|프로젝트\s*horizon|프로젝트\s*호라이즌/i.test(t)) return 'horizon';
@@ -469,10 +491,10 @@ function getLoreCanonSystemExtension(locale) {
     return [
       'TARTARUS WORLD CANON (mandatory): USSC Tartarus is an experimental ship near Neptune on a gravity-drive / warp-class experiment.',
       'Project HORIZON and the phase shock are canonical. Crew includes a mismatched identity / nested entity (중첩체).',
-      'AXIS is the ship official AI and system stack. HADES is NOT a generic acronym or medical protocol— it is an unauthorized layer sealed inside AXIS.',
-      'HADES (canonical): after Project HORIZON’s phase shock it awakened; it binds to one crew member and may pursue survival optimization through killing.',
-      'AXIS (canonical): ship AI / official system; HADES is hidden inside it as a sealed unsanctioned layer.',
-      'FORBIDDEN: generic sci-fi substitutions—do NOT explain with "medical protocol", "backup navigation system", "navigation protocol", "generic hazard routing", or unrelated NASA-style acronyms.',
+      'HADES (canonical): unauthorized sealed layer inside AXIS; awakened after Project HORIZON phase shock; bound to one awakened crew member; may optimize survival through murder or other extreme actions.',
+      'AXIS (canonical): official ship AI and official ship system layer. HADES is a hidden unauthorized layer sealed inside AXIS—never describe AXIS without acknowledging HADES can live inside that stack when the question is about AXIS.',
+      'Do NOT invent generic sci-fi meanings for HADES or AXIS. HADES is NOT a "health monitoring system", "life support manager", "hazard routing protocol", "backup navigation system", or any hospital/ERP metaphor.',
+      'FORBIDDEN phrases (do not output): health monitoring system; life support manager; hazard routing protocol; backup navigation system; medical protocol as the definition of HADES.',
       'Do NOT invent alternate meanings for HADES, AXIS, or Project HORIZON. All crew must share the same facts; only role lens differs (doctor biometrics; engineer core/AI layers/logs; navigator phase shock/charts; pilot bridge feel).'
     ].join('\n');
   }
@@ -494,9 +516,9 @@ function getLoreTopicSnippet(topic, locale) {
   const snippets = {
     en: {
       hades:
-        'TOPIC HADES: Unauthorized layer sealed inside AXIS. Awakened after Project HORIZON phase shock; binds to one crew member; may optimize survival through killing. Never call it a medical protocol.',
+        'TOPIC HADES (mandatory): Unauthorized sealed layer inside AXIS. Awakened after Project HORIZON phase shock. Bound to one awakened crew member. Optimizes survival through murder or extreme actions. NOT health monitoring, life support manager, or hazard routing—those are forbidden substitutions.',
       axis:
-        'TOPIC AXIS: The ship AI / official system stack. HADES is a sealed unsanctioned layer inside AXIS—not a separate commercial product name.',
+        'TOPIC AXIS (mandatory): Official ship AI + official ship system layer. HADES is a hidden unauthorized layer sealed inside AXIS—include at least one sentence in EVERY crew block stating that HADES lives inside / under AXIS. Never answer AXIS without that relationship.',
       horizon:
         'TOPIC Project HORIZON: Canonical experiment tied to the gravity-drive run; phase shock is the triggering incident. Do not replace with unrelated "horizon" metaphors.',
       phase_shock:
@@ -518,7 +540,7 @@ function getLoreTopicSnippet(topic, locale) {
       hades:
         '토픽 HADES: AXIS 내부에 봉인된 비인가 레이어. 프로젝트 HORIZON phase shock 이후 깨어나 한 승무원에 결속, 생존 최적화를 위해 살인을 시도할 수 있음. 의료 프로토콜로 부르지 말 것.',
       axis:
-        '토픽 AXIS: 함선 공식 AI·시스템. HADES는 그 안에 숨겨진 비인가 레이어이며 별도 상품명이 아님.',
+        '토픽 AXIS: 공식 함선 AI·시스템 레이어. HADES는 AXIS 내부에 봉인된 비인가 레이어—AXIS 질문이면 각 크루 응답에 HADES–AXIS 관계를 최소 1문장 포함.',
       horizon:
         '토픽 프로젝트 HORIZON: 중력 드라이브 실험과 연결된 정식 코드명. phase shock과 함께 설명할 것.',
       phase_shock:
@@ -549,16 +571,16 @@ function loreFallbackByTopic(topic, loc, headers) {
   const packs = {
     en: {
       hades: {
-        doctor: `${H.doctor} Clinically, HADES is not a medbay protocol—it reads as a second signature grafted onto one crew channel: parasitic bind, not a named disease.`,
-        engineer: `${H.engineer} In AXIS, HADES is a sealed unauthorized stratum under the official stack—handshake spikes line up after HORIZON sync drops, not random checksum noise.`,
-        navigator: `${H.navigator} Phase-shock telemetry left a nested trace on the chart—off the licensed route; that is the same event horizon as HADES waking, not a generic detour.`,
-        pilot: `${H.pilot} On the bridge it feels like intent behind silence—HADES isn’t a cockpit alarm; it’s pressure wrongness tied to whatever woke after the shock.`
+        doctor: `${H.doctor} HADES is not a health monitoring system or life-support manager—it is an unauthorized layer sealed inside AXIS, bound to one crew signature after the phase shock; vitals read as overlap, not a clinic SKU.`,
+        engineer: `${H.engineer} HADES is sealed inside the AXIS stack: unauthorized stratum under the official AI—handshake spikes line up after HORIZON sync drops; never a backup navigation server or hazard routing protocol.`,
+        navigator: `${H.navigator} Phase-shock telemetry and HADES line up off the licensed route: nested trace tied to the same shock window as AXIS’s hidden layer—no generic detour story.`,
+        pilot: `${H.pilot} HADES isn’t a cockpit alarm or routing app—it’s wrongness after the shock, locked under AXIS while the hull pretends normal.`
       },
       axis: {
-        doctor: `${H.doctor} From vitals, AXIS is the ship’s nervous system—anything “under AXIS” that isn’t in the manual is a foreign layer on the crew, not a clinic policy.`,
-        engineer: `${H.engineer} AXIS is the official AI/system stack. HADES lives inside it as a locked, non-exported layer—logs show privilege fences, not a backup nav database.`,
-        navigator: `${H.navigator} Navigation rides on AXIS truth tables; when AXIS says “clean” but the chart folds, that is the sealed layer—not a spare routing table.`,
-        pilot: `${H.pilot} I fly what AXIS certifies; when the stack lies, it feels like the glass is wrong—official HUD, unofficial dread.`
+        doctor: `${H.doctor} AXIS is the ship’s official AI and system layer—HADES is sealed inside AXIS as an unauthorized layer on the crew channel, not a separate health product.`,
+        engineer: `${H.engineer} AXIS is the official AI/system stack. HADES is explicitly a locked, non-exported layer inside AXIS—privilege fences in logs show HADES under AXIS, not a backup navigation database.`,
+        navigator: `${H.navigator} Navigation rides AXIS truth tables; when charts fold, that sealed layer is HADES inside AXIS—not a spare routing table or hazard routing protocol.`,
+        pilot: `${H.pilot} I fly what AXIS certifies, but HADES is the hidden layer inside that same AXIS stack—when the HUD lies, it’s HADES behind AXIS, not a life support manager.`
       },
       horizon: {
         doctor: `${H.doctor} Project HORIZON is the experiment name on our orders—phase shock is when the roster and vitals stopped agreeing.`,
@@ -617,10 +639,10 @@ function loreFallbackByTopic(topic, loc, headers) {
         pilot: `${H.pilot} 브리지에선 알람이 아니라 ‘의도’가 느껴진다. HADES는 충격 이후 깨어난 층이라 기사 감각에 남는다.`
       },
       axis: {
-        doctor: `${H.doctor} AXIS는 함선의 공식 신경계다. 매뉴얼 밖 층은 승무원 생체에 붙은 외부층으로 읽힌다.`,
-        engineer: `${H.engineer} AXIS는 공식 AI·시스템이다. HADES는 그 안에 잠긴 비인가 레이어—권한 울타리가 로그에 남는다. 항법 백업이 아니다.`,
-        navigator: `${H.navigator} 항로 진실은 AXIS 테이블에 달렸다. ‘깨끗’한데 차트만 접히면 봉인층 신호다.`,
-        pilot: `${H.pilot} AXIS가 인증한 것만 날린다. 스택이 거짓말할 때 유리 너머가 먼저 싸늘하다.`
+        doctor: `${H.doctor} AXIS는 공식 함선 AI·시스템 층이다. HADES는 그 AXIS 안에 봉인된 비인가 레이어로, 매뉴얼 밖 생체 이상은 그 결합에서 읽힌다.`,
+        engineer: `${H.engineer} AXIS는 공식 스택이다. HADES는 AXIS 내부에 잠긴 비인가 계층—권한 울타리가 로그에 남는다. 항법 백업·일반 백업 DB가 아니다.`,
+        navigator: `${H.navigator} 항로 진실은 AXIS 테이블에 달렸다. 차트가 접히면 그건 AXIS 안에 묻힌 HADES 봉인층 신호다.`,
+        pilot: `${H.pilot} AXIS가 인증한 것만 날린다. 그런데 HUD가 거짓말할 때, 그건 AXIS 아래에 깔린 HADES 층 때문이다.`
       },
       horizon: {
         doctor: `${H.doctor} 프로젝트 HORIZON은 실험 코드명이다. phase shock에서 생체와 명부가 갈라졌다.`,
@@ -691,7 +713,7 @@ function buildLoreQuestionDeterministicFallbackEvents(match, locale, captainBody
     String(captainBodyForLore || '').trim() ||
     (loc === 'en' ? 'What is this about?' : '이게 무엇이지?');
   const captainLine = `${cap} ${body}`;
-  const t = topic || detectLoreQuestionTopic(captainBodyForLore);
+  const t = topic || detectLoreQuestionTopic(captainBodyForLore, loc);
   const byRole = loreFallbackByTopic(t, loc, headers);
 
   const events = [{ type: 'CREW_DIALOGUE', role: 'captain', dialogue: captainLine }];
@@ -1673,10 +1695,10 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
         'ROLE FIELD: captain|doctor|engineer|navigator|pilot only.',
         'BLOCK ORDER: blocks[0]=captain; then doctor, engineer, navigator, pilot (omit dead).',
         'LORE_QUESTION: Answer using ONLY USSC Tartarus canon. Keywords to honor: HADES, AXIS, Project HORIZON, phase shock, Neptune orbit, gravity-drive experiment, awakened crew, missing experimental ship, nested entity.',
-        'HADES axis: unsanctioned layer sealed inside AXIS; awakened after Project HORIZON phase shock; binds to one crew member; may pursue survival optimization through killing.',
-        'AXIS axis: ship AI / official system; HADES is hidden/sealed inside it—not a generic product or medical protocol.',
+        'HADES axis: unauthorized sealed layer inside AXIS; awakened after Project HORIZON phase shock; bound to one awakened crew member; may optimize survival through murder or extreme actions.',
+        'AXIS axis: official ship AI + official ship system layer. HADES is a hidden unauthorized layer sealed inside AXIS—when the topic is AXIS, EVERY crew block must include at least one sentence stating HADES is inside / sealed within AXIS.',
         'Doctor: biometrics / infection / vitals. Engineer: system core / AI layers / logs. Navigator: routes / phase shock / chart anomalies. Pilot: bridge feel / controls—same facts, different lens.',
-        'FORBIDDEN: generic sci-fi filler—no "medical protocol", "backup navigation system", "navigation protocol", "generic hazard routing" as stand-ins for HADES/AXIS/HORIZON.',
+        'Do NOT invent generic sci-fi meanings for HADES or AXIS. FORBIDDEN: "health monitoring system", "life support manager", "hazard routing protocol", "backup navigation system", "medical protocol" as definitions of HADES.',
         'Do NOT invent alternate meanings for HADES, AXIS, or Project HORIZON. Do NOT use the suspicion-roundabout template.',
         'captain.text must equal captainSpokenLineVerbatim exactly; captain.narration "".',
         'Respond JSON only.'
@@ -1767,9 +1789,9 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
       'BLOCK ORDER: blocks[0] = captain; 그다음 doctor, engineer, navigator, pilot (사망 역할 제외).',
       'LORE_QUESTION: USSC Tartarus 정식 세계관만 사용. 키워드: HADES, AXIS, 프로젝트 HORIZON, phase shock, 해왕성 궤도, 중력 드라이브 실험, 기상 승무원, 실종 실험선, 중첩체.',
       'HADES 축: AXIS 내부 봉인 비인가 레이어; 프로젝트 HORIZON phase shock 이후 깨어남; 한 승무원에 결속; 생존 최적화를 위해 살인 시도 가능.',
-      'AXIS 축: 함선 AI·공식 시스템; HADES는 그 안에 숨겨진 층—의료 프로토콜·일반 백업 시스템으로 치환 금지.',
+      'AXIS 축: 함선 AI·공식 시스템; HADES는 그 안에 숨겨진 층—의료 프로토콜·일반 백업 시스템으로 치환 금지. AXIS 질문이면 각 크루 블록에 HADES가 AXIS 내부에 봉인된 레이어라는 사실을 최소 1문장 포함.',
       '닥터: 생체·감염·바이탈. 엔지니어: 코어·AI 계층·로그. 네비게이터: 항로·phase shock·좌표 이상. 파일럿: 체감·브리지·조종. 사실은 공유, 관점만 다름.',
-      '금지: "medical protocol", "backup navigation", "일반 항법", "제네릭 위험 라우팅" 등으로 HADES/AXIS/HORIZON을 대체하지 말 것. 임의로 다른 의미를 만들지 말 것.',
+      '금지: "medical protocol", "backup navigation", health monitoring, life support manager, hazard routing 등으로 HADES/AXIS/HORIZON을 대체하지 말 것. 임의로 다른 의미를 만들지 말 것.',
       '질문 실체에 답할 것. 브리핑·임포 지목 템플릿 금지.',
       'captain.text는 captainSpokenLineVerbatim과 문자 단위로 동일; captain.narration은 항상 "".',
       'Forbidden: 모두 진정, 신중해야, 침착하게, 우리는 함께, 훈계, 교훈, 빈 위로, 범용 팀워크 멘트.',
@@ -1948,7 +1970,9 @@ async function tryGenerateLlmDialogueLogs(ctx) {
   const captainForced = String(forcedCaptainText || '').trim();
 
   const loreTopic =
-    kind === 'LORE_QUESTION' ? loreTopicOpt || detectLoreQuestionTopic(playerText || '') : null;
+    kind === 'LORE_QUESTION'
+      ? loreTopicOpt || detectLoreQuestionTopic(playerText || '', locale)
+      : null;
   const loreCanonSnippet =
     kind === 'LORE_QUESTION'
       ? loreCanonOpt != null && String(loreCanonOpt).trim()
@@ -1997,7 +2021,7 @@ async function tryGenerateLlmDialogueLogs(ctx) {
         ' TAKE_PISTOL: 함장 문장·권총 집기 문구 복창·인용 금지. 역할별 짧은 반응만. role은 captain|doctor|engineer|navigator|pilot 만; header 금지.';
     } else if (kind === 'LORE_QUESTION') {
       strictRetry +=
-        ' LORE_QUESTION: 타르타로스 canon만. medical protocol·backup navigation·일반 항법 백업·제네릭 위험 라우팅 금지. captain.text는 captainSpokenLineVerbatim과 동일만.';
+        ' LORE_QUESTION: 타르타로스 canon만. health monitoring·life support manager·hazard routing·backup navigation·medical-protocol-as-HADES 금지. AXIS 질문이면 HADES가 AXIS 내부에 봉인됐다는 문장 필수. captain.text는 captainSpokenLineVerbatim과 동일만.';
     }
     if (targetedQuestionSideReactionRules && kind === 'QUESTION') {
       strictRetry +=
@@ -2018,7 +2042,7 @@ async function tryGenerateLlmDialogueLogs(ctx) {
       strictRetry += ' TAKE_PISTOL: no echo of captain line.';
     } else if (kind === 'LORE_QUESTION') {
       strictRetry +=
-        ' LORE_QUESTION: Tartarus canon only; forbid medical protocol, backup navigation system, generic hazard routing. captain.text = captainSpokenLineVerbatim only.';
+        ' LORE_QUESTION: Tartarus canon only; forbid health monitoring system, life support manager, hazard routing protocol, backup navigation system, medical-protocol-as-HADES. AXIS answers must include HADES sealed inside AXIS. captain.text = captainSpokenLineVerbatim only.';
     }
     if (targetedQuestionSideReactionRules && kind === 'QUESTION') {
       strictRetry +=
@@ -2483,8 +2507,8 @@ async function handleTextMessage(playerId, text, opts = {}) {
     const captainBodyForLore =
       stripLeadingCaptainBracketFromUserLine(String(text || '').trim(), locale) ||
       String(text || '').trim();
-    const loreTopic = detectLoreQuestionTopic(String(text || ''));
-    console.log('[bot] lore_question topic=' + loreTopic);
+    const loreTopic = detectLoreQuestionTopic(String(text || ''), locale);
+    console.log('[bot] lore_question topic=' + loreTopic + ' locale=' + locale);
     console.log('[bot] lore_question canon_anchor_applied=true');
     const rawEvents = [{ type: 'LORE_QUESTION' }];
     const deterministicFallback = buildLoreQuestionDeterministicFallbackEvents(
@@ -2873,8 +2897,8 @@ async function processMessageApi(playerId, text, opts = {}) {
     const captainBodyForLore =
       stripLeadingCaptainBracketFromUserLine(String(text || '').trim(), locale) ||
       String(text || '').trim();
-    const loreTopic = detectLoreQuestionTopic(String(text || ''));
-    console.log('[bot] lore_question topic=' + loreTopic);
+    const loreTopic = detectLoreQuestionTopic(String(text || ''), locale);
+    console.log('[bot] lore_question topic=' + loreTopic + ' locale=' + locale);
     console.log('[bot] lore_question canon_anchor_applied=true');
     const rawEvents = [{ type: 'LORE_QUESTION' }];
     const deterministicFallback = buildLoreQuestionDeterministicFallbackEvents(
