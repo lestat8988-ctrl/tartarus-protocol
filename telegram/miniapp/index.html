@@ -646,9 +646,9 @@
 </head>
 <body>
   <script>
-    console.log('[miniapp-build] telegram/miniapp/index.html loaded trace-build-v1');
+    console.log('[miniapp-build] sync-fix-v2');
   </script>
-  <div id="miniapp-build-marker" class="miniapp-build-marker" aria-hidden="true">build: trace-build-v1</div>
+  <div id="miniapp-build-marker" class="miniapp-build-marker" aria-hidden="true">build: sync-fix-v2</div>
   <div id="app">
     <!-- Intro screen -->
     <div id="intro-screen">
@@ -1138,8 +1138,9 @@
       var lastAppendedLogNorm = null;
       /** updateStatus·/api/state에서 온 match_id — message 응답에 match_id 없을 때 서명용 */
       var lastKnownMatchId = null;
-      /** /api/message 등으로 이미 그린 recent_events와 동일하면 /api/state 폴링에서 생략 */
-      var lastAppliedRecentEventsSig = null;
+      /** recent_events 배치 단위 중복 렌더 방지 (message·state 공통) */
+      var lastRenderedRecentEventsSig = '';
+      var recentEventsDedupeOptInLogged = false;
       var startRequestInFlight = false;
       var accuseRequestInFlight = false;
       var takePistolRequestInFlight = false;
@@ -1313,13 +1314,43 @@
         }
       }
 
-      function signatureForRecentEvents(matchId, events) {
-        if (!events || !events.length) return '';
+      function buildRecentEventsSig(data) {
+        var evs = data && data.recent_events;
+        if (!evs || !evs.length) return '';
+        var mid = data.match_id != null ? String(data.match_id) : String(lastKnownMatchId || '');
+        var rs = data.remaining_sec != null && data.remaining_sec !== undefined ? String(data.remaining_sec) : '';
+        var first = evs[0];
+        var last = evs[evs.length - 1];
+        var fStr = '';
+        var lStr = '';
         try {
-          return String(matchId || '') + '|' + JSON.stringify(events);
+          fStr = JSON.stringify(first);
+          lStr = evs.length > 1 ? JSON.stringify(last) : fStr;
         } catch (e) {
           return '';
         }
+        return mid + '|n:' + evs.length + '|f:' + fStr + '|l:' + lStr + '|rs:' + rs;
+      }
+
+      function appendRecentEventsIfFresh(data, source) {
+        if (!recentEventsDedupeOptInLogged) {
+          try {
+            console.log('[miniapp] recent_events_sig_dedupe_enabled=true');
+          } catch (e) {}
+          recentEventsDedupeOptInLogged = true;
+        }
+        if (!data || !data.recent_events || !data.recent_events.length) return false;
+        var sig = buildRecentEventsSig(data);
+        if (!sig) return false;
+        if (sig === lastRenderedRecentEventsSig) {
+          try {
+            console.log('[miniapp] recent_events_duplicate_skipped=true');
+          } catch (e) {}
+          return false;
+        }
+        lastRenderedRecentEventsSig = sig;
+        applyEvents(data.recent_events);
+        return true;
       }
 
       function pollStateOnce() {
@@ -1346,17 +1377,14 @@
             /* 배경 폴링: userActionPending·잠금 시퀀스에 관여하지 않음 */
             updateStatus(st, { forApiMessage: true, fromPoll: true });
             if (data.recent_events && data.recent_events.length) {
-              var pollMid = data.match_id || lastKnownMatchId || '';
-              var pollSig = signatureForRecentEvents(pollMid, data.recent_events);
-              if (pollSig && pollSig === lastAppliedRecentEventsSig) {
-                /* 이미 /api/message 등으로 동일 배치 적용됨 */
-              } else {
-                try {
-                  console.log('[miniapp] recent_events source=state count=' + data.recent_events.length);
-                } catch (e) {}
-                lastAppliedRecentEventsSig = pollSig;
-                applyEvents(data.recent_events);
-              }
+              appendRecentEventsIfFresh(
+                {
+                  match_id: data.match_id,
+                  recent_events: data.recent_events,
+                  remaining_sec: data.remaining_sec
+                },
+                'state'
+              );
             }
             if (gs.game_over) stopStatePolling();
           })
@@ -1372,7 +1400,7 @@
 
       function clearGameLogPanelAndState() {
         lastAppendedLogNorm = null;
-        lastAppliedRecentEventsSig = null;
+        lastRenderedRecentEventsSig = '';
         logInActiveTurn = false;
         lastLogBlockRole = null;
         if (logPanel) logPanel.innerHTML = '';
@@ -2045,16 +2073,14 @@
 
       function appendSummaryOrEvents(data) {
         if (data.recent_events && data.recent_events.length) {
-          var msgMid = data.match_id || lastKnownMatchId || '';
-          var msgSig = signatureForRecentEvents(msgMid, data.recent_events);
-          if (msgSig && msgSig === lastAppliedRecentEventsSig) {
-            return;
-          }
-          try {
-            console.log('[miniapp] recent_events source=message count=' + data.recent_events.length);
-          } catch (e) {}
-          lastAppliedRecentEventsSig = msgSig;
-          applyEvents(data.recent_events);
+          appendRecentEventsIfFresh(
+            {
+              match_id: data.match_id != null ? data.match_id : lastKnownMatchId,
+              recent_events: data.recent_events,
+              remaining_sec: data.remaining_sec
+            },
+            'message'
+          );
         } else {
           var fb = (getLangForApi() === 'ko') ? '함장이 행동했다.' : 'Captain acted.';
           var s = String(data.summary || fb).replace(/\s+/g, ' ').trim();
@@ -2077,6 +2103,7 @@
           .then(function(r) { return r.json(); })
           .then(function(data) {
             if (data.ok) {
+              lastRenderedRecentEventsSig = '';
               resetResultUI();
               ensureIntroButtonsEnabled();
               var st = { match_id: data.match_id, remaining_sec: data.remaining_sec, game_state: data.game_state };
@@ -2126,10 +2153,6 @@
         if (!trimmed) return;
         if (isGameOver || userActionPending) return;
         var userTurnLockSeq = beginCaptainUserActionLock();
-        try {
-          console.log('[miniapp] removed_local_captain_optimistic_append=true');
-          console.log('[miniapp] server_recent_events_render_only=true');
-        } catch (e) {}
         var playerId = getPlayerId();
         logMiniappApiLang('/api/message');
         fetch(API_BASE + '/api/message', {
