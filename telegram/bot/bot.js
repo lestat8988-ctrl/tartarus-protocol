@@ -230,19 +230,30 @@ function isPureAlibiLocationQuestion(raw) {
 }
 
 /**
+ * 역할에게 범인/의심 의견을 묻는 고정 패턴 (targeted 동선 질문과 분리).
+ * intent가 accuse_hint여도 이 패턴이면 role_opinion이 우선(단 check_log 제외).
+ */
+function matchRoleOpinionHardPattern(raw) {
+  const t = String(raw || '');
+  return /(누가\s*범인|범인인거|범인이\s*누|누굴\s*의심|누구를\s*의심|누가\s*수상|수상하지|생각엔|어떻게\s*생각|어떻게\s*봐|who\s+.*\s+(impost|traitor)|whom\s+do\s+you\s+suspect|who\s+do\s+you\s+think)/i.test(
+    t
+  );
+}
+
+/**
  * 특정 역할에게 범인/의심 의견을 묻는 경우 — target이 먼저 답하는 전용 분기.
+ * 단순 '누가'만으로는 잡지 않는다(동선 질문 오분류 방지).
  */
 function isRoleOpinionQuestion(text, parsed) {
   if (!parsed.target) return false;
   const raw = String(text || '');
   if (isPureAlibiLocationQuestion(raw)) return false;
-  return /(범인|임포|impost|traitor|의심|수상|누가|누굴|믿|trust|생각|느낌|같나|같아|think|suspect|whom|who\s+do\s+you|opinion)/i.test(
-    raw
-  );
+  return matchRoleOpinionHardPattern(raw);
 }
 
 /**
  * miniapp 자유입력 분류 — state_query | open_question | role_opinion_question | targeted_question | mapped
+ * role_opinion_question은 targeted_question보다 먼저 검사(check_log 다음).
  */
 function classifyMiniappFreeText(text, parsed) {
   const raw = String(text || '').trim();
@@ -252,19 +263,23 @@ function classifyMiniappFreeText(text, parsed) {
   const sq = matchStateQuerySubtype(lower);
   if (sq) return { kind: 'state_query', subtype: sq };
 
-  const mappedIntents = new Set(['check_log', 'accuse_hint', 'threaten', 'threat', 'observe']);
+  if (intent === 'check_log') {
+    return { kind: 'mapped', parsed };
+  }
+
+  if (parsed.target && isRoleOpinionQuestion(text, parsed)) {
+    return { kind: 'role_opinion_question', parsed };
+  }
+
+  const mappedIntents = new Set(['accuse_hint', 'threaten', 'threat', 'observe']);
   if (mappedIntents.has(intent)) return { kind: 'mapped', parsed };
 
   if (intent === 'question') {
-    if (parsed.target) {
-      if (isRoleOpinionQuestion(text, parsed)) return { kind: 'role_opinion_question', parsed };
-      return { kind: 'targeted_question', parsed };
-    }
+    if (parsed.target) return { kind: 'targeted_question', parsed };
     return { kind: 'open_question', parsed };
   }
 
   if (intent === 'unknown') {
-    if (parsed.target && isRoleOpinionQuestion(text, parsed)) return { kind: 'role_opinion_question', parsed };
     if (looksLikeOpenQuestion(lower, raw)) return { kind: 'open_question', parsed };
     return { kind: 'mapped', parsed };
   }
@@ -431,24 +446,46 @@ function buildRoleOpinionQuestionEvents(match, targetRole, locale) {
     ];
   }
 
-  const targetLine = {
-    doctor: {
-      ko: `${headers.doctor} 저는 생체 지표와 진술이 맞지 않는 쪽을 의심합니다. 교차 검증이 더 필요합니다.`,
-      en: `${headers.doctor} I suspect whoever has vitals that don't line up with their story. We need more cross-checks.`
-    },
-    engineer: {
-      ko: `${headers.engineer} 저는 로그 타임스탬프와 접근 기록이 어긋난 구역 담당을 의심합니다.`,
-      en: `${headers.engineer} I suspect whoever owns the worst timestamp and access-log mismatch.`
-    },
-    navigator: {
-      ko: `${headers.navigator} 저는 항로 기록과 교량 기록이 안 맞는 시간대에 있던 사람을 의심합니다.`,
-      en: `${headers.navigator} I suspect whoever was on the bridge when charts and logs disagree.`
-    },
-    pilot: {
-      ko: `${headers.pilot} 저는 교량 분위기와 조종석 로그가 어긋날 때 동선이 애매한 쪽을 의심합니다.`,
-      en: `${headers.pilot} I suspect whoever had the shakiest alibi when bridge logs and helm records diverge.`
+  const others = alive.filter((r) => r !== t);
+  const turn = match.turn || 1;
+  const pickRole = others.length ? others[turn % others.length] : null;
+  const pkKo = pickRole ? roleNameKo(pickRole) : '';
+  const pkEn = pickRole ? roleNameEn(pickRole) : '';
+
+  function targetOpinionFirst() {
+    if (!pickRole) {
+      if (loc === 'en') {
+        return {
+          doctor: `${headers.doctor} Right now I find the weakest alibi the most suspicious. Vitals and wording don't line up.`,
+          engineer: `${headers.engineer} Right now I find the worst timestamp mismatch the most suspicious.`,
+          navigator: `${headers.navigator} Right now I find the chart mismatch the most suspicious.`,
+          pilot: `${headers.pilot} Right now I find the shakiest helm story the most suspicious.`
+        }[t];
+      }
+      return {
+        doctor: `${headers.doctor} 지금은 동선과 생체 지표가 맞지 않는 쪽이 가장 수상합니다.`,
+        engineer: `${headers.engineer} 지금은 타임스탬프가 가장 어긋난 쪽이 가장 수상합니다.`,
+        navigator: `${headers.navigator} 지금은 항로 기록과 맞지 않는 쪽이 가장 수상합니다.`,
+        pilot: `${headers.pilot} 지금은 조종석 기록과 맞지 않는 쪽이 가장 수상합니다.`
+      }[t];
     }
-  };
+    if (loc === 'en') {
+      const m = {
+        doctor: `${headers.doctor} Right now ${pkEn} looks most suspicious to me. Vitals and their story don't line up.`,
+        engineer: `${headers.engineer} Right now ${pkEn} looks most suspicious to me. Timestamps don't match the access logs.`,
+        navigator: `${headers.navigator} Right now ${pkEn} looks most suspicious to me. Charts and bridge records diverge there.`,
+        pilot: `${headers.pilot} Right now ${pkEn} looks most suspicious to me. Helm logs and their route don't line up.`
+      };
+      return m[t] || m.doctor;
+    }
+    const m = {
+      doctor: `${headers.doctor} 지금은 ${pkKo} 쪽이 가장 수상합니다. 생체 반응과 말의 흐름이 어긋났습니다.`,
+      engineer: `${headers.engineer} 지금은 ${pkKo} 쪽이 가장 수상합니다. 타임스탬프와 접근 기록이 맞지 않습니다.`,
+      navigator: `${headers.navigator} 지금은 ${pkKo} 쪽이 가장 수상합니다. 항로와 교량 기록이 그 시간대에 어긋납니다.`,
+      pilot: `${headers.pilot} 지금은 ${pkKo} 쪽이 가장 수상합니다. 조종석 로그와 동선이 맞지 않습니다.`
+    };
+    return m[t] || m.doctor;
+  }
 
   const aux = {
     doctor: {
@@ -469,7 +506,7 @@ function buildRoleOpinionQuestionEvents(match, targetRole, locale) {
     }
   };
 
-  const first = targetLine[t] ? targetLine[t][loc] : targetLine.doctor[loc];
+  const first = targetOpinionFirst();
   const events = [{ type: 'CREW_DIALOGUE', role: t, dialogue: first }];
 
   for (const r of crewOrder) {
