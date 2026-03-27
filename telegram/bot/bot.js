@@ -156,7 +156,13 @@ function matchRemainingTimeStateQuery(lower) {
   if (t.includes('남은 시간') || t.includes('남은시간')) return true;
   if (t.includes('얼마나 남았') || t.includes('얼마나 남어') || /얼마나\s*남/.test(t)) return true;
   const withoutSil = t.replace(/실시간/g, '');
-  if (withoutSil.includes('시간')) return true;
+  if (
+    /(남은?\s*시간|몇\s*시간|얼마\s*시간|시간\s*(이\s*)?(남|얼마|몇)|시간\s*표시|시간\s*카운트|지금\s*몇\s*시간|현재\s*시간|시간\s*말|시간\s*알|시간\s*줘|시간\s*남|시간\s*얼마|얼마\s*남|얼마나\s*남|지금\s*몇\s*분|타이머|time\s+left|remaining)/i.test(
+      withoutSil
+    )
+  ) {
+    return true;
+  }
   if (/\btime\s+left\b/i.test(t) || t.includes('time left')) return true;
   if (/\bhow\s+long\b/i.test(t)) return true;
   if (/\bminutes\s+left\b/i.test(t) || t.includes('minutes left')) return true;
@@ -202,6 +208,20 @@ function matchStateQuerySubtype(lower) {
     return 'situation';
   }
   return null;
+}
+
+/**
+ * 세계관·설명 질문 — state_query(특히 잘못된 remaining_time)보다 open_question 우선.
+ */
+function matchWorldLoreOpenQuestion(raw) {
+  const t = String(raw || '').trim();
+  const lower = t.toLowerCase();
+  if (!t) return false;
+  if (matchRemainingTimeStateQuery(lower)) return false;
+  if (/중첩체/.test(t)) return true;
+  if (/(무엇인가|뭐지|뭐야|뭔지|정체|what\s+is|what\s+are)/i.test(t) && /\?/.test(t)) return true;
+  if (/(이\s*배|함선|ship).*\s*(뭐|무엇|what)/i.test(t)) return true;
+  return false;
 }
 
 function looksLikeOpenQuestion(lower, raw) {
@@ -260,9 +280,6 @@ function classifyMiniappFreeText(text, parsed) {
   const lower = raw.toLowerCase();
   const intent = String(parsed.intent_type || 'unknown').toLowerCase();
 
-  const sq = matchStateQuerySubtype(lower);
-  if (sq) return { kind: 'state_query', subtype: sq };
-
   if (intent === 'check_log') {
     return { kind: 'mapped', parsed };
   }
@@ -270,6 +287,13 @@ function classifyMiniappFreeText(text, parsed) {
   if (parsed.target && isRoleOpinionQuestion(text, parsed)) {
     return { kind: 'role_opinion_question', parsed };
   }
+
+  if (matchWorldLoreOpenQuestion(raw)) {
+    return { kind: 'open_question', parsed };
+  }
+
+  const sq = matchStateQuerySubtype(lower);
+  if (sq) return { kind: 'state_query', subtype: sq };
 
   const mappedIntents = new Set(['accuse_hint', 'threaten', 'threat', 'observe']);
   if (mappedIntents.has(intent)) return { kind: 'mapped', parsed };
@@ -2068,7 +2092,16 @@ async function handleTextMessage(playerId, text, opts = {}) {
     const events = buildOpenQuestionCrewEvents(match, locale);
     for (const ev of events) await matchStore.appendEvent(matchId, ev);
     const updated = await matchStore.getMatch(matchId);
-    const recentDisplay = dedupeDisplayLogs(toPlayerDisplayLogs(events, { locale }), locale);
+    const captainBodyForOpenQuestion =
+      stripLeadingCaptainBracketFromUserLine(String(text || '').trim(), locale) ||
+      String(text || '').trim();
+    let recentDisplay = dedupeDisplayLogs(toPlayerDisplayLogs(events, { locale }), locale);
+    if (captainBodyForOpenQuestion) {
+      recentDisplay = applyTargetedQuestionCaptainDisplayBody(recentDisplay, captainBodyForOpenQuestion, locale);
+      recentDisplay = dedupeDisplayLogs(recentDisplay, locale);
+      console.log('[bot] open_question captain_display_source=final_only');
+      console.log('[bot] open_question captain_body_preserved=true');
+    }
     const timer = ep1Engine.getTimerStatus(updated, now);
     const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
     let reply = recentDisplay.map((e) => e.type).filter(Boolean).join('\n') || '…';
@@ -2396,7 +2429,16 @@ async function processMessageApi(playerId, text, opts = {}) {
     const events = buildOpenQuestionCrewEvents(match, locale);
     for (const ev of events) await matchStore.appendEvent(matchId, ev);
     const updated = await matchStore.getMatch(matchId);
-    const newDisplayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(events, { locale }), locale);
+    const captainBodyForOpenQuestion =
+      stripLeadingCaptainBracketFromUserLine(String(text || '').trim(), locale) ||
+      String(text || '').trim();
+    let newDisplayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(events, { locale }), locale);
+    if (captainBodyForOpenQuestion) {
+      newDisplayLogs = applyTargetedQuestionCaptainDisplayBody(newDisplayLogs, captainBodyForOpenQuestion, locale);
+      newDisplayLogs = dedupeDisplayLogs(newDisplayLogs, locale);
+      console.log('[bot] open_question captain_display_source=final_only');
+      console.log('[bot] open_question captain_body_preserved=true');
+    }
     const timer = ep1Engine.getTimerStatus(updated, now);
     const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
     const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);

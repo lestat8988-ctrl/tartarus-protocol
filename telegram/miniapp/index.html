@@ -1318,18 +1318,16 @@
         var evs = data && data.recent_events;
         if (!evs || !evs.length) return '';
         var mid = data.match_id != null ? String(data.match_id) : String(lastKnownMatchId || '');
-        var rs = data.remaining_sec != null && data.remaining_sec !== undefined ? String(data.remaining_sec) : '';
-        var first = evs[0];
-        var last = evs[evs.length - 1];
-        var fStr = '';
-        var lStr = '';
-        try {
-          fStr = JSON.stringify(first);
-          lStr = evs.length > 1 ? JSON.stringify(last) : fStr;
-        } catch (e) {
-          return '';
+        var parts = [];
+        var i;
+        for (i = 0; i < evs.length; i++) {
+          var ev = evs[i];
+          parts.push(ev && ev.type != null ? String(ev.type) : '');
         }
-        return mid + '|n:' + evs.length + '|f:' + fStr + '|l:' + lStr + '|rs:' + rs;
+        var joinStr = parts.join('\u0001');
+        var firstLine = parts[0] || '';
+        var lastLine = parts.length > 1 ? parts[parts.length - 1] : firstLine;
+        return 'v2|' + mid + '|n:' + parts.length + '|f:' + firstLine + '|l:' + lastLine + '|j:' + joinStr;
       }
 
       function appendRecentEventsIfFresh(data, source) {
