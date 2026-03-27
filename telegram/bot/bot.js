@@ -1127,13 +1127,53 @@ function validateLlmDialogueBlocks(parsed, kind, expectedCrew, opts) {
   return sorted;
 }
 
+/**
+ * LLM이 text에 [함장] 등 헤더를 그대로 넣으면 llmBlocksToDisplayLogs가 헤더+text로 이중 출력된다. 헤더 한 번만 남긴다.
+ */
+function stripDuplicateRoleHeaderFromText(text, header) {
+  let s = String(text || '').trim();
+  const h = String(header || '').trim();
+  if (!h || !s) return s;
+  if (s.startsWith(h)) return s.slice(h.length).trim();
+  return s;
+}
+
+/**
+ * [함장][본문][함장][동일 본문] 연속이면 앞 한 쌍만 유지 (targeted_question 대사 중복 방지).
+ */
+function collapseDuplicateCaptainBlocks(displayLogs, locale) {
+  const capH = captainHeader(locale === 'en' ? 'en' : 'ko');
+  const logs = Array.isArray(displayLogs) ? displayLogs : [];
+  if (logs.length < 4) return logs;
+  const out = [];
+  let i = 0;
+  while (i < logs.length) {
+    const a = logs[i];
+    const b = logs[i + 1];
+    const c = logs[i + 2];
+    const d = logs[i + 3];
+    const ta = String(a?.type || '').trim();
+    const tb = String(b?.type || '').trim();
+    const tc = String(c?.type || '').trim();
+    const td = String(d?.type || '').trim();
+    if (ta === capH && tc === capH && tb && td && tb === td) {
+      out.push(a, b);
+      i += 4;
+      continue;
+    }
+    out.push(a);
+    i++;
+  }
+  return out;
+}
+
 function llmBlocksToDisplayLogs(sortedBlocks, batchKey, locale) {
   const loc = locale === 'en' ? 'en' : 'ko';
   const out = [];
   let i = 0;
   for (const b of sortedBlocks) {
     const header = canonicalHeaderForLlmBlock(b, loc);
-    const text = String(b.text || '').trim();
+    const text = stripDuplicateRoleHeaderFromText(String(b.text || '').trim(), header);
     const narr = b.narration != null ? String(b.narration).trim() : '';
     const keyBase = `${batchKey}|${i++}`;
     if (header) out.push({ type: header, role: 'system', target: null, _key: `${keyBase}|h` });
@@ -1948,7 +1988,7 @@ async function handleTextMessage(playerId, text, opts = {}) {
   );
   const clueEv = (result.events || []).find((e) => e && String(e.type).toUpperCase() === 'FIND_CLUE');
   const clueTextFromEvent = clueEv && clueEv.clue_text ? String(clueEv.clue_text) : undefined;
-  const recentDisplay = dedupeDisplayLogs(
+  let recentDisplay = dedupeDisplayLogs(
     await maybeDialogueLogsFromLlmOrDeterministic({
       rawEvents: result.events || [],
       deterministicLogs,
@@ -1959,6 +1999,14 @@ async function handleTextMessage(playerId, text, opts = {}) {
     }),
     locale
   );
+  if (cls.kind === 'targeted_question') {
+    const nBefore = recentDisplay.length;
+    recentDisplay = collapseDuplicateCaptainBlocks(recentDisplay, locale);
+    if (recentDisplay.length < nBefore) {
+      console.log('[bot] targeted_question duplicate_captain_line_prevented=true');
+    }
+    console.log('[bot] targeted_question captain_line_emitted=once');
+  }
   if (recentDisplay.length > 0) {
     reply += '\n\nRecent: ' + recentDisplay.map((e) => e.type).join(', ');
   }
@@ -2228,7 +2276,7 @@ async function processMessageApi(playerId, text, opts = {}) {
   );
   const clueEv = (result.events || []).find((e) => e && String(e.type).toUpperCase() === 'FIND_CLUE');
   const clueTextFromEvent = clueEv && clueEv.clue_text ? String(clueEv.clue_text) : undefined;
-  const newDisplayLogs = dedupeDisplayLogs(
+  let newDisplayLogs = dedupeDisplayLogs(
     await maybeDialogueLogsFromLlmOrDeterministic({
       rawEvents: result.events || [],
       deterministicLogs,
@@ -2239,6 +2287,14 @@ async function processMessageApi(playerId, text, opts = {}) {
     }),
     locale
   );
+  if (cls.kind === 'targeted_question') {
+    const nBefore = newDisplayLogs.length;
+    newDisplayLogs = collapseDuplicateCaptainBlocks(newDisplayLogs, locale);
+    if (newDisplayLogs.length < nBefore) {
+      console.log('[bot] targeted_question duplicate_captain_line_prevented=true');
+    }
+    console.log('[bot] targeted_question captain_line_emitted=once');
+  }
   const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
   const recentEvents = newDisplayLogs;
   const ret = {
