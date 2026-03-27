@@ -281,18 +281,18 @@ function buildStateQueryDialogueLine(match, subtype, locale, now) {
     if (gs.game_over) {
       return loc === 'en'
         ? `${sys} The game is over. Outcome: ${String(gs.outcome || 'unknown')}.`
-        : `${sys} 게임은 종료되었다. 결과: ${String(gs.outcome || 'unknown')}.`;
+        : `${sys} 게임은 종료되었습니다. 결과는 ${String(gs.outcome || 'unknown')}입니다.`;
     }
     return loc === 'en'
       ? `${sys} The game is still in progress.`
-      : `${sys} 게임은 아직 진행 중이다.`;
+      : `${sys} 게임은 아직 진행 중입니다.`;
   }
 
   if (subtype === 'deaths') {
     if (!deadRoles.length) {
       return loc === 'en'
         ? `${sys} No crew deaths have been recorded yet.`
-        : `${sys} 아직 사망한 승무원은 없다.`;
+        : `${sys} 아직 사망한 승무원은 없습니다.`;
     }
     const namesKo = deadRoles.map((r) => roleNameKo(r)).filter(Boolean);
     const namesEn = deadRoles.map((r) => roleNameEn(r)).filter(Boolean);
@@ -303,8 +303,8 @@ function buildStateQueryDialogueLine(match, subtype, locale, now) {
         : `${sys} The deceased crew are: ${list}.`;
     }
     return deadRoles.length === 1
-      ? `${sys} 현재 사망자는 ${namesKo[0]}다.`
-      : `${sys} 현재 사망자는 ${namesKo.join(', ')}다.`;
+      ? `${sys} 현재 사망자는 ${namesKo[0]}입니다.`
+      : `${sys} 현재 사망자는 ${namesKo.join(', ')}입니다.`;
   }
 
   if (subtype === 'situation') {
@@ -317,10 +317,10 @@ function buildStateQueryDialogueLine(match, subtype, locale, now) {
     }
     const aliveStr = aliveCrew.length ? aliveCrew.map(roleNameKo).join(', ') : '없음';
     const deadStr = deadRoles.length ? deadRoles.map(roleNameKo).join(', ') : '없음';
-    return `${sys} 현재 미션은 진행 중이다. 남은 시간은 ${m}분 ${s}초다. 생존: ${aliveStr}. 사망: ${deadStr}.`;
+    return `${sys} 현재 미션은 진행 중입니다. 남은 시간은 ${m}분 ${s}초입니다. 생존: ${aliveStr}. 사망: ${deadStr}.`;
   }
 
-  return loc === 'en' ? `${sys} Status unavailable.` : `${sys} 상태를 표시할 수 없다.`;
+  return loc === 'en' ? `${sys} Status unavailable.` : `${sys} 상태를 표시할 수 없습니다.`;
 }
 
 function buildOpenQuestionCrewEvents(match, locale) {
@@ -367,6 +367,24 @@ function buildOpenQuestionCrewEvents(match, locale) {
 /**
  * 표시 로그로부터 miniapp summary 문자열 (함장/시스템 블록이 완성되면 zero-width)
  */
+/**
+ * 매치 이벤트가 비어 있고 진행 중이면 locale에 맞는 초기 시스템 한 줄만 표시용으로 보강.
+ */
+function ensureInitialSystemDisplayLogs(displayLogs, match, locale) {
+  const gs = match?.game_state || {};
+  if (gs.game_over) return displayLogs || [];
+  const logs = Array.isArray(displayLogs) ? displayLogs : [];
+  if (logs.length > 0) return logs;
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const sys = systemHeader(loc);
+  const line =
+    loc === 'en'
+      ? `${sys} Tartarus Protocol initialized.`
+      : `${sys} 타르타로스 프로토콜이 초기화되었습니다.`;
+  const raw = [{ type: 'CREW_DIALOGUE', role: 'system', dialogue: line }];
+  return dedupeDisplayLogs(toPlayerDisplayLogs(raw, { locale: loc }), loc);
+}
+
 function summaryFromDisplayLogs(newDisplayLogs, locale) {
   const loc = locale === 'en' ? 'en' : 'ko';
   const capH = captainHeader(loc);
@@ -1891,7 +1909,8 @@ async function getStartStateApi(playerId, opts = {}) {
   const timer = ep1Engine.getTimerStatus ? ep1Engine.getTimerStatus(match) : { remaining_sec: 420 };
   const gs = match?.game_state || {};
   const locale = opts.locale === 'en' ? 'en' : 'ko';
-  const displayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(match?.events || [], { locale }), locale);
+  let displayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(match?.events || [], { locale }), locale);
+  displayLogs = ensureInitialSystemDisplayLogs(displayLogs, match, locale);
   const out = {
     ok: true,
     match_id: matchId,
@@ -2512,7 +2531,8 @@ function createLocalApiServer() {
         match = await matchStore.getMatch(matchId);
         const timer = ep1Engine.getTimerStatus(match, new Date());
         const gs = match?.game_state || {};
-        const displayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(match?.events || [], { locale }), locale);
+        let displayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(match?.events || [], { locale }), locale);
+        displayLogs = ensureInitialSystemDisplayLogs(displayLogs, match, locale);
         const recentDisplay = dedupeDisplayLogs(toPlayerDisplayLogs(deltaRaw, { locale }), locale);
         const statePayload = {
           ok: true,
