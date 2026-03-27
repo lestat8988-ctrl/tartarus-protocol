@@ -1167,6 +1167,29 @@ function collapseDuplicateCaptainBlocks(displayLogs, locale) {
   return out;
 }
 
+/**
+ * targeted_question만: 첫 줄이 "[함장] …질문" 한 줄(type)이고, 이어서 동일 질문이 [함장]+본문 두 줄로 또 나오면
+ * (정규화/LLM 경로가 합친 줄 + 분리 줄을 동시에 남긴 경우) 분리 쌍을 제거하고 합친 한 줄만 남긴다.
+ */
+function dedupeTargetedQuestionCaptainDisplayLogs(displayLogs, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const capH = captainHeader(loc);
+  const logs = Array.isArray(displayLogs) ? displayLogs : [];
+  if (logs.length < 3) return logs;
+
+  const t0 = String(logs[0]?.type || '').trim();
+  const t1 = String(logs[1]?.type || '').trim();
+  const t2 = String(logs[2]?.type || '').trim();
+  const norm = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+
+  if (!t0.startsWith(capH) || t1 !== capH || !t2) return logs;
+  const restCombined = norm(t0.slice(capH.length));
+  if (!restCombined) return logs;
+  if (restCombined !== norm(t2)) return logs;
+
+  return [logs[0], ...logs.slice(3)];
+}
+
 function llmBlocksToDisplayLogs(sortedBlocks, batchKey, locale) {
   const loc = locale === 'en' ? 'en' : 'ko';
   const out = [];
@@ -2001,6 +2024,7 @@ async function handleTextMessage(playerId, text, opts = {}) {
   );
   if (cls.kind === 'targeted_question') {
     const nBefore = recentDisplay.length;
+    recentDisplay = dedupeTargetedQuestionCaptainDisplayLogs(recentDisplay, locale);
     recentDisplay = collapseDuplicateCaptainBlocks(recentDisplay, locale);
     if (recentDisplay.length < nBefore) {
       console.log('[bot] targeted_question duplicate_captain_line_prevented=true');
@@ -2289,6 +2313,7 @@ async function processMessageApi(playerId, text, opts = {}) {
   );
   if (cls.kind === 'targeted_question') {
     const nBefore = newDisplayLogs.length;
+    newDisplayLogs = dedupeTargetedQuestionCaptainDisplayLogs(newDisplayLogs, locale);
     newDisplayLogs = collapseDuplicateCaptainBlocks(newDisplayLogs, locale);
     if (newDisplayLogs.length < nBefore) {
       console.log('[bot] targeted_question duplicate_captain_line_prevented=true');
