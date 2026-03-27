@@ -1309,62 +1309,80 @@
         if (executeConfirmBtn) executeConfirmBtn.disabled = !!disabled;
       }
 
-      /** 고정 /api/state 폴링 주기 (ms). 탭 숨김·game_over 시 타이머 정지로 추가 요청 억제 */
-      var STATE_POLL_INTERVAL_MS = 1800;
+      /** 반복 폴링은 setTimeout 체인 1개만 사용 (poll 완료 후 다음 예약). 탭 숨김·game_over 시 완화·중단 */
+      var STATE_POLL_BASE_MS = 1500;
+      var STATE_POLL_SLOW_MS = 5000;
       var statePollTimer = null;
       var statePollInFlight = false;
-      /** scheduleStatePolling()으로 켠 뒤 탭 복귀 시 재개할지 여부 (game_over·명시 stop 시 false) */
-      var statePollDesired = false;
+      var statePollingEnabled = false;
+      /** 인플라이트 중 즉시 갱신 요청 시 현재 poll 종료 후 0ms로 한 번 더 돌림 */
+      var statePollPendingKick = false;
 
-      function stopStatePollingTimerOnly() {
+      function clearStatePollTimer() {
         if (statePollTimer != null) {
-          clearInterval(statePollTimer);
+          clearTimeout(statePollTimer);
           statePollTimer = null;
         }
       }
 
       function stopStatePolling() {
-        stopStatePollingTimerOnly();
-        statePollDesired = false;
+        clearStatePollTimer();
+        statePollingEnabled = false;
+        statePollPendingKick = false;
       }
 
       /**
-       * 기존 interval 제거 후 1회 즉시 poll + 고정 주기 반복 (중복 setInterval 방지)
+       * 다음 poll 1회만 예약. 호출 전 항상 기존 예약 제거 → 단일 타이머만 존재.
+       * @param {number} delayMs
+       * @param {string} source 디버그용 (주석과 함께 단일 루프 출처 표시)
        */
-      function scheduleStatePolling() {
-        stopStatePollingTimerOnly();
-        statePollDesired = true;
+      function scheduleNextStatePoll(delayMs, source) {
+        if (!statePollingEnabled) return;
+        clearStatePollTimer();
         try {
-          console.log('[miniapp] state_poll_interval_ms=' + STATE_POLL_INTERVAL_MS);
+          console.log('[miniapp] state_poll_schedule_ms=' + delayMs);
         } catch (e) {}
-        pollStateOnce();
-        statePollTimer = setInterval(function() {
-          pollStateOnce();
-        }, STATE_POLL_INTERVAL_MS);
+        statePollTimer = setTimeout(function() {
+          statePollTimer = null;
+          // source: single scheduled polling loop (delayMs 위 인자 source가 pollStateOnce로 전달됨)
+          pollStateOnce(source);
+        }, delayMs);
+      }
+
+      function getNextPollDelayMs() {
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+          return STATE_POLL_SLOW_MS;
+        }
+        return STATE_POLL_BASE_MS;
       }
 
       if (typeof document !== 'undefined') {
         document.addEventListener('visibilitychange', function() {
           if (document.visibilityState === 'hidden') {
-            if (statePollTimer != null) {
-              try {
-                console.log('[miniapp] state_poll_paused_hidden=true');
-              } catch (e) {}
-              stopStatePollingTimerOnly();
-            }
+            clearStatePollTimer();
           } else if (document.visibilityState === 'visible') {
-            if (statePollDesired && screen === 'game' && !isGameOver) {
-              scheduleStatePolling();
+            if (statePollingEnabled && screen === 'game' && !isGameOver) {
+              if (statePollInFlight) {
+                statePollPendingKick = true;
+              } else {
+                scheduleNextStatePoll(0, 'visibility resume'); // source: visibility resume
+              }
             }
           }
         });
       }
 
-      /** message/accuse/action 성공 직후 1회 백그라운드 동기화 (이후 주기는 scheduleStatePolling 고정 간격만) */
+      /**
+       * 액션 직후 1회 동기화. 기존 예약만 취소하고 한 번만 다시 예약 (setInterval 중복 없음).
+       */
       function queueImmediateStatePoll() {
-        setTimeout(function() {
-          pollStateOnce();
-        }, 0);
+        if (!statePollingEnabled) return;
+        clearStatePollTimer();
+        if (statePollInFlight) {
+          statePollPendingKick = true;
+        } else {
+          scheduleNextStatePoll(0, 'post-message refresh'); // source: post-message refresh
+        }
       }
 
       function buildRecentEventsSig(data) {
@@ -1404,18 +1422,33 @@
         return true;
       }
 
-      function pollStateOnce() {
-        if (screen !== 'game') return;
+      /**
+       * /api/state 1회 요청. 호출 경로는 오직 scheduleNextStatePoll의 단일 setTimeout 콜백뿐 (즉시 갱신도 그 경로로만).
+       * pollStateOnce 내부에서 pollStateOnce 재호출 금지 — 다음 tick은 finally에서 scheduleNextStatePoll로만 예약.
+       * @param {string} source
+       */
+      function pollStateOnce(source) {
+        if (!statePollingEnabled) return;
+        if (screen !== 'game') {
+          stopStatePolling();
+          return;
+        }
         if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+          scheduleNextStatePoll(STATE_POLL_SLOW_MS, 'scheduled polling loop'); // source: hidden backoff
           return;
         }
         if (statePollInFlight) {
           try {
-            console.log('[miniapp] state_poll_skipped_inflight=true');
+            console.log('[miniapp] state_poll_skip_inflight=true');
           } catch (e) {}
+          statePollPendingKick = true;
           return;
         }
+        try {
+          console.log('[miniapp] state_poll_fire ts=' + Date.now() + ' source=' + String(source || ''));
+        } catch (e) {}
         statePollInFlight = true;
+        var chainStopped = false;
         var playerId = getPlayerId();
         fetch(API_BASE + '/api/state?playerId=' + encodeURIComponent(playerId) + '&lang=' + encodeURIComponent(getLangForApi()))
           .then(function(r) { return r.json(); })
@@ -1423,6 +1456,7 @@
             if (!data.ok) return;
             if (!data.match_id) {
               stopStatePolling();
+              chainStopped = true;
               return;
             }
             var gs = data.game_state || {};
@@ -1445,14 +1479,38 @@
                 'state'
               );
             }
-            if (gs.game_over) stopStatePolling();
+            if (gs.game_over) {
+              stopStatePolling();
+              chainStopped = true;
+            }
           })
           .catch(function() { /* network noise: ignore */ })
-          .finally(function() { statePollInFlight = false; });
+          .finally(function() {
+            statePollInFlight = false;
+            if (!statePollingEnabled || chainStopped) return;
+            if (statePollPendingKick) {
+              statePollPendingKick = false;
+              scheduleNextStatePoll(0, 'post-message refresh'); // source: post-message refresh (after inflight)
+              return;
+            }
+            scheduleNextStatePoll(getNextPollDelayMs(), 'scheduled polling loop'); // source: scheduled polling loop
+          });
       }
 
+      /** 폴링 완전 리셋 후 단일 timeout 루프 시작 (setInterval 미사용) */
       function startStatePolling() {
-        scheduleStatePolling();
+        try {
+          console.log('[miniapp] state_poll_reset_on_start=true');
+        } catch (e) {}
+        stopStatePolling();
+        statePollingEnabled = true;
+        try {
+          console.log('[miniapp] state_poll_mode=single_timeout_loop');
+        } catch (e) {}
+        try {
+          console.log('[miniapp] state_poll_schedule_ms=' + STATE_POLL_BASE_MS);
+        } catch (e) {}
+        scheduleNextStatePoll(0, 'initial start'); // source: initial start
       }
 
       function clearGameLogPanelAndState() {
@@ -2237,6 +2295,7 @@
               updateStatus(st, { forApiMessage: true });
               if (data.game_over) stopStatePolling();
               appendSummaryOrEvents(data);
+              // source: post-message refresh (queueImmediateStatePoll → 단일 timeout 예약)
               if (!data.game_over) queueImmediateStatePoll();
             } else {
               try {
@@ -2280,6 +2339,7 @@
               updateStatus(st, { forApiMessage: true });
               if (data.game_over) stopStatePolling();
               appendSummaryOrEvents(data);
+              // source: post-accuse refresh
               if (!data.game_over) queueImmediateStatePoll();
             } else {
               appendLog('Error: ' + (data.error || 'unknown'), true);
@@ -2315,6 +2375,7 @@
               updateStatus(st, { forApiMessage: true });
               if (data.game_over) stopStatePolling();
               appendSummaryOrEvents(data);
+              // source: post-action refresh (take_pistol)
               if (!data.game_over) queueImmediateStatePoll();
             } else {
               appendLog('Error: ' + (data.error || 'unknown'), true);
@@ -2350,6 +2411,7 @@
               updateStatus(st, { forApiMessage: true });
               if (data.game_over) stopStatePolling();
               appendSummaryOrEvents(data);
+              // source: post-action refresh (collect_clue)
               if (!data.game_over) queueImmediateStatePoll();
             } else {
               appendLog('Error: ' + (data.error || 'unknown'), true);
@@ -2388,6 +2450,7 @@
               updateStatus(st, { forApiMessage: true });
               if (data.game_over) stopStatePolling();
               appendSummaryOrEvents(data);
+              // source: post-action refresh (threaten)
               if (!data.game_over) queueImmediateStatePoll();
             } else {
               appendLog('Error: ' + (data.error || 'unknown'), true);
@@ -2774,6 +2837,9 @@
       function doRestart() {
         if (!isGameOver || startRequestInFlight) return;
         forceInvalidateUserActionLock();
+        try {
+          console.log('[miniapp] state_poll_reset_on_restart=true');
+        } catch (e) {}
         stopStatePolling();
         clearGameLogPanelAndState();
         previousGameOver = false;
