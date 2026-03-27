@@ -1124,6 +1124,13 @@ function validateLlmDialogueBlocks(parsed, kind, expectedCrew, opts) {
   }
   if (!dialogueLanguageOk(allTexts, locale)) return null;
   if (hasExcessiveLineRepetition(sorted, 3)) return null;
+
+  if (kind === 'QUESTION' && opts.targetedQuestionSideReactionRules && opts.target) {
+    if (!targetedQuestionSideReactionBlocksOk(sorted, opts.target, locale)) {
+      console.log('[bot] targeted_question side_reactions_question_like_filtered=true');
+      return null;
+    }
+  }
   return sorted;
 }
 
@@ -1136,6 +1143,70 @@ function stripDuplicateRoleHeaderFromText(text, header) {
   if (!h || !s) return s;
   if (s.startsWith(h)) return s.slice(h.length).trim();
   return s;
+}
+
+/** targeted_question: 유저 입력 앞의 [함장]/[Captain]만 제거해 표시·강제 대사 본문으로 쓴다 */
+function stripLeadingCaptainBracketFromUserLine(text, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  let s = String(text || '').trim();
+  const capH = captainHeader(loc);
+  if (s.startsWith(capH)) {
+    s = s.slice(capH.length).trim();
+    if (s.startsWith(',')) s = s.slice(1).trim();
+  }
+  return s;
+}
+
+/** miniapp targeted_question: 비타깃 크루가 질문/제3자 심문형이면 LLM 응답 폐기 */
+function targetedQuestionSideReactionBlocksOk(sorted, focusTarget, locale) {
+  const focus = String(focusTarget || '').toLowerCase();
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const koRoleComma = /^(닥터|엔지니어|네비게이터|파일럿)\s*,/;
+  const enRoleComma = /^(Doctor|Engineer|Navigator|Pilot)\s*,/i;
+  for (const b of sorted) {
+    const r = String(b.role || '').toLowerCase();
+    if (r === 'captain' || r === focus) continue;
+    const pack = `${String(b.text || '').trim()}\n${String(b.narration || '').trim()}`.trim();
+    if (!pack) continue;
+    if (/[?？]/.test(pack)) return false;
+    if (loc === 'ko' && koRoleComma.test(pack)) return false;
+    if (loc === 'en' && enRoleComma.test(pack)) return false;
+  }
+  return true;
+}
+
+function takeFirstCaptainSegmentLength(logs, locale) {
+  const capH = captainHeader(locale === 'en' ? 'en' : 'ko');
+  if (!logs || !logs.length) return 0;
+  const t0 = String(logs[0]?.type || '').trim();
+  if (t0 === capH) {
+    if (logs.length >= 2) {
+      const t1 = String(logs[1]?.type || '').trim();
+      if (t1 && !/^\[[^\]]+\]$/.test(t1)) return 2;
+    }
+    return 1;
+  }
+  if (t0.startsWith(capH) && t0.length > capH.length && !/^\[[^\]]+\]$/.test(t0)) return 1;
+  return 0;
+}
+
+/**
+ * targeted_question: transcript에 함장 질문은 유저 원문 한 번만 — 선행 함장 블록을 제거 후 [함장]+원문 본문으로 고정
+ */
+function applyTargetedQuestionCaptainDisplayBody(displayLogs, captainBodyRaw, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const capH = captainHeader(loc);
+  let body = stripDuplicateRoleHeaderFromText(String(captainBodyRaw || '').trim(), capH);
+  body = String(body || '').trim();
+  if (!body) return displayLogs;
+  const logs = Array.isArray(displayLogs) ? displayLogs.slice() : [];
+  const n = takeFirstCaptainSegmentLength(logs, loc);
+  const rest = n > 0 ? logs.slice(n) : logs;
+  const prefix = [
+    { type: capH, role: 'system', target: null, _key: 'tq-cap-h' },
+    { type: body, role: 'system', target: null, _key: 'tq-cap-b' }
+  ];
+  return normalizePlayerFacingDisplayLogs([...prefix, ...rest], loc);
 }
 
 /**
@@ -1227,7 +1298,8 @@ function mergeFindClueDeterministicClue(displayLogs, clueText, batchKey, locale,
   );
 }
 
-function buildDialogueSystemPrompt(kind, locale) {
+function buildDialogueSystemPrompt(kind, locale, promptOpts) {
+  promptOpts = promptOpts || {};
   const loc = locale === 'en' ? 'en' : 'ko';
 
   if (loc === 'en') {
@@ -1241,15 +1313,22 @@ function buildDialogueSystemPrompt(kind, locale) {
     ];
 
     if (kind === 'QUESTION') {
-      return [
+      const qEn = [
         ...jsonContractEn,
         'ROLE FIELD: each block.role MUST be captain|doctor|engineer|navigator|pilot (lowercase) only.',
         'Each block: {"role","text","narration?"} — no "header" key.',
         'BLOCK ORDER: blocks[0]=captain; blocks[1]=focusTargetRole (answers first); then remaining alive crew in crewSpeakingOrder.',
         'QUESTION: Target answers immediately — short, direct. Others: one tight reaction each.',
-        'Every non-target crew block must name focusTargetEnglish (e.g. Navigator) in text or narration.',
-        'Respond JSON only.'
-      ].join('\n');
+        'Every non-target crew block must name focusTargetEnglish (e.g. Navigator) in text or narration.'
+      ];
+      if (promptOpts.targetedQuestionSideReactionRules) {
+        qEn.push(
+          'TARGETED_QUESTION (captain free-text): Non-target crew must NOT use question marks. Do NOT address Doctor/Engineer/Navigator/Pilot by name with a comma to open a new interrogation or ask what someone else did. Short observational reactions only (e.g. "Noted — I will cross-check that against the corridor log.").',
+          'Do NOT rewrite captain.text into a different question; copy captainSpokenLineVerbatim only.'
+        );
+      }
+      qEn.push('Respond JSON only.');
+      return qEn.join('\n');
     }
 
     if (kind === 'CHECK_LOG') {
@@ -1303,7 +1382,7 @@ function buildDialogueSystemPrompt(kind, locale) {
   ];
 
   if (kind === 'QUESTION') {
-    return [
+    const qKo = [
       'USSC Tartarus E1. Korean spoken lines. Output JSON only: {"blocks":[...]} — no markdown.',
       'ROLE FIELD (required): each block.role MUST be exactly one of: captain, doctor, engineer, navigator, pilot — lowercase English only.',
       'NEVER set role to "header", "system", "title", "speaker", or any other string.',
@@ -1315,9 +1394,16 @@ function buildDialogueSystemPrompt(kind, locale) {
       'QUESTION: Target answers immediately in their block — short, direct, no essay.',
       'doctor/engineer/navigator/pilot: each one brief follow-up (1–2 short sentences) tied to that question only.',
       'Every non-target crew block must include focusTargetKorean (e.g. 네비게이터) in text or narration.',
-      'Optional one short narration per crew; skip if unnecessary. No generic life advice.',
-      'Respond JSON only.'
-    ].join('\n');
+      'Optional one short narration per crew; skip if unnecessary. No generic life advice.'
+    ];
+    if (promptOpts.targetedQuestionSideReactionRules) {
+      qKo.push(
+        'TARGETED_QUESTION(자유입력): 비타깃 크루는 짧은 관찰·코멘트만 — 물음표(?) 금지, "닥터/엔지니어/네비게이터/파일럿, …" 형태로 제3자에게 새 질문·심문 금지.',
+        'captain.text는 captainSpokenLineVerbatim과 동일하게만 — 내부 고정 질문 문장으로 바꾸지 말 것.'
+      );
+    }
+    qKo.push('Respond JSON only.');
+    return qKo.join('\n');
   }
 
   if (kind === 'CHECK_LOG') {
@@ -1459,7 +1545,8 @@ async function callChatCompletionsJson({ system, user, timeoutMs, maxTokens }) {
  */
 async function tryGenerateLlmDialogueLogs(ctx) {
   if (!isDialogueLlmConfigured()) return null;
-  const { kind, rawEvents, match, playerText, clueText, forcedCaptainText } = ctx;
+  const { kind, rawEvents, match, playerText, clueText, forcedCaptainText, targetedQuestionSideReactionRules } =
+    ctx;
   const locale = ctx.locale === 'en' ? 'en' : 'ko';
   const gs = match?.game_state || {};
   const deadRoles = gs.dead_roles || [];
@@ -1469,7 +1556,7 @@ async function tryGenerateLlmDialogueLogs(ctx) {
   const batchKey = `llm|${kind}|${Date.now()}`;
   const captainForced = String(forcedCaptainText || '').trim();
 
-  const system = buildDialogueSystemPrompt(kind, locale);
+  const system = buildDialogueSystemPrompt(kind, locale, { targetedQuestionSideReactionRules });
   const userBase = buildDialogueUserPayload({
     kind,
     target,
@@ -1504,6 +1591,10 @@ async function tryGenerateLlmDialogueLogs(ctx) {
       strictRetry +=
         ' TAKE_PISTOL: 함장 문장·권총 집기 문구 복창·인용 금지. 역할별 짧은 반응만. role은 captain|doctor|engineer|navigator|pilot 만; header 금지.';
     }
+    if (targetedQuestionSideReactionRules && kind === 'QUESTION') {
+      strictRetry +=
+        ' 비타깃: 물음표·질문형 금지. 다른 역할 호명 심문 금지. 짧은 관찰만. captain.text는 제공 문장만.';
+    }
   } else {
     if (kind === 'QUESTION') {
       strictRetry += ' QUESTION: non-target blocks must name focusTargetEnglish. Shorter.';
@@ -1517,6 +1608,10 @@ async function tryGenerateLlmDialogueLogs(ctx) {
       strictRetry += ' FIND_CLUE: no clue body in JSON.';
     } else if (kind === 'TAKE_PISTOL') {
       strictRetry += ' TAKE_PISTOL: no echo of captain line.';
+    }
+    if (targetedQuestionSideReactionRules && kind === 'QUESTION') {
+      strictRetry +=
+        ' Non-target: no ?; no "RoleName," interrogation; brief observation only. captain.text = verbatim only.';
     }
   }
 
@@ -1540,7 +1635,8 @@ async function tryGenerateLlmDialogueLogs(ctx) {
     const valid = validateLlmDialogueBlocks(parsed, kind, expectedCrew, {
       forcedCaptainText: captainForced,
       target,
-      locale
+      locale,
+      targetedQuestionSideReactionRules: !!targetedQuestionSideReactionRules
     });
     if (valid) {
       console.log(
@@ -1566,7 +1662,9 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
   match,
   playerText,
   clueTextFromEvent,
-  locale
+  locale,
+  forcedCaptainTextOverride,
+  targetedQuestionSideReactionRules
 }) {
   const loc = locale === 'en' ? 'en' : 'ko';
   const kind = getDialogueLlmKind(rawEvents);
@@ -1581,7 +1679,10 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
     return deterministicLogs;
   }
 
-  const forcedCaptainText = extractCaptainSpokenFromDisplayLogs(deterministicLogs, loc);
+  const forcedCaptainText =
+    forcedCaptainTextOverride != null && String(forcedCaptainTextOverride).trim()
+      ? String(forcedCaptainTextOverride).trim()
+      : extractCaptainSpokenFromDisplayLogs(deterministicLogs, loc);
   const llmLogs = await tryGenerateLlmDialogueLogs({
     kind,
     rawEvents,
@@ -1589,6 +1690,7 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
     playerText: playerText || '',
     clueText: clueTextFromEvent != null ? clueTextFromEvent : undefined,
     forcedCaptainText,
+    targetedQuestionSideReactionRules: !!targetedQuestionSideReactionRules,
     locale: loc
   });
   if (llmLogs && llmLogs.length) {
@@ -1627,6 +1729,7 @@ function roleWithObjectParticle(roleKey) {
  * @param {object[]} rawEvents - match.events 등 내부 raw 이벤트
  * @param {object} [opts]
  * @param {string} [opts.captainInputLine] - 해당 배치가 CHECK_LOG일 때 본문에 살릴 플레이어 입력 (이벤트에 dialogue/text 없을 때만)
+ * @param {string} [opts.questionCaptainBodyOverride] - QUESTION 이벤트 본문 강제 (targeted_question 등에서 유저 원문)
  * @returns {object[]} { type: string, role?, target?: null, _key?: string } - 표시용
  */
 function toPlayerDisplayLogs(rawEvents, opts = {}) {
@@ -1644,10 +1747,12 @@ function toPlayerDisplayLogs(rawEvents, opts = {}) {
     const baseKey = [ev?.ts ?? '', t, role, target ?? ''].join('|');
 
     if (t === 'QUESTION' && target) {
+      const override = String(opts.questionCaptainBodyOverride || '').trim();
       const qBody =
-        locale === 'en'
+        override ||
+        (locale === 'en'
           ? `${roleNameEn(target)}, where were you then?`
-          : `${roleNameKo(target)}, 그때 어디 있었지?`;
+          : `${roleNameKo(target)}, 그때 어디 있었지?`);
       const body = (
         qBody ||
         ev.dialogue ||
@@ -1965,6 +2070,12 @@ async function handleTextMessage(playerId, text, opts = {}) {
     console.log('[bot] message kind=targeted_question target=' + parsed.target);
   }
 
+  const captainBodyForTq =
+    cls.kind === 'targeted_question'
+      ? stripLeadingCaptainBracketFromUserLine(String(text || '').trim(), locale) ||
+        String(text || '').trim()
+      : '';
+
   const action = {
     actor: 'captain',
     role: 'captain',
@@ -2005,7 +2116,8 @@ async function handleTextMessage(playerId, text, opts = {}) {
   const deterministicLogs = dedupeDisplayLogs(
     toPlayerDisplayLogs(result.events || [], {
       captainInputLine: isCheckLogMsg ? String(text || '').trim() : '',
-      locale
+      locale,
+      ...(captainBodyForTq ? { questionCaptainBodyOverride: captainBodyForTq } : {})
     }),
     locale
   );
@@ -2018,17 +2130,24 @@ async function handleTextMessage(playerId, text, opts = {}) {
       match: updated,
       playerText: String(text || '').trim(),
       clueTextFromEvent,
-      locale
+      locale,
+      forcedCaptainTextOverride:
+        cls.kind === 'targeted_question' && captainBodyForTq ? captainBodyForTq : undefined,
+      targetedQuestionSideReactionRules: cls.kind === 'targeted_question'
     }),
     locale
   );
   if (cls.kind === 'targeted_question') {
     const nBefore = recentDisplay.length;
+    if (captainBodyForTq) {
+      recentDisplay = applyTargetedQuestionCaptainDisplayBody(recentDisplay, captainBodyForTq, locale);
+    }
     recentDisplay = dedupeTargetedQuestionCaptainDisplayLogs(recentDisplay, locale);
     recentDisplay = collapseDuplicateCaptainBlocks(recentDisplay, locale);
     if (recentDisplay.length < nBefore) {
       console.log('[bot] targeted_question duplicate_captain_line_prevented=true');
     }
+    console.log('[bot] targeted_question captain_display_line=original');
     console.log('[bot] targeted_question captain_line_emitted=once');
   }
   if (recentDisplay.length > 0) {
@@ -2279,6 +2398,12 @@ async function processMessageApi(playerId, text, opts = {}) {
     console.log('[bot] message kind=targeted_question target=' + parsed.target);
   }
 
+  const captainBodyForTq =
+    cls.kind === 'targeted_question'
+      ? stripLeadingCaptainBracketFromUserLine(String(text || '').trim(), locale) ||
+        String(text || '').trim()
+      : '';
+
   const action = { actor: 'captain', role: 'captain', action: parsed.intent_type, target: parsed.target };
   const result = await ep1Engine.applyAction(match, action, opts);
   if (!result.ok) return { ok: false, error: result.error || 'unknown' };
@@ -2294,7 +2419,8 @@ async function processMessageApi(playerId, text, opts = {}) {
   const deterministicLogs = dedupeDisplayLogs(
     toPlayerDisplayLogs(result.events || [], {
       captainInputLine: isCheckLogMsg ? String(text || '').trim() : '',
-      locale
+      locale,
+      ...(captainBodyForTq ? { questionCaptainBodyOverride: captainBodyForTq } : {})
     }),
     locale
   );
@@ -2307,17 +2433,24 @@ async function processMessageApi(playerId, text, opts = {}) {
       match: updated,
       playerText: String(text || '').trim(),
       clueTextFromEvent,
-      locale
+      locale,
+      forcedCaptainTextOverride:
+        cls.kind === 'targeted_question' && captainBodyForTq ? captainBodyForTq : undefined,
+      targetedQuestionSideReactionRules: cls.kind === 'targeted_question'
     }),
     locale
   );
   if (cls.kind === 'targeted_question') {
     const nBefore = newDisplayLogs.length;
+    if (captainBodyForTq) {
+      newDisplayLogs = applyTargetedQuestionCaptainDisplayBody(newDisplayLogs, captainBodyForTq, locale);
+    }
     newDisplayLogs = dedupeTargetedQuestionCaptainDisplayLogs(newDisplayLogs, locale);
     newDisplayLogs = collapseDuplicateCaptainBlocks(newDisplayLogs, locale);
     if (newDisplayLogs.length < nBefore) {
       console.log('[bot] targeted_question duplicate_captain_line_prevented=true');
     }
+    console.log('[bot] targeted_question captain_display_line=original');
     console.log('[bot] targeted_question captain_line_emitted=once');
   }
   const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
