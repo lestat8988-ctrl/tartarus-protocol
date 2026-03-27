@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -1116,6 +1116,10 @@
       var executeModalUnlockTimer = null;
       /** 연속 동일 로그 방지 (summary + recent_events 이중 출력 등) */
       var lastAppendedLogNorm = null;
+      /** updateStatus·/api/state에서 온 match_id — message 응답에 match_id 없을 때 서명용 */
+      var lastKnownMatchId = null;
+      /** /api/message 등으로 이미 그린 recent_events와 동일하면 /api/state 폴링에서 생략 */
+      var lastAppliedRecentEventsSig = null;
       var startRequestInFlight = false;
       var accuseRequestInFlight = false;
       var takePistolRequestInFlight = false;
@@ -1289,6 +1293,15 @@
         }
       }
 
+      function signatureForRecentEvents(matchId, events) {
+        if (!events || !events.length) return '';
+        try {
+          return String(matchId || '') + '|' + JSON.stringify(events);
+        } catch (e) {
+          return '';
+        }
+      }
+
       function pollStateOnce() {
         if (screen !== 'game') return;
         if (statePollInFlight) return;
@@ -1312,7 +1325,16 @@
             if (data.is_timeout) st.is_timeout = data.is_timeout;
             /* 배경 폴링: userActionPending·잠금 시퀀스에 관여하지 않음 */
             updateStatus(st, { forApiMessage: true, fromPoll: true });
-            if (data.recent_events && data.recent_events.length) applyEvents(data.recent_events);
+            if (data.recent_events && data.recent_events.length) {
+              var pollMid = data.match_id || lastKnownMatchId || '';
+              var pollSig = signatureForRecentEvents(pollMid, data.recent_events);
+              if (pollSig && pollSig === lastAppliedRecentEventsSig) {
+                /* 이미 /api/message 등으로 동일 배치 적용됨 */
+              } else {
+                lastAppliedRecentEventsSig = pollSig;
+                applyEvents(data.recent_events);
+              }
+            }
             if (gs.game_over) stopStatePolling();
           })
           .catch(function() { /* network noise: ignore */ })
@@ -1327,6 +1349,7 @@
 
       function clearGameLogPanelAndState() {
         lastAppendedLogNorm = null;
+        lastAppliedRecentEventsSig = null;
         logInActiveTurn = false;
         lastLogBlockRole = null;
         if (logPanel) logPanel.innerHTML = '';
@@ -1918,6 +1941,7 @@
           var short = truncateMatchId(state.match_id);
           statusMatchId.textContent = short;
           statusMatchId.title = state.match_id;
+          lastKnownMatchId = state.match_id;
         }
         var timeStr = formatTime(state.remaining_sec);
         statusTime.textContent = timeStr;
@@ -1981,6 +2005,12 @@
 
       function appendSummaryOrEvents(data) {
         if (data.recent_events && data.recent_events.length) {
+          var msgMid = data.match_id || lastKnownMatchId || '';
+          var msgSig = signatureForRecentEvents(msgMid, data.recent_events);
+          if (msgSig && msgSig === lastAppliedRecentEventsSig) {
+            return;
+          }
+          lastAppliedRecentEventsSig = msgSig;
           applyEvents(data.recent_events);
         } else {
           var fb = (getLangForApi() === 'ko') ? '함장이 행동했다.' : 'Captain acted.';
@@ -2033,10 +2063,6 @@
           });
       }
 
-      function captainUserLinePrefix() {
-        return getLangForApi() === 'ko' ? '[함장] ' : '[Captain] ';
-      }
-
       /**
        * 자유입력 전송: 전송 버튼·Enter 공통 경로 (trim / 빈값·pending·game_over 가드)
        */
@@ -2051,14 +2077,16 @@
         doMessage(raw);
       }
 
-      /** /api/message — 액션 버튼·모달에서도 동일 경로 (베르셀: 함장 발화 로그 + 서버 응답) */
+      /** /api/message — 액션·모달 동일 경로. 함장 줄은 로컬 optimistic append 없이 appendSummaryOrEvents(recent_events)만 사용 */
       function doMessage(text) {
         var trimmed = String(text == null ? '' : text).trim();
         if (!trimmed) return;
         if (isGameOver || userActionPending) return;
         var userTurnLockSeq = beginCaptainUserActionLock();
-        lastAppendedLogNorm = null;
-        appendLog(captainUserLinePrefix() + trimmed, false);
+        try {
+          console.log('[miniapp] removed_local_captain_optimistic_append=true');
+          console.log('[miniapp] server_recent_events_render_only=true');
+        } catch (e) {}
         var playerId = getPlayerId();
         logMiniappApiLang('/api/message');
         fetch(API_BASE + '/api/message', {
