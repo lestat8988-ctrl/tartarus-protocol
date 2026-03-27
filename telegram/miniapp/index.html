@@ -1309,14 +1309,62 @@
         if (executeConfirmBtn) executeConfirmBtn.disabled = !!disabled;
       }
 
+      /** 고정 /api/state 폴링 주기 (ms). 탭 숨김·game_over 시 타이머 정지로 추가 요청 억제 */
+      var STATE_POLL_INTERVAL_MS = 1800;
       var statePollTimer = null;
       var statePollInFlight = false;
+      /** scheduleStatePolling()으로 켠 뒤 탭 복귀 시 재개할지 여부 (game_over·명시 stop 시 false) */
+      var statePollDesired = false;
 
-      function stopStatePolling() {
+      function stopStatePollingTimerOnly() {
         if (statePollTimer != null) {
           clearInterval(statePollTimer);
           statePollTimer = null;
         }
+      }
+
+      function stopStatePolling() {
+        stopStatePollingTimerOnly();
+        statePollDesired = false;
+      }
+
+      /**
+       * 기존 interval 제거 후 1회 즉시 poll + 고정 주기 반복 (중복 setInterval 방지)
+       */
+      function scheduleStatePolling() {
+        stopStatePollingTimerOnly();
+        statePollDesired = true;
+        try {
+          console.log('[miniapp] state_poll_interval_ms=' + STATE_POLL_INTERVAL_MS);
+        } catch (e) {}
+        pollStateOnce();
+        statePollTimer = setInterval(function() {
+          pollStateOnce();
+        }, STATE_POLL_INTERVAL_MS);
+      }
+
+      if (typeof document !== 'undefined') {
+        document.addEventListener('visibilitychange', function() {
+          if (document.visibilityState === 'hidden') {
+            if (statePollTimer != null) {
+              try {
+                console.log('[miniapp] state_poll_paused_hidden=true');
+              } catch (e) {}
+              stopStatePollingTimerOnly();
+            }
+          } else if (document.visibilityState === 'visible') {
+            if (statePollDesired && screen === 'game' && !isGameOver) {
+              scheduleStatePolling();
+            }
+          }
+        });
+      }
+
+      /** message/accuse/action 성공 직후 1회 백그라운드 동기화 (이후 주기는 scheduleStatePolling 고정 간격만) */
+      function queueImmediateStatePoll() {
+        setTimeout(function() {
+          pollStateOnce();
+        }, 0);
       }
 
       function buildRecentEventsSig(data) {
@@ -1358,7 +1406,15 @@
 
       function pollStateOnce() {
         if (screen !== 'game') return;
-        if (statePollInFlight) return;
+        if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+          return;
+        }
+        if (statePollInFlight) {
+          try {
+            console.log('[miniapp] state_poll_skipped_inflight=true');
+          } catch (e) {}
+          return;
+        }
         statePollInFlight = true;
         var playerId = getPlayerId();
         fetch(API_BASE + '/api/state?playerId=' + encodeURIComponent(playerId) + '&lang=' + encodeURIComponent(getLangForApi()))
@@ -1396,9 +1452,7 @@
       }
 
       function startStatePolling() {
-        stopStatePolling();
-        pollStateOnce();
-        statePollTimer = setInterval(pollStateOnce, 2000);
+        scheduleStatePolling();
       }
 
       function clearGameLogPanelAndState() {
@@ -2183,6 +2237,7 @@
               updateStatus(st, { forApiMessage: true });
               if (data.game_over) stopStatePolling();
               appendSummaryOrEvents(data);
+              if (!data.game_over) queueImmediateStatePoll();
             } else {
               try {
                 console.log('[miniapp] /api/message failed', data.error || 'ok=false');
@@ -2225,6 +2280,7 @@
               updateStatus(st, { forApiMessage: true });
               if (data.game_over) stopStatePolling();
               appendSummaryOrEvents(data);
+              if (!data.game_over) queueImmediateStatePoll();
             } else {
               appendLog('Error: ' + (data.error || 'unknown'), true);
             }
@@ -2259,6 +2315,7 @@
               updateStatus(st, { forApiMessage: true });
               if (data.game_over) stopStatePolling();
               appendSummaryOrEvents(data);
+              if (!data.game_over) queueImmediateStatePoll();
             } else {
               appendLog('Error: ' + (data.error || 'unknown'), true);
             }
@@ -2293,6 +2350,7 @@
               updateStatus(st, { forApiMessage: true });
               if (data.game_over) stopStatePolling();
               appendSummaryOrEvents(data);
+              if (!data.game_over) queueImmediateStatePoll();
             } else {
               appendLog('Error: ' + (data.error || 'unknown'), true);
             }
@@ -2330,6 +2388,7 @@
               updateStatus(st, { forApiMessage: true });
               if (data.game_over) stopStatePolling();
               appendSummaryOrEvents(data);
+              if (!data.game_over) queueImmediateStatePoll();
             } else {
               appendLog('Error: ' + (data.error || 'unknown'), true);
             }
