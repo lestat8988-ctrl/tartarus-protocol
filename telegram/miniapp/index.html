@@ -646,9 +646,9 @@
 </head>
 <body>
   <script>
-    console.log('[miniapp-build] sync-fix-v2');
+    console.log('[miniapp-build] poll-trace-v3');
   </script>
-  <div id="miniapp-build-marker" class="miniapp-build-marker" aria-hidden="true">build: sync-fix-v2</div>
+  <div id="miniapp-build-marker" class="miniapp-build-marker" aria-hidden="true">build: poll-trace-v3</div>
   <div id="app">
     <!-- Intro screen -->
     <div id="intro-screen">
@@ -1317,6 +1317,8 @@
       var statePollingEnabled = false;
       /** 인플라이트 중 즉시 갱신 요청 시 현재 poll 종료 후 0ms로 한 번 더 돌림 */
       var statePollPendingKick = false;
+      /** /api/state 실제 fetch 직전마다 증가 (startStatePolling 시 0으로 리셋) */
+      var statePollRequestId = 0;
 
       function clearStatePollTimer() {
         if (statePollTimer != null) {
@@ -1337,11 +1339,11 @@
        * @param {string} source 디버그용 (주석과 함께 단일 루프 출처 표시)
        */
       function scheduleNextStatePoll(delayMs, source) {
+        try {
+          console.log('[miniapp] state_poll_schedule_ms=' + delayMs + ' source=' + String(source || ''));
+        } catch (e) {}
         if (!statePollingEnabled) return;
         clearStatePollTimer();
-        try {
-          console.log('[miniapp] state_poll_schedule_ms=' + delayMs);
-        } catch (e) {}
         statePollTimer = setTimeout(function() {
           statePollTimer = null;
           // source: single scheduled polling loop (delayMs 위 인자 source가 pollStateOnce로 전달됨)
@@ -1450,6 +1452,10 @@
         statePollInFlight = true;
         var chainStopped = false;
         var playerId = getPlayerId();
+        statePollRequestId++;
+        try {
+          console.log('[miniapp] state_poll_request_id=' + statePollRequestId + ' source=' + String(source || ''));
+        } catch (e) {}
         fetch(API_BASE + '/api/state?playerId=' + encodeURIComponent(playerId) + '&lang=' + encodeURIComponent(getLangForApi()))
           .then(function(r) { return r.json(); })
           .then(function(data) {
@@ -1490,6 +1496,9 @@
             if (!statePollingEnabled || chainStopped) return;
             if (statePollPendingKick) {
               statePollPendingKick = false;
+              try {
+                console.log('[miniapp] state_poll_pending_kick_flush=true');
+              } catch (e) {}
               scheduleNextStatePoll(0, 'post-message refresh'); // source: post-message refresh (after inflight)
               return;
             }
@@ -1504,6 +1513,7 @@
         } catch (e) {}
         stopStatePolling();
         statePollingEnabled = true;
+        statePollRequestId = 0;
         try {
           console.log('[miniapp] state_poll_mode=single_timeout_loop');
         } catch (e) {}
