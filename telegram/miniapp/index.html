@@ -1331,6 +1331,9 @@
               if (pollSig && pollSig === lastAppliedRecentEventsSig) {
                 /* 이미 /api/message 등으로 동일 배치 적용됨 */
               } else {
+                try {
+                  console.log('[miniapp] recent_events source=state count=' + data.recent_events.length);
+                } catch (e) {}
                 lastAppliedRecentEventsSig = pollSig;
                 applyEvents(data.recent_events);
               }
@@ -1528,9 +1531,26 @@
         }
       }
 
-      function appendLog(text, isError) {
+      /** appendLog source 추적: [함장]/질문 본문 등 captain 관련 줄만 콘솔 (디버그용) */
+      function isCaptainTraceCandidate(raw, source) {
+        var t = String(raw || '').trim();
+        if (!t) return false;
+        if (/^\[함장\]|^\[Captain\]/i.test(t)) return true;
+        if (source === 'applyEvents' && /^(닥터|엔지니어|네비게이터|파일럿),/.test(t)) return true;
+        if (source === 'applyEvents' && /^(Doctor|Engineer|Navigator|Pilot),/i.test(t)) return true;
+        return false;
+      }
+
+      /** @param {string} [source] - doMessage | applyEvents | … (디버그 추적용, 동작 변경 없음) */
+      function appendLog(text, isError, source) {
+        if (source === void 0) source = '';
         var raw = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
         if (!raw || raw === '\u200b') return;
+        if (!isError && isCaptainTraceCandidate(raw, source)) {
+          try {
+            console.log('[miniapp] appendLog source=' + (source || 'unknown') + ' text=' + JSON.stringify(raw));
+          } catch (e) {}
+        }
         if (raw === lastAppendedLogNorm) return;
         lastAppendedLogNorm = raw;
         if (logInit && logInit.parentNode) logInit.remove();
@@ -1999,7 +2019,7 @@
         if (!events || !events.length) return;
         events.forEach(function(ev) {
           var label = String((ev.type || ev.role || '') + (ev.target ? ' -> ' + ev.target : '')).trim();
-          if (label) appendLog(label, false);
+          if (label) appendLog(label, false, 'applyEvents');
         });
       }
 
@@ -2010,12 +2030,15 @@
           if (msgSig && msgSig === lastAppliedRecentEventsSig) {
             return;
           }
+          try {
+            console.log('[miniapp] recent_events source=message count=' + data.recent_events.length);
+          } catch (e) {}
           lastAppliedRecentEventsSig = msgSig;
           applyEvents(data.recent_events);
         } else {
           var fb = (getLangForApi() === 'ko') ? '함장이 행동했다.' : 'Captain acted.';
           var s = String(data.summary || fb).replace(/\s+/g, ' ').trim();
-          if (s && s !== '\u200b') appendLog(s, false);
+          if (s && s !== '\u200b') appendLog(s, false, 'appendSummaryOrEvents');
         }
       }
 
@@ -2118,14 +2141,14 @@
               try {
                 console.log('[miniapp] /api/message failed', data.error || 'ok=false');
               } catch (e) {}
-              appendLog('Error: ' + (data.error || 'unknown'), true);
+              appendLog('Error: ' + (data.error || 'unknown'), true, 'doMessage');
             }
           })
           .catch(function(err) {
             try {
               console.log('[miniapp] /api/message failed', err && err.message); 
             } catch (e) {}
-            appendLog('Connection failed: ' + (err.message || 'unknown'), true);
+            appendLog('Connection failed: ' + (err.message || 'unknown'), true, 'doMessage');
           })
           .finally(function() {
             scheduleTryReleaseUserActionAfterLogRender(userTurnLockSeq);
