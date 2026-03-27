@@ -135,6 +135,213 @@ function roleNameEn(r) {
   return ROLE_NAMES_EN[String(r || '').toLowerCase()] || (r ? String(r) : '');
 }
 
+/** 남은 초 → 영어 문장 (예: 1 minute 27 seconds remain.) */
+function formatEnglishRemainPhrase(remSec) {
+  const r = Math.max(0, Math.floor(Number(remSec) || 0));
+  const m = Math.floor(r / 60);
+  const s = r % 60;
+  if (m === 0) return `${s} second${s === 1 ? '' : 's'} remain.`;
+  const mPart = m === 1 ? '1 minute' : `${m} minutes`;
+  if (s === 0) return `${mPart} remain.`;
+  const sPart = s === 1 ? '1 second' : `${s} seconds`;
+  return `${mPart} ${sPart} remain.`;
+}
+
+/**
+ * 게임 상태 조회 질문(시간/사망/진행 여부/상황) — LLM 없이 규칙만.
+ * @returns {string|null} subtype
+ */
+function matchStateQuerySubtype(lower) {
+  const t = String(lower || '');
+  if (
+    /(남은\s*시간|몇\s*분|몇\s*초|분\s*남|초\s*남|타이머|얼마나\s*남|지금\s*몇\s*분|deadline|time\s*left|how\s*much\s*time|remaining\s*time|seconds?\s*left|minutes?\s*left|\btime\s*remain|\btimer\b)/i.test(
+      t
+    )
+  ) {
+    return 'remaining_time';
+  }
+  if (
+    /(게임\s*끝|끝났|종료됐|종료\s*여부|game\s*over|is\s*the\s*game\s*over|ended\s*yet)/i.test(t)
+  ) {
+    return 'game_status';
+  }
+  if (
+    /(누가\s*죽|사망|죽었|사망자|희생|who\s*(died|dies|is\s*dead)|casualties|dead\s*crew|life\s*signs?\s*lost)/i.test(
+      t
+    )
+  ) {
+    return 'deaths';
+  }
+  if (
+    /(현재\s*상황|지금\s*상황|지금\s*상태|현재\s*상태|상황\s*어때|상태\s*어때|상황\s*어떻|what'?s\s*the\s*situation|current\s*situation|status(\s+of)?(\s+the)?\s*game)/i.test(
+      t
+    )
+  ) {
+    return 'situation';
+  }
+  return null;
+}
+
+function looksLikeOpenQuestion(lower, raw) {
+  const t = String(lower || '');
+  if (/\?/.test(String(raw || ''))) return true;
+  if (
+    /(범인|믿어|믿을|이상한데|이상해|어떻게\s*봐|뭔가\s*이상|who\s*(is\s*)?the\s*impost|impostor|traitor|trust)/i.test(
+      t
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * miniapp 자유입력 분류 — state_query | open_question | targeted_question | mapped
+ */
+function classifyMiniappFreeText(text, parsed) {
+  const raw = String(text || '').trim();
+  const lower = raw.toLowerCase();
+  const intent = String(parsed.intent_type || 'unknown').toLowerCase();
+
+  const sq = matchStateQuerySubtype(lower);
+  if (sq) return { kind: 'state_query', subtype: sq };
+
+  const mappedIntents = new Set(['check_log', 'accuse_hint', 'threaten', 'threat', 'observe']);
+  if (mappedIntents.has(intent)) return { kind: 'mapped', parsed };
+
+  if (intent === 'question') {
+    if (parsed.target) return { kind: 'targeted_question', parsed };
+    return { kind: 'open_question', parsed };
+  }
+
+  if (intent === 'unknown' && looksLikeOpenQuestion(lower, raw)) {
+    return { kind: 'open_question', parsed };
+  }
+
+  return { kind: 'mapped', parsed };
+}
+
+function buildStateQueryDialogueLine(match, subtype, locale, now) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const sys = systemHeader(loc);
+  const timer = ep1Engine.getTimerStatus(match, now);
+  const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
+  const gs = match.game_state || {};
+  const deadRoles = Array.isArray(gs.dead_roles) ? gs.dead_roles.map((r) => String(r).toLowerCase()) : [];
+  const aliveCrew = ['doctor', 'engineer', 'navigator', 'pilot'].filter((r) => !deadRoles.includes(r));
+
+  if (subtype === 'remaining_time') {
+    if (loc === 'en') return `${sys} ${formatEnglishRemainPhrase(rem)}`;
+    const m = Math.floor(rem / 60);
+    const s = rem % 60;
+    return `${sys} 남은 시간은 ${m}분 ${s}초다.`;
+  }
+
+  if (subtype === 'game_status') {
+    if (gs.game_over) {
+      return loc === 'en'
+        ? `${sys} The game is over. Outcome: ${String(gs.outcome || 'unknown')}.`
+        : `${sys} 게임은 종료되었다. 결과: ${String(gs.outcome || 'unknown')}.`;
+    }
+    return loc === 'en'
+      ? `${sys} The game is still in progress.`
+      : `${sys} 게임은 아직 진행 중이다.`;
+  }
+
+  if (subtype === 'deaths') {
+    if (!deadRoles.length) {
+      return loc === 'en'
+        ? `${sys} No crew deaths have been recorded yet.`
+        : `${sys} 아직 사망한 승무원은 없다.`;
+    }
+    const namesKo = deadRoles.map((r) => roleNameKo(r)).filter(Boolean);
+    const namesEn = deadRoles.map((r) => roleNameEn(r)).filter(Boolean);
+    if (loc === 'en') {
+      const list = namesEn.join(', ');
+      return deadRoles.length === 1
+        ? `${sys} The deceased crew member is ${namesEn[0]}.`
+        : `${sys} The deceased crew are: ${list}.`;
+    }
+    return deadRoles.length === 1
+      ? `${sys} 현재 사망자는 ${namesKo[0]}다.`
+      : `${sys} 현재 사망자는 ${namesKo.join(', ')}다.`;
+  }
+
+  if (subtype === 'situation') {
+    const m = Math.floor(rem / 60);
+    const s = rem % 60;
+    if (loc === 'en') {
+      const aliveStr = aliveCrew.length ? aliveCrew.map(roleNameEn).join(', ') : 'none';
+      const deadStr = deadRoles.length ? deadRoles.map(roleNameEn).join(', ') : 'none';
+      return `${sys} Mission in progress. ${formatEnglishRemainPhrase(rem)} Alive: ${aliveStr}. Dead: ${deadStr}.`;
+    }
+    const aliveStr = aliveCrew.length ? aliveCrew.map(roleNameKo).join(', ') : '없음';
+    const deadStr = deadRoles.length ? deadRoles.map(roleNameKo).join(', ') : '없음';
+    return `${sys} 현재 미션은 진행 중이다. 남은 시간은 ${m}분 ${s}초다. 생존: ${aliveStr}. 사망: ${deadStr}.`;
+  }
+
+  return loc === 'en' ? `${sys} Status unavailable.` : `${sys} 상태를 표시할 수 없다.`;
+}
+
+function buildOpenQuestionCrewEvents(match, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const headers = getLlmRoleHeaders(loc);
+  const gs = match.game_state || {};
+  const deadRoles = gs.dead_roles || [];
+  const crewOrder = ['doctor', 'engineer', 'navigator', 'pilot'];
+  const alive = crewOrder.filter((r) => !deadRoles.includes(r));
+  const cap = headers.captain;
+
+  const captainLine =
+    loc === 'en'
+      ? `${cap} I can't name the impostor from one line. Cross-check statements and logs.`
+      : `${cap} 한 줄로 범인을 확정할 수는 없다. 각자의 진술과 로그를 맞춰봐야 한다.`;
+
+  const byRole = {
+    doctor:
+      loc === 'en'
+        ? `${headers.doctor} Vitals alone can't tell who's lying. I need cross-checks with the crew.`
+        : `${headers.doctor} 생체 모니터만으로는 배신자를 특정할 수 없어요. 승무원들과의 대조가 필요해요.`,
+    engineer:
+      loc === 'en'
+        ? `${headers.engineer} Logs show gaps, not a name. We need to align timestamps with alibis.`
+        : `${headers.engineer} 로그는 틈을 보여줄 뿐 이름은 안 줘요. 타임스탬프와 알리바이를 맞춰야 해요.`,
+    navigator:
+      loc === 'en'
+        ? `${headers.navigator} Routes and bridge records need to match. I won't point a finger without that.`
+        : `${headers.navigator} 항로와 교량 기록이 맞아야 해요. 그 전엔 함부로 지목하지 않겠습니다.`,
+    pilot:
+      loc === 'en'
+        ? `${headers.pilot} Something's off in the air on the bridge—but that's not proof. Stay sharp.`
+        : `${headers.pilot} 교량 분위기가 싸해요. 그게 증거는 아니에요. 집중합시다.`
+  };
+
+  const events = [{ type: 'CREW_DIALOGUE', role: 'captain', dialogue: captainLine }];
+  for (const r of alive) {
+    const line = byRole[r];
+    if (line) events.push({ type: 'CREW_DIALOGUE', role: r, dialogue: line });
+  }
+  return events;
+}
+
+/**
+ * 표시 로그로부터 miniapp summary 문자열 (함장/시스템 블록이 완성되면 zero-width)
+ */
+function summaryFromDisplayLogs(newDisplayLogs, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const capH = captainHeader(loc);
+  const sysH = systemHeader(loc);
+  if (!newDisplayLogs || !newDisplayLogs.length) return '\u200b';
+  const isCaptainBlock = newDisplayLogs.length >= 2 && newDisplayLogs[0].type === capH;
+  const captainBody = isCaptainBlock ? String(newDisplayLogs[1].type || '').trim() : '';
+  const hasCompleteCaptainBlock = isCaptainBlock && captainBody.length > 0;
+  const isSystemBlock = newDisplayLogs.length >= 2 && newDisplayLogs[0].type === sysH;
+  const systemBody = isSystemBlock ? String(newDisplayLogs[1].type || '').trim() : '';
+  const hasCompleteSystemBlock = isSystemBlock && systemBody.length > 0;
+  if (hasCompleteCaptainBlock || hasCompleteSystemBlock) return '\u200b';
+  return newDisplayLogs[0].type || '\u200b';
+}
+
 /**
  * ep1Engine CLUE_CATALOG(id·한글 text)와 동기 — locale=en일 때 표시만 영어로 (엔진/저장 값 불변).
  */
@@ -1422,8 +1629,56 @@ async function handleTextMessage(playerId, text, opts = {}) {
     return 'Game over. Outcome: ' + (match.game_state.outcome || 'unknown') + '. Send /start for new game.';
   }
 
-  // 2. parse intent
+  const locale = opts.locale === 'en' ? 'en' : 'ko';
   const parsed = intentParser.parse(text);
+  const cls = classifyMiniappFreeText(text, parsed);
+  const now = opts.now;
+
+  if (cls.kind === 'state_query') {
+    console.log('[bot] message kind=state_query subtype=' + cls.subtype);
+    const timer = ep1Engine.getTimerStatus(match, now);
+    const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
+    const line = buildStateQueryDialogueLine(match, cls.subtype, locale, now);
+    const rawEvents = [{ type: 'CREW_DIALOGUE', role: 'system', dialogue: line }];
+    const recentDisplay = dedupeDisplayLogs(toPlayerDisplayLogs(rawEvents, { locale }), locale);
+    let reply = recentDisplay.map((e) => e.type).filter(Boolean).join('\n');
+    const m = Math.floor(rem / 60);
+    const s = rem % 60;
+    reply += '\n⏱ ' + m + ':' + String(s).padStart(2, '0') + ' left';
+    return reply;
+  }
+
+  if (cls.kind === 'open_question') {
+    console.log('[bot] message kind=open_question');
+    await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
+    const events = buildOpenQuestionCrewEvents(match, locale);
+    for (const ev of events) await matchStore.appendEvent(matchId, ev);
+    const updated = await matchStore.getMatch(matchId);
+    const deterministicLogs = dedupeDisplayLogs(toPlayerDisplayLogs(events, { locale }), locale);
+    const recentDisplay = dedupeDisplayLogs(
+      await maybeDialogueLogsFromLlmOrDeterministic({
+        rawEvents: events,
+        deterministicLogs,
+        match: updated,
+        playerText: String(text || '').trim(),
+        clueTextFromEvent: undefined,
+        locale
+      }),
+      locale
+    );
+    const timer = ep1Engine.getTimerStatus(updated, now);
+    const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
+    let reply = recentDisplay.map((e) => e.type).filter(Boolean).join('\n') || '…';
+    const m = Math.floor(rem / 60);
+    const sec = rem % 60;
+    reply += '\n⏱ ' + m + ':' + String(sec).padStart(2, '0') + ' left';
+    return reply;
+  }
+
+  if (cls.kind === 'targeted_question') {
+    console.log('[bot] message kind=targeted_question target=' + parsed.target);
+  }
+
   const action = {
     actor: 'captain',
     role: 'captain',
@@ -1431,13 +1686,11 @@ async function handleTextMessage(playerId, text, opts = {}) {
     target: parsed.target
   };
 
-  // 3. engine apply (opts.now for test)
   const result = await ep1Engine.applyAction(match, action, opts);
   if (!result.ok) {
     return 'Error: ' + (result.error || 'unknown');
   }
 
-  // 4. state 저장
   await matchStore.updateMatch(matchId, {
     ...result.next_state,
     turn: (match.turn || 1) + 1
@@ -1448,7 +1701,6 @@ async function handleTextMessage(playerId, text, opts = {}) {
     }
   }
 
-  // 5. 응답 조립 (remaining_sec, game_over, outcome 포함)
   const updated = await matchStore.getMatch(matchId);
   let reply = result.summary || 'Captain acted.';
   const rem = result.remaining_sec ?? updated?.game_state?.remaining_sec;
@@ -1463,7 +1715,6 @@ async function handleTextMessage(playerId, text, opts = {}) {
   } else {
     log('ACTION', 'ok', { playerId, matchId, action: parsed.intent_type, target: parsed.target });
   }
-  const locale = opts.locale === 'en' ? 'en' : 'ko';
   const isCheckLogMsg = String(parsed.intent_type || '').toLowerCase() === 'check_log';
   const deterministicLogs = dedupeDisplayLogs(
     toPlayerDisplayLogs(result.events || [], {
@@ -1650,6 +1901,66 @@ async function processMessageApi(playerId, text, opts = {}) {
   }
 
   const parsed = intentParser.parse(text);
+  const cls = classifyMiniappFreeText(text, parsed);
+  const now = opts.now;
+
+  if (cls.kind === 'state_query') {
+    console.log('[bot] message kind=state_query subtype=' + cls.subtype);
+    const timer = ep1Engine.getTimerStatus(match, now);
+    const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
+    const line = buildStateQueryDialogueLine(match, cls.subtype, locale, now);
+    const rawEvents = [{ type: 'CREW_DIALOGUE', role: 'system', dialogue: line }];
+    const newDisplayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(rawEvents, { locale }), locale);
+    const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
+    return {
+      ok: true,
+      summary: summaryText,
+      remaining_sec: rem,
+      game_over: false,
+      outcome: null,
+      events: newDisplayLogs,
+      recent_events: newDisplayLogs,
+      match_state: match.game_state || {}
+    };
+  }
+
+  if (cls.kind === 'open_question') {
+    console.log('[bot] message kind=open_question');
+    await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
+    const events = buildOpenQuestionCrewEvents(match, locale);
+    for (const ev of events) await matchStore.appendEvent(matchId, ev);
+    const updated = await matchStore.getMatch(matchId);
+    const deterministicLogs = dedupeDisplayLogs(toPlayerDisplayLogs(events, { locale }), locale);
+    const newDisplayLogs = dedupeDisplayLogs(
+      await maybeDialogueLogsFromLlmOrDeterministic({
+        rawEvents: events,
+        deterministicLogs,
+        match: updated,
+        playerText: String(text || '').trim(),
+        clueTextFromEvent: undefined,
+        locale
+      }),
+      locale
+    );
+    const timer = ep1Engine.getTimerStatus(updated, now);
+    const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
+    const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
+    return {
+      ok: true,
+      summary: summaryText,
+      remaining_sec: rem,
+      game_over: false,
+      outcome: null,
+      events: newDisplayLogs,
+      recent_events: newDisplayLogs,
+      match_state: updated?.game_state || {}
+    };
+  }
+
+  if (cls.kind === 'targeted_question') {
+    console.log('[bot] message kind=targeted_question target=' + parsed.target);
+  }
+
   const action = { actor: 'captain', role: 'captain', action: parsed.intent_type, target: parsed.target };
   const result = await ep1Engine.applyAction(match, action, opts);
   if (!result.ok) return { ok: false, error: result.error || 'unknown' };
@@ -1682,13 +1993,7 @@ async function processMessageApi(playerId, text, opts = {}) {
     }),
     locale
   );
-  const capH = captainHeader(locale);
-  const isCaptainBlock = newDisplayLogs.length >= 2 && newDisplayLogs[0].type === capH;
-  const captainBody = isCaptainBlock ? (newDisplayLogs[1].type || '').trim() : '';
-  const hasCompleteCaptainBlock = isCaptainBlock && captainBody.length > 0;
-  const summaryText = hasCompleteCaptainBlock
-    ? '\u200b'
-    : (newDisplayLogs.length ? newDisplayLogs[0].type : '\u200b');
+  const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
   const recentEvents = newDisplayLogs;
   const ret = {
     ok: true,
@@ -1767,13 +2072,7 @@ async function processAccuseApi(playerId, targetRaw, opts = {}) {
   const updated = await matchStore.getMatch(matchId);
   const gameOver = result.game_over || updated?.game_state?.game_over;
   const newDisplayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(result.events || [], { locale }), locale);
-  const capH = captainHeader(locale);
-  const isCaptainBlock = newDisplayLogs.length >= 2 && newDisplayLogs[0].type === capH;
-  const captainBody = isCaptainBlock ? (newDisplayLogs[1].type || '').trim() : '';
-  const hasCompleteCaptainBlock = isCaptainBlock && captainBody.length > 0;
-  const summaryText = hasCompleteCaptainBlock
-    ? '\u200b'
-    : (newDisplayLogs.length ? newDisplayLogs[0].type : '\u200b');
+  const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
   const recentEvents = newDisplayLogs;
   const ret = {
     ok: true,
@@ -1892,13 +2191,7 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
     }),
     locale
   );
-  const capH = captainHeader(locale);
-  const isCaptainBlock = newDisplayLogs.length >= 2 && newDisplayLogs[0].type === capH;
-  const captainBody = isCaptainBlock ? (newDisplayLogs[1].type || '').trim() : '';
-  const hasCompleteCaptainBlock = isCaptainBlock && captainBody.length > 0;
-  const summaryText = hasCompleteCaptainBlock
-    ? '\u200b'
-    : (newDisplayLogs.length ? newDisplayLogs[0].type : '\u200b');
+  const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
   const recentEvents = newDisplayLogs;
   const ret = {
     ok: true,
