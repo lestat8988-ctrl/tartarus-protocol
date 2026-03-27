@@ -148,16 +148,38 @@ function formatEnglishRemainPhrase(remSec) {
 }
 
 /**
+ * 남은 시간 조회 — 키워드가 하나라도 있으면 remaining_time (open_question보다 우선).
+ */
+function matchRemainingTimeStateQuery(lower) {
+  const t = String(lower || '');
+  if (t.includes('몇 분') || t.includes('몇분')) return true;
+  if (t.includes('남은 시간') || t.includes('남은시간')) return true;
+  if (t.includes('얼마나 남았') || t.includes('얼마나 남어') || /얼마나\s*남/.test(t)) return true;
+  const withoutSil = t.replace(/실시간/g, '');
+  if (withoutSil.includes('시간')) return true;
+  if (/\btime\s+left\b/i.test(t) || t.includes('time left')) return true;
+  if (/\bhow\s+long\b/i.test(t)) return true;
+  if (/\bminutes\s+left\b/i.test(t) || t.includes('minutes left')) return true;
+  if (/\bremaining\s*time\b/i.test(t) || t.includes('remaining time')) return true;
+  if (/\bremaining\b/i.test(t)) return true;
+  if (
+    /(몇\s*초|분\s*남|초\s*남|타이머|지금\s*몇\s*분|deadline|how\s*much\s*time|seconds?\s*left|minutes?\s*left|\btimer\b|\btime\s*remain)/i.test(
+      t
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * 게임 상태 조회 질문(시간/사망/진행 여부/상황) — LLM 없이 규칙만.
+ * remaining_time은 matchRemainingTimeStateQuery로 먼저 고정.
  * @returns {string|null} subtype
  */
 function matchStateQuerySubtype(lower) {
   const t = String(lower || '');
-  if (
-    /(남은\s*시간|몇\s*분|몇\s*초|분\s*남|초\s*남|타이머|얼마나\s*남|지금\s*몇\s*분|deadline|time\s*left|how\s*much\s*time|remaining\s*time|seconds?\s*left|minutes?\s*left|\btime\s*remain|\btimer\b)/i.test(
-      t
-    )
-  ) {
+  if (matchRemainingTimeStateQuery(t)) {
     return 'remaining_time';
   }
   if (
@@ -231,10 +253,28 @@ function buildStateQueryDialogueLine(match, subtype, locale, now) {
   const aliveCrew = ['doctor', 'engineer', 'navigator', 'pilot'].filter((r) => !deadRoles.includes(r));
 
   if (subtype === 'remaining_time') {
-    if (loc === 'en') return `${sys} ${formatEnglishRemainPhrase(rem)}`;
+    if (gs.game_over) {
+      return loc === 'en'
+        ? `${sys} The game is already over.`
+        : `${sys} 게임은 이미 종료되었습니다.`;
+    }
+    if (loc === 'en') {
+      if (rem < 60) {
+        return `${sys} ${rem} second${rem === 1 ? '' : 's'} remaining.`;
+      }
+      const m = Math.floor(rem / 60);
+      const s = rem % 60;
+      if (s === 0) {
+        return `${sys} ${m} minute${m === 1 ? '' : 's'} remaining.`;
+      }
+      return `${sys} ${m} minute${m === 1 ? '' : 's'} and ${s} second${s === 1 ? '' : 's'} remaining.`;
+    }
+    if (rem < 60) {
+      return `${sys} 남은 시간은 ${rem}초입니다.`;
+    }
     const m = Math.floor(rem / 60);
     const s = rem % 60;
-    return `${sys} 남은 시간은 ${m}분 ${s}초다.`;
+    return `${sys} 남은 시간은 ${m}분 ${s}초입니다.`;
   }
 
   if (subtype === 'game_status') {
@@ -1624,28 +1664,35 @@ async function handleTextMessage(playerId, text, opts = {}) {
   const match = await matchStore.getMatch(matchId);
   if (!match) return 'Match not found. Send /start to begin.';
 
-  if (match.game_state?.game_over) {
-    log('GAME_OVER', 'blocked', { playerId, matchId, outcome: match.game_state.outcome });
-    return 'Game over. Outcome: ' + (match.game_state.outcome || 'unknown') + '. Send /start for new game.';
-  }
-
   const locale = opts.locale === 'en' ? 'en' : 'ko';
   const parsed = intentParser.parse(text);
   const cls = classifyMiniappFreeText(text, parsed);
   const now = opts.now;
 
   if (cls.kind === 'state_query') {
-    console.log('[bot] message kind=state_query subtype=' + cls.subtype);
     const timer = ep1Engine.getTimerStatus(match, now);
     const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
+    const gs = match.game_state || {};
+    const isOver = !!gs.game_over;
+    const logRem = cls.subtype === 'remaining_time' ? (isOver ? 0 : rem) : rem;
+    console.log(
+      '[bot] message kind=state_query subtype=' + cls.subtype + ' remaining_sec=' + logRem
+    );
     const line = buildStateQueryDialogueLine(match, cls.subtype, locale, now);
     const rawEvents = [{ type: 'CREW_DIALOGUE', role: 'system', dialogue: line }];
     const recentDisplay = dedupeDisplayLogs(toPlayerDisplayLogs(rawEvents, { locale }), locale);
     let reply = recentDisplay.map((e) => e.type).filter(Boolean).join('\n');
-    const m = Math.floor(rem / 60);
-    const s = rem % 60;
-    reply += '\n⏱ ' + m + ':' + String(s).padStart(2, '0') + ' left';
+    if (!isOver) {
+      const m = Math.floor(rem / 60);
+      const s = rem % 60;
+      reply += '\n⏱ ' + m + ':' + String(s).padStart(2, '0') + ' left';
+    }
     return reply;
+  }
+
+  if (match.game_state?.game_over) {
+    log('GAME_OVER', 'blocked', { playerId, matchId, outcome: match.game_state.outcome });
+    return 'Game over. Outcome: ' + (match.game_state.outcome || 'unknown') + '. Send /start for new game.';
   }
 
   if (cls.kind === 'open_question') {
@@ -1881,6 +1928,41 @@ async function processMessageApi(playerId, text, opts = {}) {
   const match = await matchStore.getMatch(matchId);
   if (!match) return { ok: false, error: 'Match not found' };
 
+  const parsed = intentParser.parse(text);
+  const cls = classifyMiniappFreeText(text, parsed);
+  const now = opts.now;
+
+  if (cls.kind === 'state_query') {
+    const timer = ep1Engine.getTimerStatus(match, now);
+    const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
+    const gs = match.game_state || {};
+    const isOver = !!gs.game_over;
+    const logRem = cls.subtype === 'remaining_time' ? (isOver ? 0 : rem) : rem;
+    console.log(
+      '[bot] message kind=state_query subtype=' + cls.subtype + ' remaining_sec=' + logRem
+    );
+    const line = buildStateQueryDialogueLine(match, cls.subtype, locale, now);
+    const rawEvents = [{ type: 'CREW_DIALOGUE', role: 'system', dialogue: line }];
+    const newDisplayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(rawEvents, { locale }), locale);
+    const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
+    const ret = {
+      ok: true,
+      summary: summaryText,
+      remaining_sec: isOver ? 0 : rem,
+      game_over: isOver,
+      outcome: isOver ? gs.outcome : null,
+      events: newDisplayLogs,
+      recent_events: newDisplayLogs,
+      match_state: { ...gs }
+    };
+    if (isOver) {
+      attachActualImposterIfGameOverResult(ret, match);
+      const evs = match?.events || [];
+      if (evs.some((e) => e && e.type === 'TIMEOUT')) ret.is_timeout = true;
+    }
+    return ret;
+  }
+
   if (match.game_state?.game_over) {
     const ret = {
       ok: true,
@@ -1898,30 +1980,6 @@ async function processMessageApi(playerId, text, opts = {}) {
     const evs = match?.events || [];
     if (evs.some((e) => e && e.type === 'TIMEOUT')) ret.is_timeout = true;
     return ret;
-  }
-
-  const parsed = intentParser.parse(text);
-  const cls = classifyMiniappFreeText(text, parsed);
-  const now = opts.now;
-
-  if (cls.kind === 'state_query') {
-    console.log('[bot] message kind=state_query subtype=' + cls.subtype);
-    const timer = ep1Engine.getTimerStatus(match, now);
-    const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
-    const line = buildStateQueryDialogueLine(match, cls.subtype, locale, now);
-    const rawEvents = [{ type: 'CREW_DIALOGUE', role: 'system', dialogue: line }];
-    const newDisplayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(rawEvents, { locale }), locale);
-    const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
-    return {
-      ok: true,
-      summary: summaryText,
-      remaining_sec: rem,
-      game_over: false,
-      outcome: null,
-      events: newDisplayLogs,
-      recent_events: newDisplayLogs,
-      match_state: match.game_state || {}
-    };
   }
 
   if (cls.kind === 'open_question') {
