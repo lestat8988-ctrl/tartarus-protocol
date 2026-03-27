@@ -22,6 +22,357 @@ const { OpenAI } = require('openai');
 
 const API_PORT = 8788;
 
+/** -------------------------------------------------------------------------
+ * DB persistence skeleton: user_entitlements / match_sessions / match_events
+ * In-memory always; optional Supabase when SUPABASE_URL + key are set.
+ * Never throws — failures are console.warn only; game flow continues.
+ * ------------------------------------------------------------------------- */
+
+let _dbBootLogged = false;
+function logDbBootOnce() {
+  if (_dbBootLogged) return;
+  _dbBootLogged = true;
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+  if (!url || !key) {
+    console.log(
+      '[bot] db TODO: set SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY|ANON_KEY for remote tables user_entitlements, match_sessions, match_events — using in-memory skeleton'
+    );
+  }
+}
+
+let _supabaseCache = undefined;
+function getSupabaseOptional() {
+  if (_supabaseCache !== undefined) return _supabaseCache;
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+  if (!url || !key) {
+    _supabaseCache = null;
+    return null;
+  }
+  try {
+    const { createClient } = require('@supabase/supabase-js');
+    _supabaseCache = createClient(url, key);
+    return _supabaseCache;
+  } catch (e) {
+    console.warn('[bot] db Supabase client init failed', e?.message || e);
+    _supabaseCache = null;
+    return null;
+  }
+}
+
+const dbUserEntitlementsMemory = new Map();
+const dbMatchSessionsMemory = new Map();
+const dbMatchEventsMemory = [];
+let _dbMatchEventSeq = 0;
+
+function resolveUserKey(playerId, matchId) {
+  const p = String(playerId || '').trim();
+  if (p) return p;
+  const m = String(matchId || '').trim();
+  if (m) return 'session:' + m;
+  return 'anonymous';
+}
+
+function truncateJsonish(obj, maxLen) {
+  try {
+    const s = JSON.stringify(obj);
+    if (s.length <= maxLen) return obj;
+    return { _truncated: true, preview: s.slice(0, maxLen) };
+  } catch {
+    return { _error: 'serialize' };
+  }
+}
+
+async function upsertUserEntitlement(userKey, patch = {}) {
+  try {
+    logDbBootOnce();
+    const key = String(userKey || 'anonymous');
+    const now = new Date().toISOString();
+    const prev = dbUserEntitlementsMemory.get(key) || {
+      user_key: key,
+      is_premium: false,
+      free_messages_used: 0,
+      free_actions_used: 0,
+      updated_at: now
+    };
+    const next = { ...prev, ...patch, user_key: key, updated_at: now };
+    if (next.is_premium == null) next.is_premium = false;
+    if (next.free_messages_used == null) next.free_messages_used = 0;
+    if (next.free_actions_used == null) next.free_actions_used = 0;
+    dbUserEntitlementsMemory.set(key, next);
+    const sb = getSupabaseOptional();
+    if (sb) {
+      try {
+        await sb.from('user_entitlements').upsert(
+          {
+            user_key: key,
+            is_premium: next.is_premium,
+            free_messages_used: next.free_messages_used,
+            free_actions_used: next.free_actions_used,
+            updated_at: next.updated_at
+          },
+          { onConflict: 'user_key' }
+        );
+      } catch (e) {
+        console.warn('[bot] db Supabase user_entitlements upsert:', e?.message || e);
+      }
+    }
+  } catch (e) {
+    console.warn('[bot] db upsertUserEntitlement failed', e?.message || e);
+  }
+}
+
+async function upsertMatchState(row) {
+  try {
+    logDbBootOnce();
+    const mid = row?.match_id;
+    if (!mid) return;
+    const now = new Date().toISOString();
+    const prev = dbMatchSessionsMemory.get(mid) || {};
+    const next = { ...prev };
+    for (const k of Object.keys(row)) {
+      if (row[k] !== undefined) next[k] = row[k];
+    }
+    next.match_id = mid;
+    next.updated_at = now;
+    if (!next.started_at) next.started_at = prev.started_at || now;
+    dbMatchSessionsMemory.set(mid, next);
+    const sb = getSupabaseOptional();
+    if (sb) {
+      try {
+        await sb.from('match_sessions').upsert(
+          {
+            match_id: mid,
+            user_key: next.user_key,
+            locale: next.locale,
+            phase: next.phase,
+            remaining_sec: next.remaining_sec,
+            game_over: next.game_over,
+            started_at: next.started_at,
+            updated_at: next.updated_at
+          },
+          { onConflict: 'match_id' }
+        );
+      } catch (e) {
+        console.warn('[bot] db Supabase match_sessions upsert:', e?.message || e);
+      }
+    }
+  } catch (e) {
+    console.warn('[bot] db upsertMatchState failed', e?.message || e);
+  }
+}
+
+async function appendMatchEvent({ match_id, user_key, event_type, payload }) {
+  try {
+    logDbBootOnce();
+    const mid = match_id;
+    if (!mid) return;
+    const id = ++_dbMatchEventSeq;
+    const created_at = new Date().toISOString();
+    const payloadStr =
+      typeof payload === 'string' ? payload : JSON.stringify(truncateJsonish(payload, 32000));
+    const rec = { id, match_id: mid, user_key, event_type, payload: payloadStr, created_at };
+    dbMatchEventsMemory.push(rec);
+    if (dbMatchEventsMemory.length > 10000) {
+      dbMatchEventsMemory.splice(0, dbMatchEventsMemory.length - 8000);
+    }
+    const sb = getSupabaseOptional();
+    if (sb) {
+      try {
+        await sb.from('match_events').insert({
+          match_id: mid,
+          user_key,
+          event_type,
+          payload: payloadStr,
+          created_at
+        });
+      } catch (e) {
+        console.warn('[bot] db Supabase match_events insert:', e?.message || e);
+      }
+    }
+  } catch (e) {
+    console.warn('[bot] db appendMatchEvent failed', e?.message || e);
+  }
+}
+
+async function dbPersistAfterStartState(playerId, locale, out) {
+  try {
+    const matchId = out?.match_id;
+    if (!matchId) return;
+    const userKey = resolveUserKey(playerId, matchId);
+    await upsertUserEntitlement(userKey, {});
+    const match = await matchStore.getMatch(matchId);
+    const gs = match?.game_state || out.game_state || {};
+    const phase = gs.game_over ? 'game_over' : 'playing';
+    await upsertMatchState({
+      match_id: matchId,
+      user_key: userKey,
+      locale,
+      phase,
+      remaining_sec: out.remaining_sec ?? 0,
+      game_over: !!gs.game_over,
+      started_at: match?.started_at
+    });
+    await appendMatchEvent({
+      match_id: matchId,
+      user_key: userKey,
+      event_type: 'session_start',
+      payload: { locale, summary: 'start' }
+    });
+  } catch (e) {
+    console.warn('[bot] db persist start failed', e?.message || e);
+  }
+}
+
+async function dbPersistAfterMessageResult(playerId, locale, inputText, result) {
+  try {
+    if (!result?.ok) return;
+    const player = await playerStore.getPlayer(playerId);
+    const matchId = player?.match_id;
+    if (!matchId) return;
+    const userKey = resolveUserKey(playerId, matchId);
+    const prev = dbUserEntitlementsMemory.get(userKey);
+    const prevN = prev?.free_messages_used ?? 0;
+    await upsertUserEntitlement(userKey, { free_messages_used: prevN + 1 });
+    const gs = result.match_state || {};
+    await upsertMatchState({
+      match_id: matchId,
+      user_key: userKey,
+      locale,
+      phase: gs.game_over ? 'game_over' : 'playing',
+      remaining_sec: result.remaining_sec ?? 0,
+      game_over: !!result.game_over,
+      started_at: undefined
+    });
+    await appendMatchEvent({
+      match_id: matchId,
+      user_key: userKey,
+      event_type: 'message_input',
+      payload: { text: String(inputText || '').slice(0, 4000) }
+    });
+    await appendMatchEvent({
+      match_id: matchId,
+      user_key: userKey,
+      event_type: 'message_result',
+      payload: {
+        summary: result.summary,
+        recent_events: truncateJsonish(result.recent_events || result.events)
+      }
+    });
+  } catch (e) {
+    console.warn('[bot] db persist message failed', e?.message || e);
+  }
+}
+
+async function dbPersistAfterActionResult(playerId, locale, actionLabel, actionName, targetOpt, result) {
+  try {
+    if (!result?.ok) return;
+    const player = await playerStore.getPlayer(playerId);
+    const matchId = player?.match_id;
+    if (!matchId) return;
+    const userKey = resolveUserKey(playerId, matchId);
+    const prev = dbUserEntitlementsMemory.get(userKey);
+    const prevA = prev?.free_actions_used ?? 0;
+    await upsertUserEntitlement(userKey, { free_actions_used: prevA + 1 });
+    const gs = result.match_state || {};
+    await upsertMatchState({
+      match_id: matchId,
+      user_key: userKey,
+      locale,
+      phase: gs.game_over ? 'game_over' : 'playing',
+      remaining_sec: result.remaining_sec ?? 0,
+      game_over: !!result.game_over,
+      started_at: undefined
+    });
+    await appendMatchEvent({
+      match_id: matchId,
+      user_key: userKey,
+      event_type: 'action_' + actionLabel,
+      payload: {
+        action: actionName,
+        target: targetOpt ?? null,
+        summary: result.summary,
+        recent_events: truncateJsonish(result.recent_events || result.events)
+      }
+    });
+  } catch (e) {
+    console.warn('[bot] db persist action failed', e?.message || e);
+  }
+}
+
+async function dbPersistAfterTelegramStart(playerId) {
+  try {
+    const player = await playerStore.getPlayer(playerId);
+    const matchId = player?.match_id;
+    if (!matchId) return;
+    const match = await matchStore.getMatch(matchId);
+    if (!match) return;
+    const locale = 'ko';
+    const userKey = resolveUserKey(playerId, matchId);
+    await upsertUserEntitlement(userKey, {});
+    const gs = match.game_state || {};
+    const timer = ep1Engine.getTimerStatus(match);
+    await upsertMatchState({
+      match_id: matchId,
+      user_key: userKey,
+      locale,
+      phase: gs.game_over ? 'game_over' : 'playing',
+      remaining_sec: timer.remaining_sec ?? 0,
+      game_over: !!gs.game_over,
+      started_at: match.started_at
+    });
+    await appendMatchEvent({
+      match_id: matchId,
+      user_key: userKey,
+      event_type: 'telegram_start',
+      payload: {}
+    });
+  } catch (e) {
+    console.warn('[bot] db persist telegram start failed', e?.message || e);
+  }
+}
+
+async function dbPersistAfterTelegramTextMessage(playerId, text, opts, reply) {
+  try {
+    const player = await playerStore.getPlayer(playerId);
+    const matchId = player?.match_id;
+    if (!matchId) return;
+    const match = await matchStore.getMatch(matchId);
+    if (!match) return;
+    const locale = opts.locale === 'en' ? 'en' : 'ko';
+    const userKey = resolveUserKey(playerId, matchId);
+    const prev = dbUserEntitlementsMemory.get(userKey);
+    const prevN = prev?.free_messages_used ?? 0;
+    await upsertUserEntitlement(userKey, { free_messages_used: prevN + 1 });
+    const gs = match.game_state || {};
+    const timer = ep1Engine.getTimerStatus(match);
+    await upsertMatchState({
+      match_id: matchId,
+      user_key: userKey,
+      locale,
+      phase: gs.game_over ? 'game_over' : 'playing',
+      remaining_sec: timer.remaining_sec ?? 0,
+      game_over: !!gs.game_over,
+      started_at: match.started_at
+    });
+    await appendMatchEvent({
+      match_id: matchId,
+      user_key: userKey,
+      event_type: 'telegram_message_input',
+      payload: { text: String(text || '').slice(0, 4000) }
+    });
+    await appendMatchEvent({
+      match_id: matchId,
+      user_key: userKey,
+      event_type: 'telegram_message_reply',
+      payload: { reply: String(reply || '').slice(0, 4000) }
+    });
+  } catch (e) {
+    console.warn('[bot] db persist telegram text failed', e?.message || e);
+  }
+}
+
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const LOG = process.env.BOT_LOG !== '0';
 
@@ -2673,8 +3024,14 @@ async function handleTextMessage(playerId, text, opts = {}) {
 async function routeMessage(playerId, text, opts = {}) {
   const t = String(text || '').trim();
   log('ROUTE', 'in', { playerId, text: t.slice(0, 50) });
-  if (t === '/start') return handleStart(playerId, opts);
-  return handleTextMessage(playerId, t, opts);
+  if (t === '/start') {
+    const r = await handleStart(playerId, opts);
+    await dbPersistAfterTelegramStart(playerId);
+    return r;
+  }
+  const reply = await handleTextMessage(playerId, t, opts);
+  await dbPersistAfterTelegramTextMessage(playerId, t, opts, reply);
+  return reply;
 }
 
 const CREW_IMPOSTOR_KEYS = new Set(['doctor', 'engineer', 'navigator', 'pilot']);
@@ -2780,6 +3137,7 @@ async function getStartStateApi(playerId, opts = {}) {
     const evs = match?.events || [];
     if (evs.some((e) => e && e.type === 'TIMEOUT')) out.is_timeout = true;
   }
+  await dbPersistAfterStartState(playerId, locale, out);
   return out;
 }
 
@@ -3463,12 +3821,23 @@ function createLocalApiServer() {
         const restart = !!data.restart;
         const locale = resolveRequestLocale(data, url.searchParams, req.headers);
         console.log('[bot] LOCALE_RESOLVED locale=' + locale + ' action=start');
+        const pre = await playerStore.getPlayer(playerId);
+        console.log(
+          '[bot] api action=start match_id=' + String(pre?.match_id || '') + ' playerId=' + String(playerId)
+        );
         const state = await getStartStateApi(playerId, { restart, locale });
+        console.log(
+          '[bot] api action complete ok=' +
+            String(state?.ok !== false) +
+            ' match_id=' +
+            String(state?.match_id || '')
+        );
         res.writeHead(200);
         res.end(JSON.stringify({ ok: true, playerId, ...state }));
         return;
       }
 
+      // Future: optional DB-backed snapshot for GET /api/state; current source of truth remains matchStore + applyMatchClockTick.
       if (route === '/api/state' && req.method === 'GET') {
         const playerId = url.searchParams.get('playerId');
         if (!playerId) {
@@ -3525,11 +3894,24 @@ function createLocalApiServer() {
         const locale = resolveRequestLocale(data, url.searchParams, req.headers);
         console.log('[bot] LOCALE_RESOLVED locale=' + locale + ' action=message');
         if (!playerId) {
+          console.log('[bot] api action=message match_id= playerId=(missing)');
           res.writeHead(400);
           res.end(JSON.stringify({ ok: false, error: 'playerId required' }));
           return;
         }
+        const preMsg = await playerStore.getPlayer(playerId);
+        console.log(
+          '[bot] api action=message match_id=' + String(preMsg?.match_id || '') + ' playerId=' + String(playerId)
+        );
         const result = await processMessageApi(playerId, text, { locale });
+        await dbPersistAfterMessageResult(playerId, locale, text, result);
+        const postMsg = await playerStore.getPlayer(playerId);
+        console.log(
+          '[bot] api action complete ok=' +
+            String(!!result?.ok) +
+            ' match_id=' +
+            String(postMsg?.match_id || '')
+        );
         res.writeHead(200);
         res.end(JSON.stringify(result));
         return;
@@ -3542,6 +3924,7 @@ function createLocalApiServer() {
         const locale = resolveRequestLocale(data, url.searchParams, req.headers);
         console.log('[bot] LOCALE_RESOLVED locale=' + locale + ' action=accuse');
         if (!playerId) {
+          console.log('[bot] api action=accuse match_id= playerId=(missing)');
           res.writeHead(400);
           res.end(JSON.stringify({ ok: false, error: 'playerId required' }));
           return;
@@ -3551,7 +3934,19 @@ function createLocalApiServer() {
           res.end(JSON.stringify({ ok: false, error: 'target required' }));
           return;
         }
+        const preAc = await playerStore.getPlayer(playerId);
+        console.log(
+          '[bot] api action=accuse match_id=' + String(preAc?.match_id || '') + ' playerId=' + String(playerId)
+        );
         const result = await processAccuseApi(playerId, target, { locale });
+        await dbPersistAfterActionResult(playerId, locale, 'accuse', 'accuse', target, result);
+        const postAc = await playerStore.getPlayer(playerId);
+        console.log(
+          '[bot] api action complete ok=' +
+            String(!!result?.ok) +
+            ' match_id=' +
+            String(postAc?.match_id || '')
+        );
         res.writeHead(200);
         res.end(JSON.stringify(result));
         return;
@@ -3565,16 +3960,38 @@ function createLocalApiServer() {
         const locale = resolveRequestLocale(data, url.searchParams, req.headers);
         console.log('[bot] LOCALE_RESOLVED locale=' + locale + ' action=api_action');
         if (!playerId) {
+          console.log('[bot] api action=(none) match_id= playerId=(missing)');
           res.writeHead(400);
           res.end(JSON.stringify({ ok: false, error: 'playerId required' }));
           return;
         }
         if (actionName == null || String(actionName).trim() === '') {
+          console.log(
+            '[bot] api action=(missing) match_id= playerId=' + String(playerId)
+          );
           res.writeHead(400);
           res.end(JSON.stringify({ ok: false, error: 'action required' }));
           return;
         }
+        const preAct = await playerStore.getPlayer(playerId);
+        const an = String(actionName || '').trim();
+        console.log(
+          '[bot] api action=' +
+            an +
+            ' match_id=' +
+            String(preAct?.match_id || '') +
+            ' playerId=' +
+            String(playerId)
+        );
         const result = await processActionApi(playerId, actionName, targetOpt, { locale });
+        await dbPersistAfterActionResult(playerId, locale, an, an, targetOpt, result);
+        const postAct = await playerStore.getPlayer(playerId);
+        console.log(
+          '[bot] api action complete ok=' +
+            String(!!result?.ok) +
+            ' match_id=' +
+            String(postAct?.match_id || '')
+        );
         res.writeHead(200);
         res.end(JSON.stringify(result));
         return;
@@ -3653,5 +4070,9 @@ module.exports = {
   getStartStateApi,
   processMessageApi,
   processAccuseApi,
-  processActionApi
+  processActionApi,
+  resolveUserKey,
+  upsertUserEntitlement,
+  upsertMatchState,
+  appendMatchEvent
 };
