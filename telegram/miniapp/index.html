@@ -1339,22 +1339,32 @@
         statePollPendingKickFromUser = false;
       }
 
+      /** 사용자 액션 직후 refresh·visibility resume·pending kick flush 공통 최소 (0ms 재예약 금지) */
+      var STATE_POLL_USER_REFRESH_MS = 1200;
+
       /**
-       * source별 하드 최소 간격 (immediate 허용: initial start, post-message/action refresh, user pending kick flush만).
+       * 0ms 재예약은 initial start 1회만 허용. 그 외 source는 최소 1200~1500ms.
        */
       function computeClampedDelay(delayMs, source) {
         var s = String(source || '');
-        if (s === 'initial start') return delayMs;
-        if (s === 'post-message refresh' || s === 'post-action refresh') return delayMs;
-        if (s === 'pending kick flush') return delayMs;
-        if (s === 'hidden backoff') return Math.max(delayMs, STATE_POLL_SLOW_MS);
+        var d = typeof delayMs === 'number' ? delayMs : 0;
+        if (s === 'initial start') return d;
+        if (s === 'post-message refresh' || s === 'post-action refresh') {
+          return Math.max(d, STATE_POLL_USER_REFRESH_MS);
+        }
+        if (s === 'pending kick flush') {
+          return Math.max(d, STATE_POLL_USER_REFRESH_MS);
+        }
         if (s === 'visibility resume') {
-          return Math.max(delayMs, MIN_SCHEDULED_POLL_MS, MIN_POLL_DELAY_MS);
+          return Math.max(d, STATE_POLL_USER_REFRESH_MS);
+        }
+        if (s === 'hidden backoff') {
+          return Math.max(d, STATE_POLL_SLOW_MS);
         }
         if (s === 'scheduled polling loop') {
-          return Math.max(delayMs, MIN_SCHEDULED_POLL_MS, MIN_POLL_DELAY_MS);
+          return Math.max(d, MIN_SCHEDULED_POLL_MS, MIN_POLL_DELAY_MS);
         }
-        return Math.max(delayMs, MIN_SCHEDULED_POLL_MS, MIN_POLL_DELAY_MS);
+        return Math.max(d, MIN_SCHEDULED_POLL_MS, MIN_POLL_DELAY_MS);
       }
 
       /**
@@ -1363,9 +1373,16 @@
        * @param {string} source 디버그용 (주석과 함께 단일 루프 출처 표시)
        */
       function scheduleNextStatePoll(delayMs, source) {
-        var effectiveMs = computeClampedDelay(delayMs, source);
+        var rawMs = typeof delayMs === 'number' ? delayMs : 0;
+        var srcStr = String(source || '');
+        var effectiveMs = computeClampedDelay(rawMs, source);
+        if (rawMs === 0 && effectiveMs > 0 && srcStr !== 'initial start') {
+          try {
+            console.log('[miniapp] state_poll_clamped_from_zero=true source=' + srcStr);
+          } catch (e) {}
+        }
         try {
-          console.log('[miniapp] state_poll_schedule_ms=' + effectiveMs + ' source=' + String(source || ''));
+          console.log('[miniapp] state_poll_schedule_ms=' + effectiveMs + ' source=' + srcStr);
         } catch (e) {}
         if (!statePollingEnabled) return;
         clearStatePollTimer();
@@ -1535,10 +1552,7 @@
                     (kickFromUser ? 'user' : 'background')
                 );
               } catch (e) {}
-              scheduleNextStatePoll(
-                kickFromUser ? 0 : MIN_SCHEDULED_POLL_MS,
-                'pending kick flush'
-              );
+              scheduleNextStatePoll(0, 'pending kick flush');
               return;
             }
             scheduleNextStatePoll(getNextPollDelayMs(), 'scheduled polling loop');
