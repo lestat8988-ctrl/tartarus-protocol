@@ -1191,7 +1191,8 @@ function takeFirstCaptainSegmentLength(logs, locale) {
 }
 
 /**
- * targeted_question: transcript에 함장 질문은 유저 원문 한 번만 — 선행 함장 블록을 제거 후 [함장]+원문 본문으로 고정
+ * 유저 함장 질문 본문을 표시 로그 앞에 [함장]+body 한 번만 고정 (targeted_question·role_opinion_question 등).
+ * 선행 함장 블록이 있으면 제거 후 주입.
  */
 function applyTargetedQuestionCaptainDisplayBody(displayLogs, captainBodyRaw, locale) {
   const loc = locale === 'en' ? 'en' : 'ko';
@@ -2040,7 +2041,18 @@ async function handleTextMessage(playerId, text, opts = {}) {
     const events = buildRoleOpinionQuestionEvents(match, parsed.target, locale);
     for (const ev of events) await matchStore.appendEvent(matchId, ev);
     const updated = await matchStore.getMatch(matchId);
-    const recentDisplay = dedupeDisplayLogs(toPlayerDisplayLogs(events, { locale }), locale);
+    const captainBodyForRoleOpinion =
+      stripLeadingCaptainBracketFromUserLine(String(text || '').trim(), locale) ||
+      String(text || '').trim();
+    let recentDisplay = dedupeDisplayLogs(toPlayerDisplayLogs(events, { locale }), locale);
+    const firstEv = events[0];
+    const isErrorRoleOpinion = firstEv && String(firstEv.role || '').toLowerCase() === 'system';
+    if (captainBodyForRoleOpinion && !isErrorRoleOpinion) {
+      recentDisplay = applyTargetedQuestionCaptainDisplayBody(recentDisplay, captainBodyForRoleOpinion, locale);
+      recentDisplay = dedupeDisplayLogs(recentDisplay, locale);
+      console.log('[bot] role_opinion_question captain_display_source=final_only');
+      console.log('[bot] role_opinion_question captain_body_preserved=true');
+    }
     const timer = ep1Engine.getTimerStatus(updated, now);
     const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
     let reply = recentDisplay.map((e) => e.type).filter(Boolean).join('\n') || '…';
@@ -2351,7 +2363,18 @@ async function processMessageApi(playerId, text, opts = {}) {
     const events = buildRoleOpinionQuestionEvents(match, parsed.target, locale);
     for (const ev of events) await matchStore.appendEvent(matchId, ev);
     const updated = await matchStore.getMatch(matchId);
-    const newDisplayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(events, { locale }), locale);
+    const captainBodyForRoleOpinion =
+      stripLeadingCaptainBracketFromUserLine(String(text || '').trim(), locale) ||
+      String(text || '').trim();
+    let newDisplayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(events, { locale }), locale);
+    const firstEv = events[0];
+    const isErrorRoleOpinion = firstEv && String(firstEv.role || '').toLowerCase() === 'system';
+    if (captainBodyForRoleOpinion && !isErrorRoleOpinion) {
+      newDisplayLogs = applyTargetedQuestionCaptainDisplayBody(newDisplayLogs, captainBodyForRoleOpinion, locale);
+      newDisplayLogs = dedupeDisplayLogs(newDisplayLogs, locale);
+      console.log('[bot] role_opinion_question captain_display_source=final_only');
+      console.log('[bot] role_opinion_question captain_body_preserved=true');
+    }
     const timer = ep1Engine.getTimerStatus(updated, now);
     const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
     const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
