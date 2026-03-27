@@ -217,8 +217,32 @@ function looksLikeOpenQuestion(lower, raw) {
   return false;
 }
 
+/** 동선·알리바이 질문만 있고 의견/범인 키워드가 없으면 targeted_question 쪽으로 둔다. */
+function isPureAlibiLocationQuestion(raw) {
+  const t = String(raw || '');
+  const hasAlibi =
+    /(어디\s*있었|그때\s*어디|where\s+were\s+you|where\s+did\s+you\s+go|동선|알리바이|alibi)/i.test(t);
+  const hasOpinion =
+    /(범인|임포|impost|traitor|의심|수상|누가\s*범인|누굴\s*의심|같나|같아|think|suspect|who\s+do\s+you|whom|믿|trust|생각|느낌|opinion)/i.test(
+      t
+    );
+  return hasAlibi && !hasOpinion;
+}
+
 /**
- * miniapp 자유입력 분류 — state_query | open_question | targeted_question | mapped
+ * 특정 역할에게 범인/의심 의견을 묻는 경우 — target이 먼저 답하는 전용 분기.
+ */
+function isRoleOpinionQuestion(text, parsed) {
+  if (!parsed.target) return false;
+  const raw = String(text || '');
+  if (isPureAlibiLocationQuestion(raw)) return false;
+  return /(범인|임포|impost|traitor|의심|수상|누가|누굴|믿|trust|생각|느낌|같나|같아|think|suspect|whom|who\s+do\s+you|opinion)/i.test(
+    raw
+  );
+}
+
+/**
+ * miniapp 자유입력 분류 — state_query | open_question | role_opinion_question | targeted_question | mapped
  */
 function classifyMiniappFreeText(text, parsed) {
   const raw = String(text || '').trim();
@@ -232,12 +256,17 @@ function classifyMiniappFreeText(text, parsed) {
   if (mappedIntents.has(intent)) return { kind: 'mapped', parsed };
 
   if (intent === 'question') {
-    if (parsed.target) return { kind: 'targeted_question', parsed };
+    if (parsed.target) {
+      if (isRoleOpinionQuestion(text, parsed)) return { kind: 'role_opinion_question', parsed };
+      return { kind: 'targeted_question', parsed };
+    }
     return { kind: 'open_question', parsed };
   }
 
-  if (intent === 'unknown' && looksLikeOpenQuestion(lower, raw)) {
-    return { kind: 'open_question', parsed };
+  if (intent === 'unknown') {
+    if (parsed.target && isRoleOpinionQuestion(text, parsed)) return { kind: 'role_opinion_question', parsed };
+    if (looksLikeOpenQuestion(lower, raw)) return { kind: 'open_question', parsed };
+    return { kind: 'mapped', parsed };
   }
 
   return { kind: 'mapped', parsed };
@@ -334,31 +363,118 @@ function buildOpenQuestionCrewEvents(match, locale) {
 
   const captainLine =
     loc === 'en'
-      ? `${cap} I can't name the impostor from one line. Cross-check statements and logs.`
-      : `${cap} 한 줄로 범인을 확정할 수는 없다. 각자의 진술과 로그를 맞춰봐야 한다.`;
+      ? `${cap} I need each of you: who looks suspicious, what feels off, and what we must verify next.`
+      : `${cap} 각자 짧게 말해 주게. 누가 수상한지, 무엇이 이상한지, 무엇을 더 확인해야 하는지.`;
 
   const byRole = {
     doctor:
       loc === 'en'
-        ? `${headers.doctor} Vitals alone can't tell who's lying. I need cross-checks with the crew.`
-        : `${headers.doctor} 생체 모니터만으로는 배신자를 특정할 수 없어요. 승무원들과의 대조가 필요해요.`,
+        ? `${headers.doctor} Suspicion goes to whoever shows vitals spikes that don't match their story. I need corridor and medbay access next.`
+        : `${headers.doctor} 진술과 맞지 않는 생체 반동이 있는 쪽이 수상합니다. 의무실·복도 출입을 더 확인해야 합니다.`,
     engineer:
       loc === 'en'
-        ? `${headers.engineer} Logs show gaps, not a name. We need to align timestamps with alibis.`
-        : `${headers.engineer} 로그는 틈을 보여줄 뿐 이름은 안 줘요. 타임스탬프와 알리바이를 맞춰야 해요.`,
+        ? `${headers.engineer} What's off is the timestamp gaps and checksum drift. I need to line up access logs before naming anyone.`
+        : `${headers.engineer} 수상한 건 타임스탬프 공백과 체크섬 불일치입니다. 접근 로그를 더 맞춰야 합니다.`,
     navigator:
       loc === 'en'
-        ? `${headers.navigator} Routes and bridge records need to match. I won't point a finger without that.`
-        : `${headers.navigator} 항로와 교량 기록이 맞아야 해요. 그 전엔 함부로 지목하지 않겠습니다.`,
+        ? `${headers.navigator} The odd part is route versus bridge record mismatch. I want chart and CCTV slices for the same minutes.`
+        : `${headers.navigator} 이상한 점은 항로 기록과 교량 기록이 어긋나는 구간입니다. 같은 시각의 차트·CCTV를 더 봐야 합니다.`,
     pilot:
       loc === 'en'
-        ? `${headers.pilot} Something's off in the air on the bridge—but that's not proof. Stay sharp.`
-        : `${headers.pilot} 교량 분위기가 싸해요. 그게 증거는 아니에요. 집중합시다.`
+        ? `${headers.pilot} The bridge felt wrong—pressure and silence—not proof, but it tells me who to watch next.`
+        : `${headers.pilot} 교량 분위기·압력 변화가 싸합니다. 증거는 아니지만 누구를 더 봐야 할지 짚입니다.`
   };
 
   const events = [{ type: 'CREW_DIALOGUE', role: 'captain', dialogue: captainLine }];
   for (const r of alive) {
     const line = byRole[r];
+    if (line) events.push({ type: 'CREW_DIALOGUE', role: r, dialogue: line });
+  }
+  return events;
+}
+
+/**
+ * 특정 역할 의견 질문 — target이 반드시 첫 대사, 나머지는 짧은 보조만.
+ */
+function buildRoleOpinionQuestionEvents(match, targetRole, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const headers = getLlmRoleHeaders(loc);
+  const sys = systemHeader(loc);
+  const t = String(targetRole || '').toLowerCase();
+  const gs = match.game_state || {};
+  const deadRoles = gs.dead_roles || [];
+  const crewOrder = ['doctor', 'engineer', 'navigator', 'pilot'];
+  const alive = crewOrder.filter((r) => !deadRoles.includes(r));
+
+  if (!crewOrder.includes(t)) {
+    return [
+      {
+        type: 'CREW_DIALOGUE',
+        role: 'system',
+        dialogue:
+          loc === 'en'
+            ? `${sys} No valid crew role was named.`
+            : `${sys} 유효한 승무원 역할이 아닙니다.`
+      }
+    ];
+  }
+  if (!alive.includes(t)) {
+    return [
+      {
+        type: 'CREW_DIALOGUE',
+        role: 'system',
+        dialogue:
+          loc === 'en'
+            ? `${sys} That crew member is no longer on the roster.`
+            : `${sys} 해당 승무원은 이미 생체 신호가 끊긴 상태입니다.`
+      }
+    ];
+  }
+
+  const targetLine = {
+    doctor: {
+      ko: `${headers.doctor} 저는 생체 지표와 진술이 맞지 않는 쪽을 의심합니다. 교차 검증이 더 필요합니다.`,
+      en: `${headers.doctor} I suspect whoever has vitals that don't line up with their story. We need more cross-checks.`
+    },
+    engineer: {
+      ko: `${headers.engineer} 저는 로그 타임스탬프와 접근 기록이 어긋난 구역 담당을 의심합니다.`,
+      en: `${headers.engineer} I suspect whoever owns the worst timestamp and access-log mismatch.`
+    },
+    navigator: {
+      ko: `${headers.navigator} 저는 항로 기록과 교량 기록이 안 맞는 시간대에 있던 사람을 의심합니다.`,
+      en: `${headers.navigator} I suspect whoever was on the bridge when charts and logs disagree.`
+    },
+    pilot: {
+      ko: `${headers.pilot} 저는 교량 분위기와 조종석 로그가 어긋날 때 동선이 애매한 쪽을 의심합니다.`,
+      en: `${headers.pilot} I suspect whoever had the shakiest alibi when bridge logs and helm records diverge.`
+    }
+  };
+
+  const aux = {
+    doctor: {
+      ko: `${headers.doctor} 동의합니다. 제 쪽 데이터로 맞춰 보겠습니다.`,
+      en: `${headers.doctor} Understood. I'll align with my panels.`
+    },
+    engineer: {
+      ko: `${headers.engineer} 알겠습니다. 로그로 바로 대조하겠습니다.`,
+      en: `${headers.engineer} Copy. I'll match it to logs.`
+    },
+    navigator: {
+      ko: `${headers.navigator} 확인하겠습니다. 항로만 다시 보겠습니다.`,
+      en: `${headers.navigator} Noted. I'll re-check the chart slice.`
+    },
+    pilot: {
+      ko: `${headers.pilot} 네. 조종석 기록만 짚어보겠습니다.`,
+      en: `${headers.pilot} Roger. I'll stick to helm records.`
+    }
+  };
+
+  const first = targetLine[t] ? targetLine[t][loc] : targetLine.doctor[loc];
+  const events = [{ type: 'CREW_DIALOGUE', role: t, dialogue: first }];
+
+  for (const r of crewOrder) {
+    if (r === t || !alive.includes(r)) continue;
+    const line = aux[r][loc];
     if (line) events.push({ type: 'CREW_DIALOGUE', role: r, dialogue: line });
   }
   return events;
@@ -1713,24 +1829,29 @@ async function handleTextMessage(playerId, text, opts = {}) {
     return 'Game over. Outcome: ' + (match.game_state.outcome || 'unknown') + '. Send /start for new game.';
   }
 
+  if (cls.kind === 'role_opinion_question') {
+    console.log('[bot] message kind=role_opinion_question target=' + parsed.target);
+    await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
+    const events = buildRoleOpinionQuestionEvents(match, parsed.target, locale);
+    for (const ev of events) await matchStore.appendEvent(matchId, ev);
+    const updated = await matchStore.getMatch(matchId);
+    const recentDisplay = dedupeDisplayLogs(toPlayerDisplayLogs(events, { locale }), locale);
+    const timer = ep1Engine.getTimerStatus(updated, now);
+    const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
+    let reply = recentDisplay.map((e) => e.type).filter(Boolean).join('\n') || '…';
+    const m = Math.floor(rem / 60);
+    const sec = rem % 60;
+    reply += '\n⏱ ' + m + ':' + String(sec).padStart(2, '0') + ' left';
+    return reply;
+  }
+
   if (cls.kind === 'open_question') {
     console.log('[bot] message kind=open_question');
     await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
     const events = buildOpenQuestionCrewEvents(match, locale);
     for (const ev of events) await matchStore.appendEvent(matchId, ev);
     const updated = await matchStore.getMatch(matchId);
-    const deterministicLogs = dedupeDisplayLogs(toPlayerDisplayLogs(events, { locale }), locale);
-    const recentDisplay = dedupeDisplayLogs(
-      await maybeDialogueLogsFromLlmOrDeterministic({
-        rawEvents: events,
-        deterministicLogs,
-        match: updated,
-        playerText: String(text || '').trim(),
-        clueTextFromEvent: undefined,
-        locale
-      }),
-      locale
-    );
+    const recentDisplay = dedupeDisplayLogs(toPlayerDisplayLogs(events, { locale }), locale);
     const timer = ep1Engine.getTimerStatus(updated, now);
     const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
     let reply = recentDisplay.map((e) => e.type).filter(Boolean).join('\n') || '…';
@@ -2001,24 +2122,35 @@ async function processMessageApi(playerId, text, opts = {}) {
     return ret;
   }
 
+  if (cls.kind === 'role_opinion_question') {
+    console.log('[bot] message kind=role_opinion_question target=' + parsed.target);
+    await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
+    const events = buildRoleOpinionQuestionEvents(match, parsed.target, locale);
+    for (const ev of events) await matchStore.appendEvent(matchId, ev);
+    const updated = await matchStore.getMatch(matchId);
+    const newDisplayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(events, { locale }), locale);
+    const timer = ep1Engine.getTimerStatus(updated, now);
+    const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
+    const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
+    return {
+      ok: true,
+      summary: summaryText,
+      remaining_sec: rem,
+      game_over: false,
+      outcome: null,
+      events: newDisplayLogs,
+      recent_events: newDisplayLogs,
+      match_state: updated?.game_state || {}
+    };
+  }
+
   if (cls.kind === 'open_question') {
     console.log('[bot] message kind=open_question');
     await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
     const events = buildOpenQuestionCrewEvents(match, locale);
     for (const ev of events) await matchStore.appendEvent(matchId, ev);
     const updated = await matchStore.getMatch(matchId);
-    const deterministicLogs = dedupeDisplayLogs(toPlayerDisplayLogs(events, { locale }), locale);
-    const newDisplayLogs = dedupeDisplayLogs(
-      await maybeDialogueLogsFromLlmOrDeterministic({
-        rawEvents: events,
-        deterministicLogs,
-        match: updated,
-        playerText: String(text || '').trim(),
-        clueTextFromEvent: undefined,
-        locale
-      }),
-      locale
-    );
+    const newDisplayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(events, { locale }), locale);
     const timer = ep1Engine.getTimerStatus(updated, now);
     const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
     const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
