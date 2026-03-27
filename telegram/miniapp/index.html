@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -626,9 +626,29 @@
       cursor: pointer;
       -webkit-tap-highlight-color: transparent;
     }
+
+    /* 배포·캐시 확인용 — 게임 로직과 무관, 고정 모서리 표시만 */
+    .miniapp-build-marker {
+      position: fixed;
+      bottom: 2px;
+      right: 4px;
+      z-index: 10000;
+      font-size: 0.55rem;
+      line-height: 1.15;
+      color: rgba(42, 239, 42, 0.32);
+      pointer-events: none;
+      user-select: none;
+      -webkit-user-select: none;
+      font-family: 'Courier New', Courier, monospace;
+      letter-spacing: 0.02em;
+    }
   </style>
 </head>
 <body>
+  <script>
+    console.log('[miniapp-build] telegram/miniapp/index.html loaded trace-build-v1');
+  </script>
+  <div id="miniapp-build-marker" class="miniapp-build-marker" aria-hidden="true">build: trace-build-v1</div>
   <div id="app">
     <!-- Intro screen -->
     <div id="intro-screen">
