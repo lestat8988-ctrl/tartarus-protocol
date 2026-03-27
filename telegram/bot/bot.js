@@ -1729,7 +1729,7 @@ function roleWithObjectParticle(roleKey) {
  * @param {object[]} rawEvents - match.events 등 내부 raw 이벤트
  * @param {object} [opts]
  * @param {string} [opts.captainInputLine] - 해당 배치가 CHECK_LOG일 때 본문에 살릴 플레이어 입력 (이벤트에 dialogue/text 없을 때만)
- * @param {string} [opts.questionCaptainBodyOverride] - QUESTION 이벤트 본문 강제 (targeted_question 등에서 유저 원문)
+ * @param {string} [opts.questionCaptainBodyOverride] - QUESTION 본문 강제(선택). targeted_question 표시는 bot에서 forcedCaptainTextOverride+applyTargetedQuestionCaptainDisplayBody로만 맞춤.
  * @returns {object[]} { type: string, role?, target?: null, _key?: string } - 표시용
  */
 function toPlayerDisplayLogs(rawEvents, opts = {}) {
@@ -2116,8 +2116,7 @@ async function handleTextMessage(playerId, text, opts = {}) {
   const deterministicLogs = dedupeDisplayLogs(
     toPlayerDisplayLogs(result.events || [], {
       captainInputLine: isCheckLogMsg ? String(text || '').trim() : '',
-      locale,
-      ...(captainBodyForTq ? { questionCaptainBodyOverride: captainBodyForTq } : {})
+      locale
     }),
     locale
   );
@@ -2147,8 +2146,8 @@ async function handleTextMessage(playerId, text, opts = {}) {
     if (recentDisplay.length < nBefore) {
       console.log('[bot] targeted_question duplicate_captain_line_prevented=true');
     }
-    console.log('[bot] targeted_question captain_display_line=original');
-    console.log('[bot] targeted_question captain_line_emitted=once');
+    console.log('[bot] targeted_question captain_display_source=final_only');
+    console.log('[bot] targeted_question removed_midstage_captain_override=true');
   }
   if (recentDisplay.length > 0) {
     reply += '\n\nRecent: ' + recentDisplay.map((e) => e.type).join(', ');
@@ -2419,8 +2418,7 @@ async function processMessageApi(playerId, text, opts = {}) {
   const deterministicLogs = dedupeDisplayLogs(
     toPlayerDisplayLogs(result.events || [], {
       captainInputLine: isCheckLogMsg ? String(text || '').trim() : '',
-      locale,
-      ...(captainBodyForTq ? { questionCaptainBodyOverride: captainBodyForTq } : {})
+      locale
     }),
     locale
   );
@@ -2450,8 +2448,8 @@ async function processMessageApi(playerId, text, opts = {}) {
     if (newDisplayLogs.length < nBefore) {
       console.log('[bot] targeted_question duplicate_captain_line_prevented=true');
     }
-    console.log('[bot] targeted_question captain_display_line=original');
-    console.log('[bot] targeted_question captain_line_emitted=once');
+    console.log('[bot] targeted_question captain_display_source=final_only');
+    console.log('[bot] targeted_question removed_midstage_captain_override=true');
   }
   const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
   const recentEvents = newDisplayLogs;
