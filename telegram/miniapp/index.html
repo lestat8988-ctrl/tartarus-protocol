@@ -876,6 +876,11 @@
       function getLangForApi() {
         return (lang === 'ko' || lang === 'en') ? lang : 'en';
       }
+      function getInitialSystemLogLine() {
+        return getLangForApi() === 'ko'
+          ? '[시스템] 타르타로스 프로토콜이 초기화되었습니다.'
+          : '[System] Tartarus Protocol initialized.';
+      }
       function logMiniappApiLang(endpoint) {
         try { console.log('[miniapp] sending lang=' + getLangForApi() + ' endpoint=' + endpoint); } catch (e) {}
       }
@@ -2110,11 +2115,11 @@
               updateStatus(st, { fromStart: true });
               if (restart) {
                 clearGameLogPanelAndState();
-                appendLog('System: Tartarus Protocol initialized.', false);
+                appendLog(getInitialSystemLogLine(), false);
               } else if (data.events && data.events.length) {
                 applyEvents(data.events);
               } else {
-                appendLog('System: Tartarus Protocol initialized.', false);
+                appendLog(getInitialSystemLogLine(), false);
               }
               startStatePolling();
             } else {
