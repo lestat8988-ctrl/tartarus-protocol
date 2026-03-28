@@ -66,12 +66,30 @@ const dbMatchSessionsMemory = new Map();
 const dbMatchEventsMemory = [];
 let _dbMatchEventSeq = 0;
 
+/**
+ * user_key: 텔레그램 user id(=playerId) 우선 → 없으면 match_id 기반 session → 최후 anonymous
+ */
 function resolveUserKey(playerId, matchId) {
   const p = String(playerId || '').trim();
   if (p) return p;
   const m = String(matchId || '').trim();
   if (m) return 'session:' + m;
   return 'anonymous';
+}
+
+/** DB public.user_entitlements와 동일한 기본 스키마 (Supabase upsert payload) */
+function defaultEntitlementRow(userKey) {
+  const now = new Date().toISOString();
+  return {
+    user_key: String(userKey || 'anonymous'),
+    clearance_level: 1,
+    is_premium: false,
+    daily_ticket_limit: 3,
+    daily_ticket_used: 0,
+    daily_free_prompt_limit: 5,
+    daily_free_prompt_used: 0,
+    updated_at: now
+  };
 }
 
 function truncateJsonish(obj, maxLen) {
@@ -85,41 +103,66 @@ function truncateJsonish(obj, maxLen) {
 }
 
 async function upsertUserEntitlement(userKey, patch = {}) {
+  const key = String(userKey || 'anonymous');
   try {
     logDbBootOnce();
-    const key = String(userKey || 'anonymous');
+    try {
+      console.log('[bot][db] entitlement upsert start user_key=' + key);
+    } catch (e) {}
     const now = new Date().toISOString();
-    const prev = dbUserEntitlementsMemory.get(key) || {
-      user_key: key,
-      is_premium: false,
-      free_messages_used: 0,
-      free_actions_used: 0,
-      updated_at: now
-    };
-    const next = { ...prev, ...patch, user_key: key, updated_at: now };
-    if (next.is_premium == null) next.is_premium = false;
-    if (next.free_messages_used == null) next.free_messages_used = 0;
-    if (next.free_actions_used == null) next.free_actions_used = 0;
-    dbUserEntitlementsMemory.set(key, next);
+    const base = defaultEntitlementRow(key);
+    const prev = dbUserEntitlementsMemory.get(key);
+    const fromPrev = prev
+      ? {
+          clearance_level: prev.clearance_level,
+          is_premium: prev.is_premium,
+          daily_ticket_limit: prev.daily_ticket_limit,
+          daily_ticket_used: prev.daily_ticket_used,
+          daily_free_prompt_limit: prev.daily_free_prompt_limit,
+          daily_free_prompt_used: prev.daily_free_prompt_used
+        }
+      : {};
+    const merged = { ...base, ...fromPrev, ...patch, user_key: key, updated_at: now };
+    if (merged.clearance_level == null) merged.clearance_level = 1;
+    if (merged.is_premium == null) merged.is_premium = false;
+    if (merged.daily_ticket_limit == null) merged.daily_ticket_limit = 3;
+    if (merged.daily_ticket_used == null) merged.daily_ticket_used = 0;
+    if (merged.daily_free_prompt_limit == null) merged.daily_free_prompt_limit = 5;
+    if (merged.daily_free_prompt_used == null) merged.daily_free_prompt_used = 0;
+    dbUserEntitlementsMemory.set(key, merged);
     const sb = getSupabaseOptional();
-    if (sb) {
+    if (!sb) {
       try {
-        await sb.from('user_entitlements').upsert(
-          {
-            user_key: key,
-            is_premium: next.is_premium,
-            free_messages_used: next.free_messages_used,
-            free_actions_used: next.free_actions_used,
-            updated_at: next.updated_at
-          },
-          { onConflict: 'user_key' }
+        console.log('[bot][db] entitlement upsert ok user_key=' + key + ' (memory-only, no Supabase)');
+      } catch (e) {}
+      return;
+    }
+    const row = {
+      user_key: merged.user_key,
+      clearance_level: merged.clearance_level,
+      is_premium: merged.is_premium,
+      daily_ticket_limit: merged.daily_ticket_limit,
+      daily_ticket_used: merged.daily_ticket_used,
+      daily_free_prompt_limit: merged.daily_free_prompt_limit,
+      daily_free_prompt_used: merged.daily_free_prompt_used,
+      updated_at: merged.updated_at
+    };
+    const { error } = await sb.from('user_entitlements').upsert(row, { onConflict: 'user_key' });
+    if (error) {
+      try {
+        console.warn(
+          '[bot][db] entitlement upsert warn user_key=' + key + ' error=' + String(error.message || error)
         );
-      } catch (e) {
-        console.warn('[bot] db Supabase user_entitlements upsert:', e?.message || e);
-      }
+      } catch (e) {}
+    } else {
+      try {
+        console.log('[bot][db] entitlement upsert ok user_key=' + key);
+      } catch (e) {}
     }
   } catch (e) {
-    console.warn('[bot] db upsertUserEntitlement failed', e?.message || e);
+    try {
+      console.warn('[bot][db] entitlement upsert warn user_key=' + key + ' error=' + String(e?.message || e));
+    } catch (e2) {}
   }
 }
 
@@ -233,8 +276,8 @@ async function dbPersistAfterMessageResult(playerId, locale, inputText, result) 
     if (!matchId) return;
     const userKey = resolveUserKey(playerId, matchId);
     const prev = dbUserEntitlementsMemory.get(userKey);
-    const prevN = prev?.free_messages_used ?? 0;
-    await upsertUserEntitlement(userKey, { free_messages_used: prevN + 1 });
+    const prevU = prev?.daily_free_prompt_used ?? 0;
+    await upsertUserEntitlement(userKey, { daily_free_prompt_used: prevU + 1 });
     const gs = result.match_state || {};
     await upsertMatchState({
       match_id: matchId,
@@ -273,8 +316,8 @@ async function dbPersistAfterActionResult(playerId, locale, actionLabel, actionN
     if (!matchId) return;
     const userKey = resolveUserKey(playerId, matchId);
     const prev = dbUserEntitlementsMemory.get(userKey);
-    const prevA = prev?.free_actions_used ?? 0;
-    await upsertUserEntitlement(userKey, { free_actions_used: prevA + 1 });
+    const prevT = prev?.daily_ticket_used ?? 0;
+    await upsertUserEntitlement(userKey, { daily_ticket_used: prevT + 1 });
     const gs = result.match_state || {};
     await upsertMatchState({
       match_id: matchId,
@@ -343,8 +386,8 @@ async function dbPersistAfterTelegramTextMessage(playerId, text, opts, reply) {
     const locale = opts.locale === 'en' ? 'en' : 'ko';
     const userKey = resolveUserKey(playerId, matchId);
     const prev = dbUserEntitlementsMemory.get(userKey);
-    const prevN = prev?.free_messages_used ?? 0;
-    await upsertUserEntitlement(userKey, { free_messages_used: prevN + 1 });
+    const prevU = prev?.daily_free_prompt_used ?? 0;
+    await upsertUserEntitlement(userKey, { daily_free_prompt_used: prevU + 1 });
     const gs = match.game_state || {};
     const timer = ep1Engine.getTimerStatus(match);
     await upsertMatchState({
