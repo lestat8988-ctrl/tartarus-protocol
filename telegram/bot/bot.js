@@ -346,11 +346,19 @@ function getIntentLogKindForPayload(cls, parsed) {
     const it = String(parsed?.intent_type || 'unknown').toLowerCase();
     return 'mapped:' + it;
   }
+  if (cls.kind === 'targeted_question' && cls.crewGameplayTargetRole) {
+    return 'role_question';
+  }
   return String(cls.kind);
 }
 
 function logIntentPromptDecision(cls, parsed, consumesFreePrompt) {
   const kind = getIntentLogKindForPayload(cls, parsed);
+  if (cls && cls.crewGameplayTargetRole) {
+    try {
+      console.log('[bot][intent] role-target detected role=' + cls.crewGameplayTargetRole);
+    } catch (e) {}
+  }
   console.log(
     '[bot][intent] message kind=' + kind + ' consumes_free_prompt=' + (consumesFreePrompt ? 'true' : 'false')
   );
@@ -986,8 +994,102 @@ function isRoleOpinionQuestion(text, parsed) {
 }
 
 /**
- * miniapp 자유입력 분류 — state_query | lore_question | brief_question | role_opinion_question | targeted_question | mapped
- * role_opinion_question은 targeted_question보다 먼저 검사(check_log 다음).
+ * AXIS/HADES/프로젝트 등 세계관 키워드가 질문 주제면 lore 분기 우선(승무원 호칭만 있는 경우와 구분).
+ */
+function containsLoreCanonSubject(raw) {
+  const t = String(raw || '');
+  const lower = t.toLowerCase();
+  if (/중첩체/.test(t)) return true;
+  if (/\bHADES\b/i.test(t) || /하데스/i.test(t)) return true;
+  if (/\bAXIS\b/i.test(t) || /액시스/i.test(t)) return true;
+  if (/HORIZON|호라이즌|프로젝트\s*HORIZON|프로젝트\s*호라이즌/i.test(t)) return true;
+  if (/phase\s*shock|위상\s*충격|페이즈\s*쇼크/i.test(t)) return true;
+  if (/neptune|해왕성/i.test(t)) return true;
+  if (/gravity\s*drive|중력\s*드라이브/i.test(lower)) return true;
+  if (/왜\s*이런\s*일이?\s*벌어졌/.test(t)) return true;
+  if (/이\s*배.*무슨\s*일이?\s*있었/.test(t)) return true;
+  if (/(이\s*배|함선|ship).*(무슨\s*일|무슨일|있었|happened)/i.test(t)) return true;
+  if (/missing\s+experimental|실험선|실종된\s*함|실험\s*함/i.test(t)) return true;
+  if (/awakened|기상한|깨어난|기상\s*인원/i.test(t)) return true;
+  return false;
+}
+
+/** 승무원 역할명이 문장에 있으면 첫 매칭 역할 키(doctor|…) 반환 */
+function detectCrewRoleForGameplayQuestion(raw) {
+  const t = String(raw || '');
+  const pairs = [
+    [/\bdoctor\b|닥터|의사/i, 'doctor'],
+    [/\bengineer\b|엔지니어|기술자/i, 'engineer'],
+    [/\bnavigator\b|네비게이터|항해사/i, 'navigator'],
+    [/\bpilot\b|파일럿|조종사/i, 'pilot']
+  ];
+  let best = null;
+  let bestIdx = Infinity;
+  for (const [re, role] of pairs) {
+    const m = re.exec(t);
+    if (m && m.index < bestIdx) {
+      bestIdx = m.index;
+      best = role;
+    }
+  }
+  return best;
+}
+
+/**
+ * 승무원 대상 심문/동선/신원 확인형 — lore가 아님.
+ * "닥터 하네스가 무엇인가?" 처럼 역할+미확인 고유명사는 false → lore/unknown gate로 넘김.
+ */
+function isGameplayCrewQuestionPattern(raw) {
+  const t = String(raw || '');
+  if (!detectCrewRoleForGameplayQuestion(raw)) return false;
+
+  const m = t.match(
+    /(?:^|[\s,.])(닥터|의사|엔지니어|기술자|네비게이터|항해사|파일럿|조종사|doctor|engineer|navigator|pilot)\s+([가-힣A-Za-z]{2,})\s*(?:가|이|은|는|을|를)?\s*(?:무엇|뭐|뭔)/i
+  );
+  if (m && m[2]) {
+    const subj = m[2];
+    const allowed = new Set(['자네', '그때', '이름', '당신', '너', '누구', '그때는']);
+    if (/^[가-힣]+$/.test(subj) && !allowed.has(subj)) {
+      return false;
+    }
+  }
+
+  if (/\b(doctor|engineer|navigator|pilot)\b/i.test(t) && /\?/.test(t)) {
+    if (/(what|where|when|who|name|your|tell|were|did|see|alibi)/i.test(t)) return true;
+  }
+
+  return (
+    /(닥터|의사|엔지니어|네비게이터|파일럿)\s+자네\s+이름/i.test(t) ||
+    /(엔지니어|네비게이터|파일럿|닥터|의사)\s*,\s*그때\s*어디/i.test(t) ||
+    /(닥터|의사|엔지니어|네비게이터|파일럿)\s+그때\s*어디/i.test(t) ||
+    /(닥터|의사|엔지니어|네비게이터|파일럿)[\s,]+.{0,40}?(?:봤지|있었지|했지)/i.test(t) ||
+    /(의사|닥터)\s*,?\s*.{0,12}?이름/i.test(t) ||
+    /(파일럿|네비게이터|엔지니어)\s*은?\s*뭘\s*봤지/i.test(t)
+  );
+}
+
+/** 역할명 기반 심문형 질문인지(승무원 gameplay). 성공 시 역할 키, 아니면 null */
+function isTargetedCrewQuestion(raw) {
+  const crewRole = detectCrewRoleForGameplayQuestion(raw);
+  if (!crewRole) return null;
+  if (containsLoreCanonSubject(raw)) return null;
+  if (!isGameplayCrewQuestionPattern(raw)) return null;
+  return crewRole;
+}
+
+/** isGameplayCrewQuestionPattern 과 동일 의미 — 외부에서 이름만 분리해 쓸 때 */
+function isGameplayInterrogative(raw) {
+  return isGameplayCrewQuestionPattern(raw);
+}
+
+/** classifyMiniappFreeText 와 동일 — 외부에서 kind 조회용 */
+function classifyMiniappMessageKind(text, parsed) {
+  return classifyMiniappFreeText(text, parsed);
+}
+
+/**
+ * miniapp 자유입력 분류 — check_log → role_opinion → 승무원 심문(targeted) → state_query → mapped → lore → brief/mapped
+ * lore_question은 승무원 대상 gameplay 질문보다 뒤에 판정(오분류 방지).
  */
 function classifyMiniappFreeText(text, parsed) {
   const raw = String(text || '').trim();
@@ -1002,8 +1104,10 @@ function classifyMiniappFreeText(text, parsed) {
     return { kind: 'role_opinion_question', parsed };
   }
 
-  if (isLoreQuestion(raw)) {
-    return { kind: 'lore_question', parsed };
+  const crewRole = isTargetedCrewQuestion(raw);
+  if (crewRole) {
+    const merged = { ...parsed, intent_type: parsed.intent_type || 'question', target: crewRole };
+    return { kind: 'targeted_question', parsed: merged, crewGameplayTargetRole: crewRole };
   }
 
   const sq = matchStateQuerySubtype(lower);
@@ -1011,6 +1115,10 @@ function classifyMiniappFreeText(text, parsed) {
 
   const mappedIntents = new Set(['accuse_hint', 'threaten', 'threat', 'observe']);
   if (mappedIntents.has(intent)) return { kind: 'mapped', parsed };
+
+  if (isLoreQuestion(raw)) {
+    return { kind: 'lore_question', parsed };
+  }
 
   if (intent === 'question') {
     if (parsed.target) return { kind: 'targeted_question', parsed };
@@ -1286,6 +1394,52 @@ const LORE_UNKNOWN_STOPWORDS = new Set(
   ].map((s) => s.toLowerCase())
 );
 
+/** 추출된 "lore 용어"가 일반 의문사·상투어이면 unknown gate 대상 아님 */
+const INVALID_LORE_CANDIDATE_TERMS = new Set(
+  [
+    '이름',
+    '이름이',
+    '이름은',
+    '이름을',
+    '어디',
+    '어디서',
+    '언제',
+    '누구',
+    '무엇',
+    '뭐',
+    '뭔',
+    '왜',
+    '뭐지',
+    '뭔지',
+    'what',
+    'where',
+    'when',
+    'who',
+    'why',
+    'how',
+    'name',
+    'your',
+    'alibi'
+  ].map((s) => s.toLowerCase())
+);
+
+function isInvalidLoreCandidateTerm(term) {
+  if (term == null) return true;
+  const n = normalizeLoreTermToken(term).toLowerCase().replace(/\s+/g, ' ');
+  if (!n) return true;
+  if (INVALID_LORE_CANDIDATE_TERMS.has(n)) return true;
+  for (const w of n.split(/\s+/)) {
+    if (w && INVALID_LORE_CANDIDATE_TERMS.has(w)) return true;
+  }
+  return false;
+}
+
+/** unknown lore 차단은 lore_question / open_question 경로에서만 */
+function shouldApplyUnknownLoreGuard(kind) {
+  const k = String(kind || '').toLowerCase();
+  return k === 'lore_question' || k === 'open_question';
+}
+
 function normalizeLoreTermToken(raw) {
   return String(raw || '')
     .trim()
@@ -1355,27 +1509,35 @@ function extractPrimaryLoreTerm(raw, locale) {
   );
   if (m && m[1]) {
     const w = normalizeLoreTermToken(m[1]);
-    if (w && !/^(무엇|뭐|이|이번|왜|지금|어떻게|그게|그것|그게)$/i.test(w)) return w;
+    if (w && !/^(무엇|뭐|이|이번|왜|지금|어떻게|그게|그것|그게)$/i.test(w)) {
+      if (!isInvalidLoreCandidateTerm(w)) return w;
+    }
   }
 
   m = t.match(/\bwhat\s+(?:is|are)\s+(?:the\s+)?([a-z0-9][a-z0-9\s\-]{0,38}?)(?:\s*[?!]|$)/i);
   if (m && m[1]) {
     const w = normalizeLoreTermToken(m[1]);
-    if (w.length >= 2) return w.split(/\s+/).slice(0, 4).join(' ');
+    if (w.length >= 2 && !isInvalidLoreCandidateTerm(w)) return w.split(/\s+/).slice(0, 4).join(' ');
   }
   m = t.match(/\bwhat(?:'s|s)\s+([a-z0-9][a-z0-9\s\-]{0,38}?)(?:\s*[?!]|$)/i);
   if (m && m[1]) {
     const w = normalizeLoreTermToken(m[1]);
-    if (w.length >= 2) return w.split(/\s+/).slice(0, 4).join(' ');
+    if (w.length >= 2 && !isInvalidLoreCandidateTerm(w)) return w.split(/\s+/).slice(0, 4).join(' ');
   }
   m = t.match(/\b(?:explain|tell\s+me\s+about)\s+([a-z0-9][a-z0-9\-]{1,40})\b/i);
-  if (m && m[1]) return normalizeLoreTermToken(m[1]);
+  if (m && m[1]) {
+    const w = normalizeLoreTermToken(m[1]);
+    if (!isInvalidLoreCandidateTerm(w)) return w;
+  }
 
   if (loc === 'ko') {
     m = t.match(
       /^["'「『]([가-힣A-Za-z0-9\-]{2,40})["'」』]\s*(?:은|는|이|가)?\s*(?:무엇|뭐|뭔)/i
     );
-    if (m && m[1]) return normalizeLoreTermToken(m[1]);
+    if (m && m[1]) {
+      const w = normalizeLoreTermToken(m[1]);
+      if (!isInvalidLoreCandidateTerm(w)) return w;
+    }
   }
 
   return null;
@@ -1396,9 +1558,16 @@ function shouldSkipUnknownLoreBlockForTerm(term) {
 /**
  * topic이 이미 detectLoreQuestionTopic으로 특정되면(AXIS/HADES 등) LLM 경로 유지.
  * topic=general이고 추출 명사가 canon 밖이면 시스템 안전 응답.
+ * @param {string} clsKind lore_question | open_question 등 — 그 외 kind에서는 gate 미적용
  */
-function evaluateLoreUnknownTermGate(raw, locale) {
+function evaluateLoreUnknownTermGate(clsKind, raw, locale) {
   const t = String(raw || '').trim();
+  if (!shouldApplyUnknownLoreGuard(clsKind)) {
+    try {
+      console.log('[bot][lore] skip_unknown_gate reason=non_lore_kind');
+    } catch (e) {}
+    return { block: false };
+  }
   const topic = detectLoreQuestionTopic(t, locale);
   if (topic !== 'general') {
     try {
@@ -1410,6 +1579,12 @@ function evaluateLoreUnknownTermGate(raw, locale) {
   if (!extracted) {
     try {
       console.log('[bot][lore] extracted term=(none)');
+    } catch (e) {}
+    return { block: false };
+  }
+  if (isInvalidLoreCandidateTerm(extracted)) {
+    try {
+      console.log('[bot][lore] skip_unknown_gate reason=invalid_term term=' + extracted);
     } catch (e) {}
     return { block: false };
   }
@@ -3495,7 +3670,7 @@ async function handleTextMessage(playerId, text, opts = {}) {
 
   if (cls.kind === 'lore_question') {
     console.log('[bot] message kind=lore_question');
-    const gateTg = evaluateLoreUnknownTermGate(String(text || ''), locale);
+    const gateTg = evaluateLoreUnknownTermGate('lore_question', String(text || ''), locale);
     if (gateTg.block) {
       await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
       const lineUnk = buildUnknownLoreTermSystemLine(locale, gateTg.term);
@@ -3952,7 +4127,7 @@ async function processMessageApi(playerId, text, opts = {}) {
 
   if (cls.kind === 'lore_question') {
     console.log('[bot] message kind=lore_question');
-    const gateApi = evaluateLoreUnknownTermGate(String(text || ''), locale);
+    const gateApi = evaluateLoreUnknownTermGate('lore_question', String(text || ''), locale);
     if (gateApi.block) {
       await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
       const lineUnk = buildUnknownLoreTermSystemLine(locale, gateApi.term);
