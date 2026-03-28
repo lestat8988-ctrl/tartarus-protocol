@@ -1187,6 +1187,270 @@ function detectLoreQuestionTopic(raw, locale) {
   return 'general';
 }
 
+/** 정규 canon 토큰(소문자·무공백) + 운영 용어 — 미확인 전용명사 환각 차단용 */
+const KNOWN_CANON_LORE_PHRASES = new Set(
+  [
+    'axis',
+    'hades',
+    'horizon',
+    'project horizon',
+    'projecthorizon',
+    'phase shock',
+    'phaseshock',
+    'phase_shock',
+    'neptune',
+    'gravity',
+    'gravity drive',
+    'gravity-drive',
+    'bridge',
+    'medbay',
+    'engine',
+    'engine room',
+    'cctv',
+    'log',
+    'logs',
+    'airlock',
+    'corridor',
+    'tartarus',
+    'ussc',
+    'ussc tartarus',
+    'warp',
+    'nested',
+    '중첩체',
+    '프로젝트',
+    '호라이즌',
+    '호라이즌',
+    '해왕성',
+    '중력',
+    '중력드라이브',
+    '중력 드라이브',
+    '브리지',
+    '교량',
+    '의료실',
+    '엔진실',
+    '위상',
+    '위상충격',
+    '위상 충격',
+    '기상',
+    '실험선',
+    '함선',
+    '함장',
+    '닥터',
+    '엔지니어',
+    '네비게이터',
+    '파일럿',
+    'doctor',
+    'engineer',
+    'navigator',
+    'pilot',
+    'captain',
+    'crew',
+    'ship',
+    'impostor',
+    'imposter',
+    'host',
+    'phase',
+    'shock'
+  ].map((s) => s.toLowerCase())
+);
+
+/** 일상어·짧은 질문 — 미확인 lore 차단 제외 (LLM에 맡김) */
+const LORE_UNKNOWN_STOPWORDS = new Set(
+  [
+    '저녁',
+    '점심',
+    '아침',
+    '오늘',
+    '어제',
+    '내일',
+    '지금',
+    '기분',
+    '날씨',
+    '안녕',
+    '왜',
+    '어떻게',
+    '무슨',
+    '그게',
+    '그것',
+    '이게',
+    '뭐',
+    'dinner',
+    'lunch',
+    'breakfast',
+    'today',
+    'weather',
+    'feeling',
+    'hello',
+    'why',
+    'how'
+  ].map((s) => s.toLowerCase())
+);
+
+function normalizeLoreTermToken(raw) {
+  return String(raw || '')
+    .trim()
+    .replace(/^[\s"'「『\[\(]+|[\s"'」』\]\)\.]+$/g, '');
+}
+
+/**
+ * 명백한 동의어/영한 표기만 — 공격적 fuzzy 금지.
+ * @returns {{ canonical: string } | null}
+ */
+function maybeNormalizeLoreAlias(raw) {
+  const t = normalizeLoreTermToken(raw).toLowerCase().replace(/\s+/g, ' ');
+  if (!t) return null;
+  const map = new Map([
+    ['axis', 'axis'],
+    ['액시스', 'axis'],
+    ['hades', 'hades'],
+    ['하데스', 'hades'],
+    ['horizon', 'horizon'],
+    ['호라이즌', 'horizon'],
+    ['호라이즌', 'horizon'],
+    ['projecthorizon', 'horizon'],
+    ['project horizon', 'horizon'],
+    ['프로젝트호라이즌', 'horizon'],
+    ['프로젝트 호라이즌', 'horizon'],
+    ['phaseshock', 'phase_shock'],
+    ['phase shock', 'phase_shock'],
+    ['위상충격', 'phase_shock'],
+    ['위상 충격', 'phase_shock'],
+    ['페이즈쇼크', 'phase_shock'],
+    ['neptune', 'neptune'],
+    ['해왕성', 'neptune'],
+    ['gravitydrive', 'gravity'],
+    ['gravity drive', 'gravity'],
+    ['중력드라이브', 'gravity'],
+    ['중력 드라이브', 'gravity']
+  ]);
+  if (map.has(t)) {
+    return { canonical: map.get(t) };
+  }
+  return null;
+}
+
+function isKnownCanonLoreTerm(term) {
+  const n = normalizeLoreTermToken(term).toLowerCase().replace(/\s+/g, ' ');
+  if (!n) return false;
+  if (KNOWN_CANON_LORE_PHRASES.has(n)) return true;
+  if (maybeNormalizeLoreAlias(n)) return true;
+  for (const w of n.split(/\s+/)) {
+    if (!w) continue;
+    if (KNOWN_CANON_LORE_PHRASES.has(w)) return true;
+    if (maybeNormalizeLoreAlias(w)) return true;
+  }
+  return false;
+}
+
+/**
+ * lore 질문에서 묻는 핵심 명사/구 추출 (실패 시 null).
+ */
+function extractPrimaryLoreTerm(raw, locale) {
+  const t = String(raw || '').trim();
+  if (!t) return null;
+  const loc = locale === 'en' ? 'en' : 'ko';
+
+  let m = t.match(
+    /(?:^|[\s,.])([가-힣]{2,}|[A-Za-z][A-Za-z0-9\-]{1,40})\s*(?:가|이|은|는|을|를)?\s*(?:무엇|뭐|뭔(?:지|가)?|정체|의미)(?:이|인가|이야|야|요)?\s*[?？]?\s*$/i
+  );
+  if (m && m[1]) {
+    const w = normalizeLoreTermToken(m[1]);
+    if (w && !/^(무엇|뭐|이|이번|왜|지금|어떻게|그게|그것|그게)$/i.test(w)) return w;
+  }
+
+  m = t.match(/\bwhat\s+(?:is|are)\s+(?:the\s+)?([a-z0-9][a-z0-9\s\-]{0,38}?)(?:\s*[?!]|$)/i);
+  if (m && m[1]) {
+    const w = normalizeLoreTermToken(m[1]);
+    if (w.length >= 2) return w.split(/\s+/).slice(0, 4).join(' ');
+  }
+  m = t.match(/\bwhat(?:'s|s)\s+([a-z0-9][a-z0-9\s\-]{0,38}?)(?:\s*[?!]|$)/i);
+  if (m && m[1]) {
+    const w = normalizeLoreTermToken(m[1]);
+    if (w.length >= 2) return w.split(/\s+/).slice(0, 4).join(' ');
+  }
+  m = t.match(/\b(?:explain|tell\s+me\s+about)\s+([a-z0-9][a-z0-9\-]{1,40})\b/i);
+  if (m && m[1]) return normalizeLoreTermToken(m[1]);
+
+  if (loc === 'ko') {
+    m = t.match(
+      /^["'「『]([가-힣A-Za-z0-9\-]{2,40})["'」』]\s*(?:은|는|이|가)?\s*(?:무엇|뭐|뭔)/i
+    );
+    if (m && m[1]) return normalizeLoreTermToken(m[1]);
+  }
+
+  return null;
+}
+
+function shouldSkipUnknownLoreBlockForTerm(term) {
+  const n = normalizeLoreTermToken(term).toLowerCase();
+  if (!n) return true;
+  if (LORE_UNKNOWN_STOPWORDS.has(n)) return true;
+  for (const w of n.split(/\s+/)) {
+    if (LORE_UNKNOWN_STOPWORDS.has(w)) return true;
+  }
+  if (/[가-힣]/.test(term) && n.replace(/\s/g, '').length < 3) return true;
+  if (!/[가-힣]/.test(term) && n.replace(/\s/g, '').length < 2) return true;
+  return false;
+}
+
+/**
+ * topic이 이미 detectLoreQuestionTopic으로 특정되면(AXIS/HADES 등) LLM 경로 유지.
+ * topic=general이고 추출 명사가 canon 밖이면 시스템 안전 응답.
+ */
+function evaluateLoreUnknownTermGate(raw, locale) {
+  const t = String(raw || '').trim();
+  const topic = detectLoreQuestionTopic(t, locale);
+  if (topic !== 'general') {
+    try {
+      console.log('[bot][lore] topic=' + topic + ' skip_unknown_gate=canon_topic_detected');
+    } catch (e) {}
+    return { block: false };
+  }
+  const extracted = extractPrimaryLoreTerm(t, locale);
+  if (!extracted) {
+    try {
+      console.log('[bot][lore] extracted term=(none)');
+    } catch (e) {}
+    return { block: false };
+  }
+  try {
+    console.log('[bot][lore] extracted term=' + extracted);
+  } catch (e) {}
+  const alias = maybeNormalizeLoreAlias(extracted);
+  if (alias) {
+    try {
+      console.log('[bot][lore] alias normalized from=' + extracted + ' to=' + alias.canonical);
+      console.log('[bot][lore] canon term recognized=' + alias.canonical);
+    } catch (e) {}
+    return { block: false };
+  }
+  if (isKnownCanonLoreTerm(extracted)) {
+    try {
+      console.log('[bot][lore] canon term recognized=' + extracted);
+    } catch (e) {}
+    return { block: false };
+  }
+  if (shouldSkipUnknownLoreBlockForTerm(extracted)) {
+    try {
+      console.log('[bot][lore] skip_unknown_gate=stopword_or_short term=' + extracted);
+    } catch (e) {}
+    return { block: false };
+  }
+  try {
+    console.log('[bot][lore] unknown lore term term=' + extracted);
+  } catch (e) {}
+  return { block: true, term: extracted };
+}
+
+function buildUnknownLoreTermSystemLine(locale, displayTerm) {
+  const sys = systemHeader(locale);
+  const term = String(displayTerm || '?').slice(0, 80);
+  if (locale === 'en') {
+    return `${sys} The term '${term}' is not recognized in the current canon records. Please clarify whether you mean AXIS, HADES, or Project HORIZON.`;
+  }
+  return `${sys} 현재 기록상 '${term}'라는 공식 용어는 확인되지 않습니다. AXIS, HADES, 프로젝트 HORIZON 중 무엇을 뜻하는지 다시 지정해 주세요.`;
+}
+
 function getLoreCanonSystemExtension(locale) {
   const loc = locale === 'en' ? 'en' : 'ko';
   if (loc === 'en') {
@@ -3231,6 +3495,23 @@ async function handleTextMessage(playerId, text, opts = {}) {
 
   if (cls.kind === 'lore_question') {
     console.log('[bot] message kind=lore_question');
+    const gateTg = evaluateLoreUnknownTermGate(String(text || ''), locale);
+    if (gateTg.block) {
+      await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
+      const lineUnk = buildUnknownLoreTermSystemLine(locale, gateTg.term);
+      const rawEvUnk = [{ type: 'CREW_DIALOGUE', role: 'system', dialogue: lineUnk }];
+      const recentDisplayUnk = dedupeDisplayLogs(toPlayerDisplayLogs(rawEvUnk, { locale }), locale);
+      const toStoreUnk = displayLogsToCrewDialogueEvents(recentDisplayUnk, locale);
+      for (const ev of toStoreUnk) await matchStore.appendEvent(matchId, ev);
+      const updatedUnk = await matchStore.getMatch(matchId);
+      const timerUnk = ep1Engine.getTimerStatus(updatedUnk, now);
+      const remUnk = Math.max(0, Math.floor(timerUnk.remaining_sec ?? 0));
+      let replyUnk = recentDisplayUnk.map((e) => e.type).filter(Boolean).join('\n') || '…';
+      const mUnk = Math.floor(remUnk / 60);
+      const secUnk = remUnk % 60;
+      replyUnk += '\n⏱ ' + mUnk + ':' + String(secUnk).padStart(2, '0') + ' left';
+      return replyUnk;
+    }
     await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
     const matchForLlm = await matchStore.getMatch(matchId);
     const captainBodyForLore =
@@ -3671,6 +3952,29 @@ async function processMessageApi(playerId, text, opts = {}) {
 
   if (cls.kind === 'lore_question') {
     console.log('[bot] message kind=lore_question');
+    const gateApi = evaluateLoreUnknownTermGate(String(text || ''), locale);
+    if (gateApi.block) {
+      await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
+      const lineUnk = buildUnknownLoreTermSystemLine(locale, gateApi.term);
+      const rawEvUnk = [{ type: 'CREW_DIALOGUE', role: 'system', dialogue: lineUnk }];
+      const newDisplayLogsUnk = dedupeDisplayLogs(toPlayerDisplayLogs(rawEvUnk, { locale }), locale);
+      const toStoreUnk = displayLogsToCrewDialogueEvents(newDisplayLogsUnk, locale);
+      for (const ev of toStoreUnk) await matchStore.appendEvent(matchId, ev);
+      const updatedUnk = await matchStore.getMatch(matchId);
+      const timerUnk = ep1Engine.getTimerStatus(updatedUnk, now);
+      const remUnk = Math.max(0, Math.floor(timerUnk.remaining_sec ?? 0));
+      const summaryTextUnk = summaryFromDisplayLogs(newDisplayLogsUnk, locale);
+      return {
+        ok: true,
+        summary: summaryTextUnk,
+        remaining_sec: remUnk,
+        game_over: false,
+        outcome: null,
+        events: newDisplayLogsUnk,
+        recent_events: newDisplayLogsUnk,
+        match_state: updatedUnk?.game_state || {}
+      };
+    }
     await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
     const matchForLlm = await matchStore.getMatch(matchId);
     const captainBodyForLore =
