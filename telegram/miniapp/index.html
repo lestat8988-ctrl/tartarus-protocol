@@ -250,6 +250,54 @@
     }
     .input-area.disabled input { color: #2aef2a66; }
     .input-area.disabled input::placeholder { color: #2aef2a44; }
+    /* Entitlement: 입장권/자유입력 제한 안내 */
+    .entitlement-banner {
+      display: none;
+      margin: 8px 0 12px;
+      padding: 12px 14px;
+      border: 1px solid rgba(239, 138, 42, 0.75);
+      border-radius: 4px;
+      background: #140f08;
+      color: #ffcc88;
+      font-size: 0.82rem;
+      line-height: 1.45;
+    }
+    .entitlement-banner.visible { display: block; }
+    .entitlement-banner .entitlement-detail {
+      margin-top: 8px;
+      font-size: 0.74rem;
+      color: #9a9a9a;
+    }
+    .entitlement-hint {
+      display: none;
+      margin: 6px 0 4px;
+      padding: 8px 10px;
+      border: 1px solid rgba(239, 138, 42, 0.45);
+      border-radius: 4px;
+      background: #120d08;
+      color: #ffaa66;
+      font-size: 0.78rem;
+      line-height: 1.4;
+    }
+    .entitlement-hint.visible { display: block; }
+    .input-area.entitlement-prompt-only:not(.disabled) input,
+    .input-area.entitlement-prompt-only:not(.disabled) #send-btn {
+      opacity: 0.5;
+      pointer-events: none;
+    }
+    #game-screen.start-blocked .game-briefing-viewport,
+    #game-screen.start-blocked .status-card,
+    #game-screen.start-blocked .log-panel,
+    #game-screen.start-blocked .action-panel,
+    #game-screen.start-blocked .input-area,
+    #game-screen.start-blocked .episode-section,
+    #game-screen.start-blocked .captain-phase-status {
+      display: none !important;
+    }
+    #game-screen.start-blocked .entitlement-hint {
+      display: none !important;
+    }
+    #game-screen.start-blocked .restart-section { display: block !important; }
 
     /* Restart button (game over only) */
     .restart-section {
@@ -675,6 +723,8 @@
       <p class="subheader" id="hud-countdown">TIME UNTIL TOTAL SHIP COLLAPSE : --:--</p>
     </header>
 
+    <div id="entitlement-start-banner" class="entitlement-banner" role="alert" aria-live="assertive"></div>
+
     <div class="outcome-badge" id="outcome-badge"></div>
 
     <p id="captain-phase-status" class="captain-phase-status captain-phase-idle" role="status" aria-live="polite"></p>
@@ -737,6 +787,8 @@
       <button class="action-btn" data-action="clue">단서 수집</button>
       <button class="action-btn" data-action="execute" style="grid-column: 1 / -1;">처형 프로토콜 실행</button>
     </section>
+
+    <div id="entitlement-prompt-hint" class="entitlement-hint" role="status" aria-live="polite"></div>
 
     <section class="input-area" id="input-area">
       <input type="text" id="free-input" placeholder="자유 입력..." maxlength="200" />
@@ -883,6 +935,117 @@
       }
       function logMiniappApiLang(endpoint) {
         try { console.log('[miniapp] sending lang=' + getLangForApi() + ' endpoint=' + endpoint); } catch (e) {}
+      }
+
+      function escapeHtml(s) {
+        var t = String(s == null ? '' : s);
+        return t
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      function readFetchJsonResponse(r) {
+        return r.text().then(function(t) {
+          var j = null;
+          try {
+            j = t ? JSON.parse(t) : null;
+          } catch (e) {
+            j = null;
+          }
+          return { okHttp: r.ok, status: r.status, raw: t || '', json: j };
+        });
+      }
+
+      function getFallbackForBlockReason(blockReason) {
+        var ko = getLangForApi() === 'ko';
+        if (blockReason === 'daily_ticket_limit_reached') {
+          return ko
+            ? '오늘의 입장권을 모두 사용했습니다. 내일 다시 시도하거나 상위 보안등급을 이용하세요.'
+            : 'You have used all daily entry tickets. Please try again tomorrow or use a higher clearance tier.';
+        }
+        if (blockReason === 'daily_free_prompt_limit_reached') {
+          return ko
+            ? '오늘의 자유입력 횟수를 모두 사용했습니다. 버튼 액션은 계속 사용할 수 있습니다.'
+            : 'You have used all daily free-text prompts for today. Button actions are still available.';
+        }
+        return ko ? '이용 제한에 도달했습니다.' : 'Usage limit reached.';
+      }
+
+      function formatEntitlementDetail(ent) {
+        if (!ent || typeof ent !== 'object') return '';
+        var tu = ent.daily_ticket_used;
+        var tl = ent.daily_ticket_limit;
+        var pu = ent.daily_free_prompt_used;
+        var pl = ent.daily_free_prompt_limit;
+        var ko = getLangForApi() === 'ko';
+        var parts = [];
+        if (tl != null && tl !== '') {
+          parts.push(
+            (ko ? '입장권 ' : 'Entry ') + String(tu != null ? tu : 0) + '/' + String(tl)
+          );
+        }
+        if (pl != null && pl !== '') {
+          parts.push(
+            (ko ? '자유입력 ' : 'Free text ') + String(pu != null ? pu : 0) + '/' + String(pl)
+          );
+        }
+        if (!parts.length) return '';
+        return parts.join(ko ? ' · ' : ' · ');
+      }
+
+      function resolveBlockedUserMessage(data) {
+        if (!data || typeof data !== 'object') return getFallbackForBlockReason('');
+        var n = data.notice || data.message || data.error;
+        if (typeof n === 'string' && n.trim()) return n.trim();
+        return getFallbackForBlockReason(data.block_reason);
+      }
+
+      function isBlockedResponse(data) {
+        if (!data || typeof data !== 'object') return false;
+        if (data.blocked === true) return true;
+        if (data.ok === false && data.block_reason) return true;
+        return false;
+      }
+
+      function normalizeNonBlockedErrorMessage(data) {
+        if (!data || typeof data !== 'object') return '';
+        var m = data.notice || data.message || data.error;
+        if (typeof m === 'string' && m.trim()) return m.trim();
+        return '';
+      }
+
+      function normalizeApiErrorFromMeta(meta) {
+        var b = meta && meta.json;
+        if (b && typeof b === 'object') {
+          var m = normalizeNonBlockedErrorMessage(b);
+          if (m) {
+            try {
+              console.log('[miniapp] normalized error message=' + m.slice(0, 120));
+            } catch (e) {}
+            return m;
+          }
+        }
+        var raw = (meta && meta.raw) || '';
+        if (typeof raw === 'string' && raw.trim() && raw.length < 400) {
+          try {
+            var j = JSON.parse(raw);
+            if (j && typeof j === 'object') {
+              var m2 = normalizeNonBlockedErrorMessage(j);
+              if (m2) return m2;
+            }
+          } catch (e) {}
+          if (raw.trim().length && raw.trim().length < 200) {
+            try {
+              console.log('[miniapp] normalized error message=' + raw.trim().slice(0, 120));
+            } catch (e2) {}
+            return raw.trim();
+          }
+        }
+        var st = meta && meta.status;
+        var ko = getLangForApi() === 'ko';
+        return (ko ? '요청을 처리할 수 없습니다.' : 'Request could not be completed.') + (st ? ' (' + st + ')' : '');
       }
 
       /* public/index.html INTRO_TEXT에서 그대로 복사 (lines 배열) */
@@ -1134,6 +1297,8 @@
       const questionModal = document.getElementById('question-modal');
       const questionConfirmBtn = document.getElementById('question-confirm');
       const captainPhaseStatusEl = document.getElementById('captain-phase-status');
+      const entitlementStartBanner = document.getElementById('entitlement-start-banner');
+      const entitlementPromptHint = document.getElementById('entitlement-prompt-hint');
 
       var isGameOver = false;
       var previousGameOver = false;
@@ -1153,6 +1318,8 @@
       var threatRequestInFlight = false;
       var threatModalUnlockTimer = null;
       var questionModalUnlockTimer = null;
+      /** daily_free_prompt_limit_reached 시 자유입력만 잠금 (버튼 액션은 유지) */
+      var promptEntitlementBlocked = false;
       var selectedThreatTarget = null;
       var selectedExecuteTarget = null;
       var selectedQuestionTarget = null;
@@ -1195,15 +1362,20 @@
       function applyCaptainInputChrome() {
         var L = getL();
         var locked = isGameOver || userActionPending;
+        var promptOnly = !locked && promptEntitlementBlocked;
         document.body.classList.toggle('crew-response-pending', !!userActionPending && !isGameOver);
-        if (inputArea) inputArea.classList.toggle('disabled', locked);
+        if (inputArea) {
+          inputArea.classList.toggle('disabled', locked);
+          inputArea.classList.toggle('entitlement-prompt-only', promptOnly);
+        }
         if (freeInput) {
-          freeInput.disabled = locked;
+          freeInput.disabled = locked || promptOnly;
           if (isGameOver) freeInput.placeholder = L.gameOverPlaceholder;
           else if (userActionPending) freeInput.placeholder = L.statusInputLocked || L.statusCrewPending || '';
+          else if (promptOnly) freeInput.placeholder = L.freeInput;
           else freeInput.placeholder = L.freeInput;
         }
-        if (sendBtn) sendBtn.disabled = locked;
+        if (sendBtn) sendBtn.disabled = locked || promptOnly;
         actionBtns.forEach(function(b) {
           b.disabled = locked;
           b.classList.toggle('locked', locked);
@@ -2194,6 +2366,58 @@
         }
       }
 
+      function hideEntitlementStartBanner() {
+        if (gameScreen) gameScreen.classList.remove('start-blocked');
+        if (entitlementStartBanner) {
+          entitlementStartBanner.classList.remove('visible');
+          entitlementStartBanner.innerHTML = '';
+        }
+      }
+
+      function showEntitlementStartBlocked(data) {
+        stopStatePolling();
+        hideEntitlementPromptHint();
+        try {
+          console.log('[miniapp] blocked response block_reason=' + String((data && data.block_reason) || ''));
+        } catch (e) {}
+        var msg = resolveBlockedUserMessage(data);
+        var detail = formatEntitlementDetail(data && data.entitlement);
+        if (gameScreen) gameScreen.classList.add('start-blocked');
+        if (entitlementStartBanner) {
+          entitlementStartBanner.classList.add('visible');
+          entitlementStartBanner.innerHTML =
+            '<div class="entitlement-banner-body">' +
+            escapeHtml(msg) +
+            '</div>' +
+            (detail
+              ? '<div class="entitlement-detail">' + escapeHtml(detail) + '</div>'
+              : '');
+        }
+      }
+
+      function hideEntitlementPromptHint() {
+        promptEntitlementBlocked = false;
+        if (entitlementPromptHint) {
+          entitlementPromptHint.classList.remove('visible');
+          entitlementPromptHint.textContent = '';
+        }
+        applyCaptainInputChrome();
+      }
+
+      function showEntitlementPromptBlocked(data) {
+        try {
+          console.log('[miniapp] blocked response block_reason=' + String((data && data.block_reason) || ''));
+        } catch (e) {}
+        promptEntitlementBlocked = true;
+        var msg = resolveBlockedUserMessage(data);
+        var detail = formatEntitlementDetail(data && data.entitlement);
+        if (entitlementPromptHint) {
+          entitlementPromptHint.classList.add('visible');
+          entitlementPromptHint.textContent = msg + (detail ? ' — ' + detail : '');
+        }
+        applyCaptainInputChrome();
+      }
+
       function doStart(restart) {
         if (startRequestInFlight) return;
         forceInvalidateUserActionLock();
@@ -2206,30 +2430,58 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ playerId: playerId, restart: !!restart, lang: getLangForApi() })
         })
-          .then(function(r) { return r.json(); })
-          .then(function(data) {
-            if (data.ok) {
-              lastRenderedRecentEventsSig = '';
-              resetResultUI();
-              ensureIntroButtonsEnabled();
-              var st = { match_id: data.match_id, remaining_sec: data.remaining_sec, game_state: data.game_state };
-              if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
-              if (data.is_timeout) st.is_timeout = data.is_timeout;
-              updateStatus(st, { fromStart: true });
-              if (restart) {
-                clearGameLogPanelAndState();
-                appendLog(getInitialSystemLogLine(), false);
-              } else if (data.events && data.events.length) {
-                applyEvents(data.events);
-              } else {
-                appendLog(getInitialSystemLogLine(), false);
+          .then(readFetchJsonResponse)
+          .then(function(meta) {
+            var data = meta.json || {};
+            if (!meta.okHttp) {
+              try {
+                console.log('[miniapp] non-ok response status=' + String(meta.status));
+              } catch (e) {}
+              if (isBlockedResponse(data)) {
+                showEntitlementStartBlocked(data);
+                return;
               }
-              startStatePolling();
-            } else {
-              appendLog('Error: ' + (data.error || 'unknown'), true);
+              appendLog(normalizeApiErrorFromMeta(meta), true);
+              return;
             }
+            if (isBlockedResponse(data)) {
+              showEntitlementStartBlocked(data);
+              return;
+            }
+            if (!data.ok) {
+              var em = normalizeNonBlockedErrorMessage(data);
+              if (em) {
+                try {
+                  console.log('[miniapp] normalized error message=' + em.slice(0, 120));
+                } catch (e) {}
+                appendLog(em, true);
+              } else {
+                appendLog(normalizeApiErrorFromMeta(meta), true);
+              }
+              return;
+            }
+            hideEntitlementStartBanner();
+            lastRenderedRecentEventsSig = '';
+            resetResultUI();
+            ensureIntroButtonsEnabled();
+            var st = { match_id: data.match_id, remaining_sec: data.remaining_sec, game_state: data.game_state };
+            if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
+            if (data.is_timeout) st.is_timeout = data.is_timeout;
+            updateStatus(st, { fromStart: true });
+            if (restart) {
+              clearGameLogPanelAndState();
+              appendLog(getInitialSystemLogLine(), false);
+            } else if (data.events && data.events.length) {
+              applyEvents(data.events);
+            } else {
+              appendLog(getInitialSystemLogLine(), false);
+            }
+            startStatePolling();
           })
           .catch(function(err) {
+            try {
+              console.log('[miniapp] normalized error message=' + String((err && err.message) || 'catch'));
+            } catch (e) {}
             appendLog('Connection failed. Start: node telegram/bot/bot.js', true);
           })
           .finally(function() {
@@ -2245,6 +2497,7 @@
       function submitFreeMessage(evt) {
         if (evt && evt.preventDefault) evt.preventDefault();
         if (isGameOver || userActionPending) return;
+        if (promptEntitlementBlocked) return;
         var raw = (freeInput && freeInput.value || '').trim();
         if (!raw) return;
         try {
@@ -2266,19 +2519,41 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ playerId: playerId, text: trimmed, lang: getLangForApi() })
         })
-          .then(function(r) {
-            if (!r.ok) {
-              return r.text().then(function(t) {
-                throw new Error('HTTP ' + r.status + (t ? ': ' + String(t).slice(0, 120) : ''));
-              });
+          .then(readFetchJsonResponse)
+          .then(function(meta) {
+            var data = meta.json || {};
+            if (!meta.okHttp) {
+              try {
+                console.log('[miniapp] non-ok response status=' + String(meta.status));
+              } catch (e) {}
+              if (isBlockedResponse(data)) {
+                if (data.block_reason === 'daily_free_prompt_limit_reached') {
+                  showEntitlementPromptBlocked(data);
+                } else if (data.block_reason === 'daily_ticket_limit_reached') {
+                  showEntitlementStartBlocked(data);
+                } else {
+                  showEntitlementPromptBlocked(data);
+                }
+                return;
+              }
+              appendLog(normalizeApiErrorFromMeta(meta), true, 'doMessage');
+              return;
             }
-            return r.json();
-          })
-          .then(function(data) {
+            if (isBlockedResponse(data)) {
+              if (data.block_reason === 'daily_free_prompt_limit_reached') {
+                showEntitlementPromptBlocked(data);
+              } else if (data.block_reason === 'daily_ticket_limit_reached') {
+                showEntitlementStartBlocked(data);
+              } else {
+                showEntitlementPromptBlocked(data);
+              }
+              return;
+            }
             if (data.ok) {
               try {
                 console.log('[miniapp] /api/message ok');
               } catch (e) {}
+              hideEntitlementPromptHint();
               if (freeInput) freeInput.value = '';
               var st = { remaining_sec: data.remaining_sec, game_state: data.match_state };
               if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
@@ -2290,13 +2565,24 @@
               try {
                 console.log('[miniapp] /api/message failed', data.error || 'ok=false');
               } catch (e) {}
-              appendLog('Error: ' + (data.error || 'unknown'), true, 'doMessage');
+              var em = normalizeNonBlockedErrorMessage(data);
+              if (em) {
+                try {
+                  console.log('[miniapp] normalized error message=' + em.slice(0, 120));
+                } catch (e2) {}
+                appendLog(em, true, 'doMessage');
+              } else {
+                appendLog(normalizeApiErrorFromMeta(meta), true, 'doMessage');
+              }
             }
           })
           .catch(function(err) {
             try {
-              console.log('[miniapp] /api/message failed', err && err.message); 
+              console.log('[miniapp] /api/message failed', err && err.message);
             } catch (e) {}
+            try {
+              console.log('[miniapp] normalized error message=' + String((err && err.message) || 'network'));
+            } catch (e2) {}
             appendLog('Connection failed: ' + (err.message || 'unknown'), true, 'doMessage');
           })
           .finally(function() {
@@ -2319,8 +2605,26 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ playerId: playerId, target: targetKey, lang: getLangForApi() })
         })
-          .then(function(r) { return r.json(); })
-          .then(function(data) {
+          .then(readFetchJsonResponse)
+          .then(function(meta) {
+            var data = meta.json || {};
+            if (!meta.okHttp) {
+              try {
+                console.log('[miniapp] non-ok response status=' + String(meta.status));
+              } catch (e) {}
+              if (isBlockedResponse(data)) {
+                if (data.block_reason === 'daily_ticket_limit_reached') showEntitlementStartBlocked(data);
+                else appendLog(resolveBlockedUserMessage(data), true);
+                return;
+              }
+              appendLog(normalizeApiErrorFromMeta(meta), true);
+              return;
+            }
+            if (isBlockedResponse(data)) {
+              if (data.block_reason === 'daily_ticket_limit_reached') showEntitlementStartBlocked(data);
+              else appendLog(resolveBlockedUserMessage(data), true);
+              return;
+            }
             if (data.ok) {
               var st = { remaining_sec: data.remaining_sec, game_state: data.match_state };
               if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
@@ -2329,7 +2633,8 @@
               if (data.game_over) stopStatePolling();
               appendSummaryOrEvents(data);
             } else {
-              appendLog('Error: ' + (data.error || 'unknown'), true);
+              var em = normalizeNonBlockedErrorMessage(data);
+              appendLog(em || normalizeApiErrorFromMeta(meta), true);
             }
           })
           .catch(function(err) {
@@ -2353,8 +2658,26 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ playerId: playerId, action: 'take_pistol', lang: getLangForApi() })
         })
-          .then(function(r) { return r.json(); })
-          .then(function(data) {
+          .then(readFetchJsonResponse)
+          .then(function(meta) {
+            var data = meta.json || {};
+            if (!meta.okHttp) {
+              try {
+                console.log('[miniapp] non-ok response status=' + String(meta.status));
+              } catch (e) {}
+              if (isBlockedResponse(data)) {
+                if (data.block_reason === 'daily_ticket_limit_reached') showEntitlementStartBlocked(data);
+                else appendLog(resolveBlockedUserMessage(data), true);
+                return;
+              }
+              appendLog(normalizeApiErrorFromMeta(meta), true);
+              return;
+            }
+            if (isBlockedResponse(data)) {
+              if (data.block_reason === 'daily_ticket_limit_reached') showEntitlementStartBlocked(data);
+              else appendLog(resolveBlockedUserMessage(data), true);
+              return;
+            }
             if (data.ok) {
               var st = { remaining_sec: data.remaining_sec, game_state: data.match_state };
               if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
@@ -2363,7 +2686,7 @@
               if (data.game_over) stopStatePolling();
               appendSummaryOrEvents(data);
             } else {
-              appendLog('Error: ' + (data.error || 'unknown'), true);
+              appendLog(normalizeNonBlockedErrorMessage(data) || normalizeApiErrorFromMeta(meta), true);
             }
           })
           .catch(function(err) {
@@ -2387,8 +2710,26 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ playerId: playerId, action: 'collect_clue', lang: getLangForApi() })
         })
-          .then(function(r) { return r.json(); })
-          .then(function(data) {
+          .then(readFetchJsonResponse)
+          .then(function(meta) {
+            var data = meta.json || {};
+            if (!meta.okHttp) {
+              try {
+                console.log('[miniapp] non-ok response status=' + String(meta.status));
+              } catch (e) {}
+              if (isBlockedResponse(data)) {
+                if (data.block_reason === 'daily_ticket_limit_reached') showEntitlementStartBlocked(data);
+                else appendLog(resolveBlockedUserMessage(data), true);
+                return;
+              }
+              appendLog(normalizeApiErrorFromMeta(meta), true);
+              return;
+            }
+            if (isBlockedResponse(data)) {
+              if (data.block_reason === 'daily_ticket_limit_reached') showEntitlementStartBlocked(data);
+              else appendLog(resolveBlockedUserMessage(data), true);
+              return;
+            }
             if (data.ok) {
               var st = { remaining_sec: data.remaining_sec, game_state: data.match_state };
               if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
@@ -2397,7 +2738,7 @@
               if (data.game_over) stopStatePolling();
               appendSummaryOrEvents(data);
             } else {
-              appendLog('Error: ' + (data.error || 'unknown'), true);
+              appendLog(normalizeNonBlockedErrorMessage(data) || normalizeApiErrorFromMeta(meta), true);
             }
           })
           .catch(function(err) {
@@ -2424,8 +2765,26 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ playerId: playerId, action: 'threaten', target: targetKey, lang: getLangForApi() })
         })
-          .then(function(r) { return r.json(); })
-          .then(function(data) {
+          .then(readFetchJsonResponse)
+          .then(function(meta) {
+            var data = meta.json || {};
+            if (!meta.okHttp) {
+              try {
+                console.log('[miniapp] non-ok response status=' + String(meta.status));
+              } catch (e) {}
+              if (isBlockedResponse(data)) {
+                if (data.block_reason === 'daily_ticket_limit_reached') showEntitlementStartBlocked(data);
+                else appendLog(resolveBlockedUserMessage(data), true);
+                return;
+              }
+              appendLog(normalizeApiErrorFromMeta(meta), true);
+              return;
+            }
+            if (isBlockedResponse(data)) {
+              if (data.block_reason === 'daily_ticket_limit_reached') showEntitlementStartBlocked(data);
+              else appendLog(resolveBlockedUserMessage(data), true);
+              return;
+            }
             if (data.ok) {
               var st = { remaining_sec: data.remaining_sec, game_state: data.match_state };
               if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
@@ -2434,7 +2793,7 @@
               if (data.game_over) stopStatePolling();
               appendSummaryOrEvents(data);
             } else {
-              appendLog('Error: ' + (data.error || 'unknown'), true);
+              appendLog(normalizeNonBlockedErrorMessage(data) || normalizeApiErrorFromMeta(meta), true);
             }
           })
           .catch(function(err) {
@@ -2466,6 +2825,8 @@
         if (gameScreen) gameScreen.classList.add('visible');
         renderGameLabels();
         startGameBriefingScroll();
+        hideEntitlementStartBanner();
+        hideEntitlementPromptHint();
         doStart(false);
       });
 
@@ -2816,7 +3177,10 @@
       });
 
       function doRestart() {
-        if (!isGameOver || startRequestInFlight) return;
+        if (startRequestInFlight) return;
+        var allowRestart =
+          isGameOver || (gameScreen && gameScreen.classList.contains('start-blocked'));
+        if (!allowRestart) return;
         forceInvalidateUserActionLock();
         try {
           console.log('[miniapp] state_poll_reset_on_restart=true');
@@ -2828,6 +3192,8 @@
         resetResultUI();
         restartSection.classList.remove('visible');
         startGameBriefingScroll();
+        hideEntitlementStartBanner();
+        hideEntitlementPromptHint();
         doStart(true);
       }
 
