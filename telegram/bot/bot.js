@@ -4944,14 +4944,40 @@ function createLocalApiServer() {
 }
 
 /**
+ * 동일 TELEGRAM_BOT_TOKEN으로 getUpdates long polling이 둘 이상 뜨면 409 Conflict.
+ * Railway/프로덕션 기본은 polling OFF — ENABLE_TELEGRAM_POLLING=true 일 때만 시작.
+ */
+function resolveTelegramPollingEnabled() {
+  const v = String(process.env.ENABLE_TELEGRAM_POLLING || '').trim().toLowerCase();
+  if (v === 'true' || v === '1' || v === 'yes') {
+    return { enabled: true, reason: 'ENABLE_TELEGRAM_POLLING' };
+  }
+  if (v === 'false' || v === '0' || v === 'no') {
+    return { enabled: false, reason: 'ENABLE_TELEGRAM_POLLING' };
+  }
+  const onRailway = !!(
+    process.env.RAILWAY_ENVIRONMENT ||
+    process.env.RAILWAY_PROJECT_ID ||
+    process.env.RAILWAY_SERVICE_NAME ||
+    process.env.RAILWAY_REPLICA_ID
+  );
+  if (onRailway || process.env.NODE_ENV === 'production') {
+    return { enabled: false, reason: 'default_railway_or_production' };
+  }
+  return { enabled: true, reason: 'default_local_dev' };
+}
+
+/**
  * 실행 진입점: node telegram/bot/bot.js
- * 로컬 API 서버 항상 시작, Telegram polling은 토큰 있을 때만.
+ * 로컬 API 서버 항상 시작, Telegram long polling은 토큰 + ENABLE 조건일 때만.
  */
 if (require.main === module) {
   console.log('[bot] TELEGRAM_DIALOGUE_MODEL=' + TELEGRAM_DIALOGUE_MODEL);
   console.log('[bot] OPENAI_API_KEY=' + (process.env.OPENAI_API_KEY ? 'loaded' : 'missing'));
   console.log('[bot] DEEPSEEK_API_KEY=' + (process.env.DEEPSEEK_API_KEY ? 'loaded' : 'missing'));
   const token = process.env.TELEGRAM_BOT_TOKEN;
+  const pollCfg = resolveTelegramPollingEnabled();
+  console.log('[bot] telegram polling enabled=' + pollCfg.enabled);
 
   const apiServer = createLocalApiServer();
   apiServer.listen(API_PORT, () => {
@@ -4959,12 +4985,28 @@ if (require.main === module) {
   });
 
   let bot = null;
-  if (token) {
+  if (token && pollCfg.enabled) {
     const TelegramBot = require('node-telegram-bot-api');
     bot = new TelegramBot(token, { polling: true });
     console.log('[bot] bot runtime starting');
     console.log('[bot] token detected');
     console.log('[bot] polling started');
+
+    bot.on('polling_error', (err) => {
+      const code =
+        err?.response?.statusCode ??
+        err?.response?.status ??
+        err?.code ??
+        '';
+      const msg = err?.message || String(err);
+      console.warn('[bot] polling error code=' + code + ' message=' + msg);
+      const s = String(msg);
+      if (code === 409 || s.includes('409') || /Conflict|getUpdates/i.test(s)) {
+        console.warn(
+          '[bot] polling conflict — another getUpdates may be active; HTTP API server continues'
+        );
+      }
+    });
 
     bot.on('message', async (msg) => {
       const chatId = msg.chat?.id;
@@ -4981,6 +5023,9 @@ if (require.main === module) {
         } catch (_) {}
       }
     });
+  } else if (token && !pollCfg.enabled) {
+    console.log('[bot] polling skipped by env');
+    console.log('[bot] polling skip reason=' + pollCfg.reason);
   } else {
     console.log('[bot] TELEGRAM_BOT_TOKEN not set - polling disabled, API only');
   }
