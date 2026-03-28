@@ -88,8 +88,277 @@ function defaultEntitlementRow(userKey) {
     daily_ticket_used: 0,
     daily_free_prompt_limit: 5,
     daily_free_prompt_used: 0,
+    daily_ticket_reset_at: now,
+    daily_free_prompt_reset_at: now,
     updated_at: now
   };
+}
+
+/** Asia/Seoul calendar day key YYYY-MM-DD */
+function getSeoulDateKey(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date);
+  return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' });
+}
+
+/**
+ * 확장: clearance_level / is_premium에 따라 limit를 바꿀 때 여기만 조정.
+ * @param {object} entitlement
+ */
+function getEntitlementLimits(entitlement) {
+  const clearance_level = entitlement?.clearance_level != null ? Number(entitlement.clearance_level) : 1;
+  const is_premium = !!entitlement?.is_premium;
+  let daily_ticket_limit = Number(entitlement?.daily_ticket_limit);
+  if (!Number.isFinite(daily_ticket_limit) || daily_ticket_limit < 0) daily_ticket_limit = 3;
+  let daily_free_prompt_limit = Number(entitlement?.daily_free_prompt_limit);
+  if (!Number.isFinite(daily_free_prompt_limit) || daily_free_prompt_limit < 0) daily_free_prompt_limit = 5;
+  // Future: tier 2+ / premium — 예: if (clearance_level >= 2 && is_premium) { daily_ticket_limit = 10; }
+  void clearance_level;
+  void is_premium;
+  return {
+    clearance_level: Number.isFinite(clearance_level) ? clearance_level : 1,
+    is_premium,
+    daily_ticket_limit,
+    daily_free_prompt_limit
+  };
+}
+
+function buildEntitlementSnapshot(ent) {
+  if (!ent) return null;
+  const lim = getEntitlementLimits(ent);
+  return {
+    clearance_level: lim.clearance_level,
+    is_premium: lim.is_premium,
+    daily_ticket_limit: lim.daily_ticket_limit,
+    daily_ticket_used: ent.daily_ticket_used ?? 0,
+    daily_free_prompt_limit: lim.daily_free_prompt_limit,
+    daily_free_prompt_used: ent.daily_free_prompt_used ?? 0
+  };
+}
+
+/**
+ * Seoul 자정 기준 일일 카운터 — reset_at의 날짜와 오늘(Seoul)이 다르면 used 0 + reset_at 갱신.
+ * @returns {{ ent: object, changed: boolean }}
+ */
+function resetEntitlementCountersIfNeeded(ent, now = new Date()) {
+  const e = { ...ent };
+  let changed = false;
+  const todayKey = getSeoulDateKey(now);
+  const ticketKey = e.daily_ticket_reset_at ? getSeoulDateKey(new Date(e.daily_ticket_reset_at)) : null;
+  if (!e.daily_ticket_reset_at || ticketKey !== todayKey) {
+    e.daily_ticket_used = 0;
+    e.daily_ticket_reset_at = now.toISOString();
+    changed = true;
+  }
+  const promptKey = e.daily_free_prompt_reset_at ? getSeoulDateKey(new Date(e.daily_free_prompt_reset_at)) : null;
+  if (!e.daily_free_prompt_reset_at || promptKey !== todayKey) {
+    e.daily_free_prompt_used = 0;
+    e.daily_free_prompt_reset_at = now.toISOString();
+    changed = true;
+  }
+  return { ent: e, changed };
+}
+
+async function fetchUserEntitlementRow(userKey) {
+  const key = String(userKey || 'anonymous');
+  logDbBootOnce();
+  const sb = getSupabaseOptional();
+  if (sb) {
+    try {
+      const { data, error } = await sb.from('user_entitlements').select('*').eq('user_key', key).maybeSingle();
+      if (error) {
+        console.warn(
+          '[bot][db] entitlement fetch warn user_key=' + key + ' error=' + String(error.message || error)
+        );
+      }
+      if (data && typeof data === 'object') {
+        const merged = { ...defaultEntitlementRow(key), ...data };
+        dbUserEntitlementsMemory.set(key, merged);
+        return merged;
+      }
+    } catch (e) {
+      console.warn('[bot][db] entitlement fetch warn user_key=' + key + ' error=' + String(e?.message || e));
+    }
+  }
+  const mem = dbUserEntitlementsMemory.get(key);
+  if (mem) return { ...defaultEntitlementRow(key), ...mem };
+  const row = defaultEntitlementRow(key);
+  dbUserEntitlementsMemory.set(key, row);
+  return row;
+}
+
+function buildEntitlementBlockedResponse(locale, blockReason, entitlementRow, extra = {}) {
+  const koTicket = '오늘의 입장권을 모두 사용했습니다. 내일 다시 시도하거나 상위 보안등급을 이용하세요.';
+  const koPrompt = '오늘의 자유입력 횟수를 모두 사용했습니다. 버튼 액션은 계속 사용할 수 있습니다.';
+  const enTicket =
+    'You have used all daily entry tickets. Please try again tomorrow or use a higher clearance tier.';
+  const enPrompt =
+    'You have used all daily free-text prompts for today. Button actions are still available.';
+  const isTicket = blockReason === 'daily_ticket_limit_reached';
+  const notice = locale === 'en' ? (isTicket ? enTicket : enPrompt) : isTicket ? koTicket : koPrompt;
+  return {
+    ok: false,
+    blocked: true,
+    block_reason: blockReason,
+    notice,
+    message: notice,
+    entitlement: buildEntitlementSnapshot(entitlementRow),
+    ...extra,
+    summary: extra && extra.summary != null ? extra.summary : notice
+  };
+}
+
+async function consumeDailyTicketIfAllowed(userKey, opts = {}) {
+  const k = String(userKey || 'anonymous');
+  console.log('[bot][entitlement] ticket consume start user_key=' + k);
+  let ent;
+  try {
+    ent = await fetchUserEntitlementRow(k);
+  } catch (e) {
+    console.warn('[bot][entitlement] ticket load warn user_key=' + k + ' ' + String(e?.message || e));
+    return { allowed: true, fallback: true, entitlement: null };
+  }
+  const r0 = resetEntitlementCountersIfNeeded(ent);
+  ent = r0.ent;
+  if (r0.changed) {
+    try {
+      await upsertUserEntitlement(k, {
+        daily_ticket_used: ent.daily_ticket_used,
+        daily_ticket_reset_at: ent.daily_ticket_reset_at,
+        daily_free_prompt_used: ent.daily_free_prompt_used,
+        daily_free_prompt_reset_at: ent.daily_free_prompt_reset_at
+      });
+    } catch (e) {
+      console.warn('[bot][entitlement] ticket reset persist warn user_key=' + k + ' ' + String(e?.message || e));
+    }
+  }
+  const limits = getEntitlementLimits(ent);
+  const used = ent.daily_ticket_used ?? 0;
+  if (used >= limits.daily_ticket_limit) {
+    console.log(
+      '[bot][entitlement] ticket blocked user_key=' +
+        k +
+        ' used=' +
+        used +
+        ' limit=' +
+        limits.daily_ticket_limit
+    );
+    return { allowed: false, entitlement: ent, block_reason: 'daily_ticket_limit_reached' };
+  }
+  const nextUsed = used + 1;
+  try {
+    await upsertUserEntitlement(k, {
+      daily_ticket_used: nextUsed,
+      daily_ticket_reset_at: ent.daily_ticket_reset_at,
+      daily_free_prompt_used: ent.daily_free_prompt_used,
+      daily_free_prompt_reset_at: ent.daily_free_prompt_reset_at
+    });
+    console.log(
+      '[bot][entitlement] ticket consume ok user_key=' +
+        k +
+        ' used=' +
+        nextUsed +
+        ' limit=' +
+        limits.daily_ticket_limit
+    );
+    return { allowed: true, entitlement: { ...ent, daily_ticket_used: nextUsed } };
+  } catch (e) {
+    console.warn('[bot][entitlement] ticket persist warn user_key=' + k + ' ' + String(e?.message || e));
+    return { allowed: true, fallback: true, entitlement: ent };
+  }
+}
+
+async function consumeFreePromptIfAllowed(userKey, opts = {}) {
+  const k = String(userKey || 'anonymous');
+  console.log('[bot][entitlement] prompt consume start user_key=' + k);
+  let ent;
+  try {
+    ent = await fetchUserEntitlementRow(k);
+  } catch (e) {
+    console.warn('[bot][entitlement] prompt load warn user_key=' + k + ' ' + String(e?.message || e));
+    return { allowed: true, fallback: true, entitlement: null };
+  }
+  const r0 = resetEntitlementCountersIfNeeded(ent);
+  ent = r0.ent;
+  if (r0.changed) {
+    try {
+      await upsertUserEntitlement(k, {
+        daily_ticket_used: ent.daily_ticket_used,
+        daily_ticket_reset_at: ent.daily_ticket_reset_at,
+        daily_free_prompt_used: ent.daily_free_prompt_used,
+        daily_free_prompt_reset_at: ent.daily_free_prompt_reset_at
+      });
+    } catch (e) {
+      console.warn('[bot][entitlement] prompt reset persist warn user_key=' + k + ' ' + String(e?.message || e));
+    }
+  }
+  const limits = getEntitlementLimits(ent);
+  const used = ent.daily_free_prompt_used ?? 0;
+  if (used >= limits.daily_free_prompt_limit) {
+    console.log(
+      '[bot][entitlement] prompt blocked user_key=' +
+        k +
+        ' used=' +
+        used +
+        ' limit=' +
+        limits.daily_free_prompt_limit
+    );
+    return { allowed: false, entitlement: ent, block_reason: 'daily_free_prompt_limit_reached' };
+  }
+  const nextUsed = used + 1;
+  try {
+    await upsertUserEntitlement(k, {
+      daily_ticket_used: ent.daily_ticket_used,
+      daily_ticket_reset_at: ent.daily_ticket_reset_at,
+      daily_free_prompt_used: nextUsed,
+      daily_free_prompt_reset_at: ent.daily_free_prompt_reset_at
+    });
+    console.log(
+      '[bot][entitlement] prompt consume ok user_key=' +
+        k +
+        ' used=' +
+        nextUsed +
+        ' limit=' +
+        limits.daily_free_prompt_limit
+    );
+    return { allowed: true, entitlement: { ...ent, daily_free_prompt_used: nextUsed } };
+  } catch (e) {
+    console.warn('[bot][entitlement] prompt persist warn user_key=' + k + ' ' + String(e?.message || e));
+    return { allowed: true, fallback: true, entitlement: ent };
+  }
+}
+
+/** message API에서 자유입력으로 간주해 프롬프트를 차갑하는 분류 */
+function isFreePromptMessageKind(cls) {
+  return (
+    cls.kind === 'role_opinion_question' ||
+    cls.kind === 'lore_question' ||
+    cls.kind === 'brief_question' ||
+    cls.kind === 'targeted_question'
+  );
+}
+
+async function enrichResultWithEntitlement(result, playerId) {
+  if (!result || result.blocked || result.ok === false) return result;
+  try {
+    const pl = await playerStore.getPlayer(playerId);
+    const mid = pl?.match_id;
+    const userKey = resolveUserKey(playerId, mid);
+    let ent = await fetchUserEntitlementRow(userKey);
+    const r = resetEntitlementCountersIfNeeded(ent);
+    ent = r.ent;
+    if (r.changed) {
+      await upsertUserEntitlement(userKey, {
+        daily_ticket_used: ent.daily_ticket_used,
+        daily_ticket_reset_at: ent.daily_ticket_reset_at,
+        daily_free_prompt_used: ent.daily_free_prompt_used,
+        daily_free_prompt_reset_at: ent.daily_free_prompt_reset_at
+      });
+    }
+    result.entitlement = buildEntitlementSnapshot(ent);
+  } catch (e) {
+    console.warn('[bot][entitlement] enrichResult warn ' + String(e?.message || e));
+  }
+  return result;
 }
 
 function truncateJsonish(obj, maxLen) {
@@ -119,7 +388,9 @@ async function upsertUserEntitlement(userKey, patch = {}) {
           daily_ticket_limit: prev.daily_ticket_limit,
           daily_ticket_used: prev.daily_ticket_used,
           daily_free_prompt_limit: prev.daily_free_prompt_limit,
-          daily_free_prompt_used: prev.daily_free_prompt_used
+          daily_free_prompt_used: prev.daily_free_prompt_used,
+          daily_ticket_reset_at: prev.daily_ticket_reset_at,
+          daily_free_prompt_reset_at: prev.daily_free_prompt_reset_at
         }
       : {};
     const merged = { ...base, ...fromPrev, ...patch, user_key: key, updated_at: now };
@@ -129,6 +400,8 @@ async function upsertUserEntitlement(userKey, patch = {}) {
     if (merged.daily_ticket_used == null) merged.daily_ticket_used = 0;
     if (merged.daily_free_prompt_limit == null) merged.daily_free_prompt_limit = 5;
     if (merged.daily_free_prompt_used == null) merged.daily_free_prompt_used = 0;
+    if (merged.daily_ticket_reset_at == null) merged.daily_ticket_reset_at = now;
+    if (merged.daily_free_prompt_reset_at == null) merged.daily_free_prompt_reset_at = now;
     dbUserEntitlementsMemory.set(key, merged);
     const sb = getSupabaseOptional();
     if (!sb) {
@@ -145,6 +418,8 @@ async function upsertUserEntitlement(userKey, patch = {}) {
       daily_ticket_used: merged.daily_ticket_used,
       daily_free_prompt_limit: merged.daily_free_prompt_limit,
       daily_free_prompt_used: merged.daily_free_prompt_used,
+      daily_ticket_reset_at: merged.daily_ticket_reset_at,
+      daily_free_prompt_reset_at: merged.daily_free_prompt_reset_at,
       updated_at: merged.updated_at
     };
     const { error } = await sb.from('user_entitlements').upsert(row, { onConflict: 'user_key' });
@@ -271,13 +546,12 @@ async function dbPersistAfterStartState(playerId, locale, out) {
 async function dbPersistAfterMessageResult(playerId, locale, inputText, result) {
   try {
     if (!result?.ok) return;
+    if (result.blocked) return;
     const player = await playerStore.getPlayer(playerId);
     const matchId = player?.match_id;
     if (!matchId) return;
     const userKey = resolveUserKey(playerId, matchId);
-    const prev = dbUserEntitlementsMemory.get(userKey);
-    const prevU = prev?.daily_free_prompt_used ?? 0;
-    await upsertUserEntitlement(userKey, { daily_free_prompt_used: prevU + 1 });
+    /** daily_free_prompt_used는 consumeFreePromptIfAllowed에서만 증가 */
     const gs = result.match_state || {};
     await upsertMatchState({
       match_id: matchId,
@@ -311,13 +585,12 @@ async function dbPersistAfterMessageResult(playerId, locale, inputText, result) 
 async function dbPersistAfterActionResult(playerId, locale, actionLabel, actionName, targetOpt, result) {
   try {
     if (!result?.ok) return;
+    if (result.blocked) return;
     const player = await playerStore.getPlayer(playerId);
     const matchId = player?.match_id;
     if (!matchId) return;
     const userKey = resolveUserKey(playerId, matchId);
-    const prev = dbUserEntitlementsMemory.get(userKey);
-    const prevT = prev?.daily_ticket_used ?? 0;
-    await upsertUserEntitlement(userKey, { daily_ticket_used: prevT + 1 });
+    /** 입장권은 새 매치 시작 시에만 차감 — 액션 API에서는 차갑하지 않음 */
     const gs = result.match_state || {};
     await upsertMatchState({
       match_id: matchId,
@@ -385,9 +658,7 @@ async function dbPersistAfterTelegramTextMessage(playerId, text, opts, reply) {
     if (!match) return;
     const locale = opts.locale === 'en' ? 'en' : 'ko';
     const userKey = resolveUserKey(playerId, matchId);
-    const prev = dbUserEntitlementsMemory.get(userKey);
-    const prevU = prev?.daily_free_prompt_used ?? 0;
-    await upsertUserEntitlement(userKey, { daily_free_prompt_used: prevU + 1 });
+    /** 자유입력 차감은 handleTextMessage의 consumeFreePromptIfAllowed에서 처리 */
     const gs = match.game_state || {};
     const timer = ep1Engine.getTimerStatus(match);
     await upsertMatchState({
@@ -2786,6 +3057,7 @@ function dedupeDisplayLogs(displayLogs, locale) {
 async function handleStart(playerId, opts = {}) {
   const player = await playerStore.getPlayer(playerId);
   let matchId = player?.match_id;
+  const loc = opts.locale === 'en' ? 'en' : 'ko';
 
   let needNewMatch = !matchId;
   if (matchId) {
@@ -2793,6 +3065,13 @@ async function handleStart(playerId, opts = {}) {
     if (existingMatch?.game_state?.game_over) needNewMatch = true;
   }
   if (needNewMatch) {
+    const userKey = resolveUserKey(playerId, null);
+    const ticket = await consumeDailyTicketIfAllowed(userKey, { locale: loc });
+    if (!ticket.allowed) {
+      return loc === 'en'
+        ? 'You have used all daily entry tickets. Please try again tomorrow or use a higher clearance tier.'
+        : '오늘의 입장권을 모두 사용했습니다. 내일 다시 시도하거나 상위 보안등급을 이용하세요.';
+    }
     const match = await matchStore.getOrCreateMatch('match_' + playerId + '_' + Date.now(), {
       game_total_sec: opts.game_total_sec
     });
@@ -2825,9 +3104,17 @@ async function handleStart(playerId, opts = {}) {
  */
 async function handleTextMessage(playerId, text, opts = {}) {
   // 1. player → match
+  const locale = opts.locale === 'en' ? 'en' : 'ko';
   let player = await playerStore.getPlayer(playerId);
   let matchId = player?.match_id;
   if (!matchId) {
+    const userKey = resolveUserKey(playerId, null);
+    const ticket = await consumeDailyTicketIfAllowed(userKey, { locale });
+    if (!ticket.allowed) {
+      return locale === 'en'
+        ? 'You have used all daily entry tickets. Please try again tomorrow or use a higher clearance tier.'
+        : '오늘의 입장권을 모두 사용했습니다. 내일 다시 시도하거나 상위 보안등급을 이용하세요.';
+    }
     const match = await matchStore.getOrCreateMatch('match_' + playerId + '_' + Date.now(), {});
     matchId = match.match_id;
     await playerStore.setPlayer(playerId, { match_id: matchId, role: 'captain' });
@@ -2836,7 +3123,6 @@ async function handleTextMessage(playerId, text, opts = {}) {
   const match = await matchStore.getMatch(matchId);
   if (!match) return 'Match not found. Send /start to begin.';
 
-  const locale = opts.locale === 'en' ? 'en' : 'ko';
   const parsed = intentParser.parse(text);
   const cls = classifyMiniappFreeText(text, parsed);
   const now = opts.now;
@@ -2865,6 +3151,16 @@ async function handleTextMessage(playerId, text, opts = {}) {
   if (match.game_state?.game_over) {
     log('GAME_OVER', 'blocked', { playerId, matchId, outcome: match.game_state.outcome });
     return 'Game over. Outcome: ' + (match.game_state.outcome || 'unknown') + '. Send /start for new game.';
+  }
+
+  if (isFreePromptMessageKind(cls)) {
+    const userKey = resolveUserKey(playerId, matchId);
+    const pr = await consumeFreePromptIfAllowed(userKey, { locale });
+    if (!pr.allowed) {
+      return locale === 'en'
+        ? 'You have used all daily free-text prompts for today. Button actions are still available.'
+        : '오늘의 자유입력 횟수를 모두 사용했습니다. 버튼 액션은 계속 사용할 수 있습니다.';
+    }
   }
 
   if (cls.kind === 'role_opinion_question') {
@@ -3150,6 +3446,7 @@ async function getStartStateApi(playerId, opts = {}) {
   }
   let player = await playerStore.getPlayer(playerId);
   let matchId = player?.match_id;
+  const locale = opts.locale === 'en' ? 'en' : 'ko';
 
   let needNewMatch = !matchId;
   if (matchId) {
@@ -3157,14 +3454,24 @@ async function getStartStateApi(playerId, opts = {}) {
     if (existingMatch?.game_state?.game_over) needNewMatch = true;
   }
   if (needNewMatch) {
-    const match = await matchStore.getOrCreateMatch('match_' + playerId + '_' + Date.now(), {});
-    matchId = match.match_id;
+    const userKey = resolveUserKey(playerId, null);
+    const ticket = await consumeDailyTicketIfAllowed(userKey, { locale });
+    if (!ticket.allowed) {
+      return buildEntitlementBlockedResponse(locale, 'daily_ticket_limit_reached', ticket.entitlement, {
+        match_id: null,
+        remaining_sec: 0,
+        game_state: null,
+        deadline_at: null,
+        events: []
+      });
+    }
+    const matchNew = await matchStore.getOrCreateMatch('match_' + playerId + '_' + Date.now(), {});
+    matchId = matchNew.match_id;
     await playerStore.setPlayer(playerId, { match_id: matchId, role: 'captain' });
   }
   const match = await matchStore.getMatch(matchId);
   const timer = ep1Engine.getTimerStatus ? ep1Engine.getTimerStatus(match) : { remaining_sec: 420 };
   const gs = match?.game_state || {};
-  const locale = opts.locale === 'en' ? 'en' : 'ko';
   let displayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(match?.events || [], { locale }), locale);
   displayLogs = ensureInitialSystemDisplayLogs(displayLogs, match, locale);
   const out = {
@@ -3181,6 +3488,7 @@ async function getStartStateApi(playerId, opts = {}) {
     if (evs.some((e) => e && e.type === 'TIMEOUT')) out.is_timeout = true;
   }
   await dbPersistAfterStartState(playerId, locale, out);
+  await enrichResultWithEntitlement(out, playerId);
   return out;
 }
 
@@ -3197,8 +3505,20 @@ async function processMessageApi(playerId, text, opts = {}) {
   let player = await playerStore.getPlayer(playerId);
   let matchId = player?.match_id;
   if (!matchId) {
-    const match = await matchStore.getOrCreateMatch('match_' + playerId + '_' + Date.now(), {});
-    matchId = match.match_id;
+    const userKey = resolveUserKey(playerId, null);
+    const ticket = await consumeDailyTicketIfAllowed(userKey, { locale });
+    if (!ticket.allowed) {
+      return buildEntitlementBlockedResponse(locale, 'daily_ticket_limit_reached', ticket.entitlement, {
+        remaining_sec: 0,
+        game_over: false,
+        outcome: null,
+        events: [],
+        recent_events: [],
+        match_state: {}
+      });
+    }
+    const match0 = await matchStore.getOrCreateMatch('match_' + playerId + '_' + Date.now(), {});
+    matchId = match0.match_id;
     await playerStore.setPlayer(playerId, { match_id: matchId, role: 'captain' });
   }
   const match = await matchStore.getMatch(matchId);
@@ -3256,6 +3576,23 @@ async function processMessageApi(playerId, text, opts = {}) {
     const evs = match?.events || [];
     if (evs.some((e) => e && e.type === 'TIMEOUT')) ret.is_timeout = true;
     return ret;
+  }
+
+  if (isFreePromptMessageKind(cls)) {
+    const userKey = resolveUserKey(playerId, matchId);
+    const pr = await consumeFreePromptIfAllowed(userKey, { locale });
+    if (!pr.allowed) {
+      const timer = ep1Engine.getTimerStatus(match, now);
+      const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
+      return buildEntitlementBlockedResponse(locale, 'daily_free_prompt_limit_reached', pr.entitlement, {
+        remaining_sec: rem,
+        game_over: false,
+        outcome: null,
+        events: [],
+        recent_events: [],
+        match_state: { ...match.game_state }
+      });
+    }
   }
 
   if (cls.kind === 'role_opinion_question') {
@@ -3475,8 +3812,20 @@ async function processAccuseApi(playerId, targetRaw, opts = {}) {
   let player = await playerStore.getPlayer(playerId);
   let matchId = player?.match_id;
   if (!matchId) {
-    const match = await matchStore.getOrCreateMatch('match_' + playerId + '_' + Date.now(), {});
-    matchId = match.match_id;
+    const userKey = resolveUserKey(playerId, null);
+    const ticket = await consumeDailyTicketIfAllowed(userKey, { locale });
+    if (!ticket.allowed) {
+      return buildEntitlementBlockedResponse(locale, 'daily_ticket_limit_reached', ticket.entitlement, {
+        remaining_sec: 0,
+        game_over: false,
+        outcome: null,
+        events: [],
+        recent_events: [],
+        match_state: {}
+      });
+    }
+    const match0 = await matchStore.getOrCreateMatch('match_' + playerId + '_' + Date.now(), {});
+    matchId = match0.match_id;
     await playerStore.setPlayer(playerId, { match_id: matchId, role: 'captain' });
   }
   const match = await matchStore.getMatch(matchId);
@@ -3566,8 +3915,20 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
   let player = await playerStore.getPlayer(playerId);
   let matchId = player?.match_id;
   if (!matchId) {
-    const match = await matchStore.getOrCreateMatch('match_' + playerId + '_' + Date.now(), {});
-    matchId = match.match_id;
+    const userKey = resolveUserKey(playerId, null);
+    const ticket = await consumeDailyTicketIfAllowed(userKey, { locale });
+    if (!ticket.allowed) {
+      return buildEntitlementBlockedResponse(locale, 'daily_ticket_limit_reached', ticket.entitlement, {
+        remaining_sec: 0,
+        game_over: false,
+        outcome: null,
+        events: [],
+        recent_events: [],
+        match_state: {}
+      });
+    }
+    const match0 = await matchStore.getOrCreateMatch('match_' + playerId + '_' + Date.now(), {});
+    matchId = match0.match_id;
     await playerStore.setPlayer(playerId, { match_id: matchId, role: 'captain' });
   }
   const match = await matchStore.getMatch(matchId);
@@ -3954,6 +4315,7 @@ function createLocalApiServer() {
           '[bot] api action=message match_id=' + String(preMsg?.match_id || '') + ' playerId=' + String(playerId)
         );
         const result = await processMessageApi(playerId, text, { locale });
+        await enrichResultWithEntitlement(result, playerId);
         await dbPersistAfterMessageResult(playerId, locale, text, result);
         const postMsg = await playerStore.getPlayer(playerId);
         console.log(
@@ -3989,6 +4351,7 @@ function createLocalApiServer() {
           '[bot] api action=accuse match_id=' + String(preAc?.match_id || '') + ' playerId=' + String(playerId)
         );
         const result = await processAccuseApi(playerId, target, { locale });
+        await enrichResultWithEntitlement(result, playerId);
         await dbPersistAfterActionResult(playerId, locale, 'accuse', 'accuse', target, result);
         const postAc = await playerStore.getPlayer(playerId);
         console.log(
@@ -4034,6 +4397,7 @@ function createLocalApiServer() {
             String(playerId)
         );
         const result = await processActionApi(playerId, actionName, targetOpt, { locale });
+        await enrichResultWithEntitlement(result, playerId);
         await dbPersistAfterActionResult(playerId, locale, an, an, targetOpt, result);
         const postAct = await playerStore.getPlayer(playerId);
         console.log(
