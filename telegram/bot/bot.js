@@ -327,13 +327,32 @@ async function consumeFreePromptIfAllowed(userKey, opts = {}) {
   }
 }
 
-/** message API에서 자유입력으로 간주해 프롬프트를 차갑하는 분류 */
-function isFreePromptMessageKind(cls) {
-  return (
-    cls.kind === 'role_opinion_question' ||
-    cls.kind === 'lore_question' ||
-    cls.kind === 'brief_question' ||
-    cls.kind === 'targeted_question'
+/**
+ * lore / open_question(brief_question)만 일일 자유 프롬프트 차갑 대상.
+ * 승무원 심문(targeted_question), 의견 질문(role_opinion_question), 액션형 mapped 등은 gameplay — 차갑 없음.
+ */
+function shouldConsumeFreePromptForMessageKind(cls, parsed, text) {
+  void parsed;
+  void text;
+  if (!cls || !cls.kind) return false;
+  return cls.kind === 'lore_question' || cls.kind === 'brief_question';
+}
+
+/** match_events / 로그용 짧은 kind 문자열 */
+function getIntentLogKindForPayload(cls, parsed) {
+  if (!cls) return 'unknown';
+  if (cls.kind === 'state_query') return 'state_query:' + String(cls.subtype || '');
+  if (cls.kind === 'mapped') {
+    const it = String(parsed?.intent_type || 'unknown').toLowerCase();
+    return 'mapped:' + it;
+  }
+  return String(cls.kind);
+}
+
+function logIntentPromptDecision(cls, parsed, consumesFreePrompt) {
+  const kind = getIntentLogKindForPayload(cls, parsed);
+  console.log(
+    '[bot][intent] message kind=' + kind + ' consumes_free_prompt=' + (consumesFreePrompt ? 'true' : 'false')
   );
 }
 
@@ -552,6 +571,18 @@ async function dbPersistAfterMessageResult(playerId, locale, inputText, result) 
     if (!matchId) return;
     const userKey = resolveUserKey(playerId, matchId);
     /** daily_free_prompt_used는 consumeFreePromptIfAllowed에서만 증가 */
+    let messageKind = 'unknown';
+    let consumesFreePrompt = false;
+    try {
+      const parsed = intentParser.parse(String(inputText || ''));
+      const cls = classifyMiniappFreeText(String(inputText || ''), parsed);
+      messageKind = getIntentLogKindForPayload(cls, parsed);
+      consumesFreePrompt = shouldConsumeFreePromptForMessageKind(cls, parsed, inputText);
+    } catch (e) {
+      try {
+        console.warn('[bot][intent] dbPersist message intent parse warn ' + String(e?.message || e));
+      } catch (e2) {}
+    }
     const gs = result.match_state || {};
     await upsertMatchState({
       match_id: matchId,
@@ -566,7 +597,11 @@ async function dbPersistAfterMessageResult(playerId, locale, inputText, result) 
       match_id: matchId,
       user_key: userKey,
       event_type: 'message_input',
-      payload: { text: String(inputText || '').slice(0, 4000) }
+      payload: {
+        text: String(inputText || '').slice(0, 4000),
+        message_kind: messageKind,
+        consumes_free_prompt: consumesFreePrompt
+      }
     });
     await appendMatchEvent({
       match_id: matchId,
@@ -574,7 +609,9 @@ async function dbPersistAfterMessageResult(playerId, locale, inputText, result) 
       event_type: 'message_result',
       payload: {
         summary: result.summary,
-        recent_events: truncateJsonish(result.recent_events || result.events)
+        recent_events: truncateJsonish(result.recent_events || result.events),
+        message_kind: messageKind,
+        consumes_free_prompt: consumesFreePrompt
       }
     });
   } catch (e) {
@@ -3153,7 +3190,9 @@ async function handleTextMessage(playerId, text, opts = {}) {
     return 'Game over. Outcome: ' + (match.game_state.outcome || 'unknown') + '. Send /start for new game.';
   }
 
-  if (isFreePromptMessageKind(cls)) {
+  const consumesFreePromptTg = shouldConsumeFreePromptForMessageKind(cls, parsed, text);
+  logIntentPromptDecision(cls, parsed, consumesFreePromptTg);
+  if (consumesFreePromptTg) {
     const userKey = resolveUserKey(playerId, matchId);
     const pr = await consumeFreePromptIfAllowed(userKey, { locale });
     if (!pr.allowed) {
@@ -3578,7 +3617,9 @@ async function processMessageApi(playerId, text, opts = {}) {
     return ret;
   }
 
-  if (isFreePromptMessageKind(cls)) {
+  const consumesFreePromptApi = shouldConsumeFreePromptForMessageKind(cls, parsed, text);
+  logIntentPromptDecision(cls, parsed, consumesFreePromptApi);
+  if (consumesFreePromptApi) {
     const userKey = resolveUserKey(playerId, matchId);
     const pr = await consumeFreePromptIfAllowed(userKey, { locale });
     if (!pr.allowed) {
