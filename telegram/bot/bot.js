@@ -4945,25 +4945,33 @@ function createLocalApiServer() {
 
 /**
  * 동일 TELEGRAM_BOT_TOKEN으로 getUpdates long polling이 둘 이상 뜨면 409 Conflict.
- * Railway/프로덕션 기본은 polling OFF — ENABLE_TELEGRAM_POLLING=true 일 때만 시작.
+ * Railway/프로덕션: ENABLE_TELEGRAM_POLLING=true 일 때만 polling (명시 opt-in).
+ * 로컬: unset 시 기본 polling 허용(개발 편의), env가 최우선.
  */
 function resolveTelegramPollingEnabled() {
   const v = String(process.env.ENABLE_TELEGRAM_POLLING || '').trim().toLowerCase();
-  if (v === 'true' || v === '1' || v === 'yes') {
-    return { enabled: true, reason: 'ENABLE_TELEGRAM_POLLING' };
-  }
-  if (v === 'false' || v === '0' || v === 'no') {
-    return { enabled: false, reason: 'ENABLE_TELEGRAM_POLLING' };
-  }
+  const explicitTrue = v === 'true' || v === '1' || v === 'yes';
+  const explicitFalse = v === 'false' || v === '0' || v === 'no';
+
   const onRailway = !!(
     process.env.RAILWAY_ENVIRONMENT ||
     process.env.RAILWAY_PROJECT_ID ||
     process.env.RAILWAY_SERVICE_NAME ||
-    process.env.RAILWAY_REPLICA_ID
+    process.env.RAILWAY_REPLICA_ID ||
+    process.env.RAILWAY_STATIC_URL ||
+    process.env.RAILWAY_PUBLIC_DOMAIN ||
+    process.env.RAILWAY_GIT_COMMIT_SHA
   );
-  if (onRailway || process.env.NODE_ENV === 'production') {
+  const prodLike = process.env.NODE_ENV === 'production';
+
+  if (onRailway || prodLike) {
+    if (explicitTrue) return { enabled: true, reason: 'ENABLE_TELEGRAM_POLLING' };
+    if (explicitFalse) return { enabled: false, reason: 'ENABLE_TELEGRAM_POLLING' };
     return { enabled: false, reason: 'default_railway_or_production' };
   }
+
+  if (explicitTrue) return { enabled: true, reason: 'ENABLE_TELEGRAM_POLLING' };
+  if (explicitFalse) return { enabled: false, reason: 'ENABLE_TELEGRAM_POLLING' };
   return { enabled: true, reason: 'default_local_dev' };
 }
 
