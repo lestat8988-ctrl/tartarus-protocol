@@ -290,7 +290,6 @@
     #game-screen.start-blocked .log-panel,
     #game-screen.start-blocked .action-panel,
     #game-screen.start-blocked .input-area,
-    #game-screen.start-blocked .episode-section,
     #game-screen.start-blocked .captain-phase-status {
       display: none !important;
     }
@@ -330,141 +329,118 @@
       .restart-btn { padding: 18px 24px; min-height: 52px; }
     }
 
-    /* Episode lock section */
-    .episode-section {
-      padding: 8px 10px;
-      margin-top: 8px;
-      background: #0d0d0d;
-      border: 1px solid #2aef2a22;
-      border-radius: 4px;
-    }
-    .episode-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 8px 0;
-      font-size: 0.85rem;
-    }
-    .episode-row.locked { color: #666; opacity: 0.8; }
-    .episode-row.available { color: #2aef2a; }
-    .episode-unlock-btn {
-      width: 100%;
-      margin-top: 12px;
-      padding: 14px;
-      background: #1a1a1a;
-      border: 1px dashed #2aef2a55;
-      border-radius: 4px;
-      color: #2aef2a99;
-      font-family: inherit;
-      font-size: 0.9rem;
-      cursor: pointer;
-      -webkit-tap-highlight-color: transparent;
-    }
-    .episode-unlock-btn:active { background: #222; }
-
-    /* Security clearance (terminal panel) */
+    /* Security clearance (terminal panel) — mobile: stacked full-width cards */
     .clearance-section {
-      margin: 10px 0 8px;
-      padding: 10px 10px 12px;
+      margin: 10px 0 6px;
+      padding: 12px 12px 14px;
       background: #080808;
       border: 1px solid #2aef2a44;
       border-radius: 4px;
     }
     .clearance-heading {
-      font-size: 0.72rem;
+      font-size: 0.75rem;
       letter-spacing: 0.12em;
       color: #2aef2a;
       text-align: center;
-      margin: 0 0 10px;
+      margin: 0 0 12px;
       font-weight: 700;
       text-transform: uppercase;
     }
     .clearance-tier-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 6px;
-      margin-bottom: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 12px;
     }
     .tier-card {
       border: 1px solid #2aef2a33;
-      border-radius: 3px;
-      padding: 6px 5px 7px;
+      border-radius: 4px;
+      padding: 10px 12px 11px;
       background: #0a120a;
-      font-size: 0.62rem;
-      line-height: 1.25;
+      font-size: 0.78rem;
+      line-height: 1.45;
       color: #2aef2a99;
       display: flex;
       flex-direction: column;
-      min-height: 0;
+      width: 100%;
+      box-sizing: border-box;
     }
     .tier-card--current {
       border-color: #2aef2a;
+      border-width: 2px;
       color: #2aef2a;
-      background: #0c1f0c;
-      box-shadow: 0 0 8px rgba(42, 239, 42, 0.12);
+      background: #0e2410;
+      box-shadow: 0 0 12px rgba(42, 239, 42, 0.18);
     }
     .tier-card--locked {
-      opacity: 0.48;
+      opacity: 0.5;
       border-style: dashed;
-      border-color: #2aef2a22;
+      border-width: 1px;
+      border-color: #2aef2a28;
     }
     .tier-card-head {
       font-weight: 700;
-      font-size: 0.6rem;
-      letter-spacing: 0.04em;
+      font-size: 0.85rem;
+      letter-spacing: 0.06em;
     }
     .tier-card-sub {
-      font-size: 0.58rem;
-      opacity: 0.9;
-      margin-top: 2px;
+      font-size: 0.76rem;
+      opacity: 0.92;
+      margin-top: 4px;
+      font-weight: 600;
+      letter-spacing: 0.03em;
     }
     .tier-card-badge {
-      margin-top: 4px;
-      font-size: 0.55rem;
+      margin-top: 8px;
+      font-size: 0.72rem;
       font-weight: 700;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.08em;
     }
     .tier-card-badge.free { color: #7dff7d; }
     .tier-card-list {
-      margin: 5px 0 0;
-      padding-left: 12px;
-      font-size: 0.58rem;
+      margin: 8px 0 0;
+      padding-left: 18px;
+      font-size: 0.74rem;
       color: inherit;
-      opacity: 0.92;
+      opacity: 0.95;
     }
-    .tier-card-list li { margin: 1px 0; }
+    .tier-card-list li { margin: 4px 0; line-height: 1.4; }
     .tier-soon-btn {
-      margin-top: 6px;
+      margin-top: 10px;
       width: 100%;
-      padding: 5px 4px;
+      padding: 8px 10px;
       font-family: inherit;
-      font-size: 0.58rem;
+      font-size: 0.72rem;
       background: #111;
       border: 1px dashed #2aef2a44;
       color: #2aef2a88;
-      border-radius: 2px;
+      border-radius: 3px;
       cursor: pointer;
       -webkit-tap-highlight-color: transparent;
     }
     .tier-soon-btn:active { background: #1a1a1a; }
     .clearance-current-panel {
       border-top: 1px solid #2aef2a22;
-      padding-top: 8px;
-      font-size: 0.72rem;
-      line-height: 1.45;
+      padding-top: 10px;
+      font-size: 0.76rem;
+      line-height: 1.5;
       color: #2aef2acc;
     }
-    .clearance-current-panel .clearance-line { margin: 3px 0; }
+    .clearance-current-panel .clearance-line { margin: 4px 0; }
     .clearance-current-panel .clearance-line strong { color: #2aef2a; font-weight: 600; }
     .clearance-reset-line {
-      margin-top: 6px;
-      font-size: 0.65rem;
+      margin-top: 8px;
+      font-size: 0.68rem;
       color: #2aef2a66;
     }
-    @media (max-width: 380px) {
-      .clearance-tier-grid { gap: 4px; }
-      .tier-card { padding: 5px 4px; font-size: 0.58rem; }
-      .tier-card-list { font-size: 0.54rem; }
+    @media (min-width: 720px) {
+      .clearance-tier-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+        align-items: stretch;
+      }
+      .tier-card { min-height: 100%; }
     }
 
     /* Intro screen (public/index.html #intro-briefing 기준) */
@@ -932,13 +908,6 @@
         <div class="clearance-line" id="clearance-line-prompt"></div>
         <div class="clearance-reset-line" id="clearance-line-reset"></div>
       </div>
-    </section>
-
-    <section class="episode-section">
-      <div class="episode-row available">Episode 1: Free / Available</div>
-      <div class="episode-row locked">Episode 2: Locked</div>
-      <div class="episode-row locked">Episode 3: Locked</div>
-      <button class="episode-unlock-btn" id="episode-unlock-btn">Unlock Episode Pass</button>
     </section>
     </div><!-- #game-screen -->
   </div>
@@ -1576,7 +1545,6 @@
       const actionBtns = document.querySelectorAll('.action-btn');
       var pistolActionBtn = actionPanel ? actionPanel.querySelector('.action-btn[data-action="pistol"]') : null;
       var clueActionBtn = actionPanel ? actionPanel.querySelector('.action-btn[data-action="clue"]') : null;
-      const episodeUnlockBtn = document.getElementById('episode-unlock-btn');
       const restartSection = document.getElementById('restart-section');
       const restartBtn = document.getElementById('restart-btn');
       const resultRestartBtn = document.getElementById('result-restart-btn');
@@ -1668,7 +1636,6 @@
           b.disabled = locked;
           b.classList.toggle('locked', locked);
         });
-        if (episodeUnlockBtn) episodeUnlockBtn.disabled = locked;
       }
 
       /** rAF 미동작(텔레그램 WebView 등) 시 idle 고착 방지용 백업 타이머 — 사용자 액션 완료 콜백에만 연결 */
@@ -3524,10 +3491,6 @@
       var resultModalEl = document.getElementById('result-modal');
       if (resultModalEl) resultModalEl.addEventListener('click', function(e) {
         if (e.target === resultModalEl) closeResultModal();
-      });
-
-      episodeUnlockBtn.addEventListener('click', function() {
-        console.log('[Tartarus MiniApp] Unlock Episode Pass (placeholder)');
       });
     })();
   </script>
