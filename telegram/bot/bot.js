@@ -3231,10 +3231,13 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
         if (sdBoost) {
           qEnS.push(
             'SELF_DEFENSE (MANDATORY when focusTargetRole is accused or must justify trust): follow this structure in focusTargetRole.text — 2 to 4 sentences total.',
-            'OPENING SENTENCE (HARD RULE): Sentence 1 MUST be denial, pushback, or injustice — NOT introduction. Never open with name, callsign, job title, or HR-style duty blurb.',
-            'FORBIDDEN first-sentence patterns: "My name is …", "I am [Name]", "As a doctor/engineer/navigator/pilot I …", "I am responsible for …", "I treat patients …", "I manage …".',
-            'ALLOWED first-sentence patterns (examples only): "That is a misunderstanding, Captain." / "You are reading this wrong." / "I refuse that framing."',
-            'If NAME is required (name question): put personal name from crewPersonalNames in sentence 2 or 3 only — NEVER sentence 1.',
+            'OPENING WINDOW (HARD RULE): Sentences 1 AND 2 must contain ONLY denial/pushback, alibi, and concrete evidence. NO personal name, NO "I am [Name]", NO job-description opener, NO self-PR in sentences 1–2.',
+            'NEVER pack denial + name/role intro in the SAME sentence. Bad: "That is a misunderstanding; I am Alex Kim and I was in medbay." Split: sentence 1 = denial only; sentence 2 = alibi/evidence.',
+            'FORBIDDEN anywhere in sentences 1–2: "My name is …", "I am [Name]", "I\'m [Name], and …", "As a doctor/engineer/navigator/pilot I …", "My role is …", "I am responsible for …", "doing my best", "I know the situation well".',
+            'If this is NOT a name question: do NOT output any personal name from crewPersonalNames in focusTargetRole.text at all.',
+            'If NAME is required (name question): personal name from crewPersonalNames may appear ONLY in sentence 3 or later — NEVER in sentences 1–2.',
+            'ALLOWED sentence-1 patterns (examples only): "That is a misunderstanding, Captain." / "You are reading this wrong." / "I refuse that framing."',
+            'Mandatory order for all sentences: (1) denial/pushback only (2) alibi (3) evidence (4) desperate consequence.',
             'Doctor (focusTargetRole=doctor): order (1) denial (2) alibi with where you were (3) medical evidence: medbay records, biometrics, stress log, vitals, corridor/medbay access, casualty state (4) desperation — who runs triage/vitals if you remove me now.',
             'FORBIDDEN in doctor self-defense: "As a doctor I …", "I examine patients …", "my role is to treat …", "doing my best", "I know the situation well" without logs.',
             'Engineer: (1) denial (2) access logs / timestamps (3) checksum / audit trail (4) desperation — logs do not lie.',
@@ -3361,15 +3364,16 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
       if (sdBoost) {
         qKoS.push(
           '자기변호(SELF_DEFENSE, MANDATORY): 함장이 무죄·신뢰·반박을 요구하거나 지목이 강할 때 focusTargetRole.text는 반드시 아래 구조. 총 2–4문장.',
-          '첫 문장(절대 규칙): 반드시 부인·반박·억울함으로 시작. 이름 실명·호출명·자기소개·직무 소개로 시작 금지.',
-          '금지 첫문장 예: "조나연입니다", "저는 의사로서", "환자 상태를 점검하고", "치료하는 역할을 맡고", "OO입니다", "저는 닥터로서"',
-          '허용 첫문장 예: "그건 오해입니다", "함장님, 저를 오해하십니다", "그렇게 보셨다면 잘못 보신 겁니다"',
+          '첫 1~2문장(절대 규칙): 부인·반박·억울함·알리바이·구체 근거만. 이 구간에 이름 실명·호출명·자기소개·직무 소개·자기 PR 문장을 절대 넣지 마라. 한 문장 안에 "부인 + 저는 OO이며"처럼 이름 절을 붙이는 것도 금지.',
+          '금지(특히 1~2문장·또는 한 문장 내 병치): "저는 조유나이며", "저는 OO입니다", "OO입니다", "저는 의사로서", "저는 엔지니어로서", "역할을 맡고 있습니다", "최선을 다하고 있습니다", "상황을 잘 알고 있습니다", "치료하는 역할"',
+          '이름 질문이 아니면: focusTargetRole.text 전체에서 crewPersonalNames 실명을 쓰지 마라(실명 출력 금지).',
+          '이름 질문이면: 실명은 반드시 셋째 문장 이후에만 crewPersonalNames로 — 첫째·둘째 문장에는 이름 금지.',
+          '필수 순서: (1) 부인/반박만 (2) 알리바이 (3) 의무실·로그·차트 등 근거 (4) 절박한 결과.',
           '닥터(focusTargetRole=doctor) 필수 순서: (1) 부인/반박 (2) 알리바이(그 시각 어디) (3) 의료 근거: 의무실 기록·생체 모니터·스트레스 로그·바이탈·복도/의무실 출입·부상자 상태 (4) 절박함: 지금 저를 제거하면 누가 생체 기록·부상자를 맡는가.',
           '닥터 자기변호 금지: "저는 의사로서", "환자의 상태를 점검하고", "치료하는 역할", "최선을 다하고", "상황을 잘 알고", HR·소개문·설명문 톤.',
           '엔지니어: (1) 부인 (2) 접근 로그·타임스탬프 (3) 체크섬·감사로그 (4) 절박함 — 숫자가 거짓말하지 않는다.',
           '네비게이터: (1) 부인 (2) 동선·차트·시간대 (3) 항해 기록 근거 (4) 절박함.',
           '파일럿: (1) 부인 (2) 교량·계기·압력·진동 (3) 브리지·조종 로그 근거 (4) 절박함.',
-          '이름 질문이어도 첫 문장은 부인만. 실명은 둘째·셋째 문장에서 crewPersonalNames만. 첫 문장에 이름 금지.',
           '톤: 생존 압박·긴장. 소개서가 아니라 방어다.'
         );
       } else {
@@ -3566,6 +3570,13 @@ function buildDialogueUserPayload(ctx) {
         ? 'FIND_CLUE: no clue text in JSON; server injects [System].'
         : 'FIND_CLUE: no clue text in JSON; server injects [시스템].';
   }
+  if (ctx.selfDefenseSuppressPersonalNames) {
+    o.crewNameInstruction =
+      (o.crewNameInstruction ? o.crewNameInstruction + ' ' : '') +
+      (loc === 'en'
+        ? 'SELF_DEFENSE (not a name question): focusTargetRole.text must NOT contain any personal name, callsign, or crewPersonalNames string. No "My name is", no "I am [Name]", no comma-spliced name after denial.'
+        : '자기변호(이름 질문 아님): focusTargetRole.text에 실명·호출명·crewPersonalNames 값을 절대 넣지 마라. "저는 OO이며", "OO입니다" 형태 금지.');
+  }
   return JSON.stringify(o, null, 0);
 }
 
@@ -3681,8 +3692,8 @@ async function tryGenerateLlmDialogueLogs(ctx) {
     if (sdNameOverride) {
       system +=
         locale === 'en'
-          ? '\n\nCREW_TO_CAPTAIN: Formal address to Captain. SELF_DEFENSE name rule overrides default name-first: sentence 1 = denial only; personal name from crewPersonalNames in sentence 2 or 3, never sentence 1.'
-          : '\n\nCREW_TO_CAPTAIN: 함장에게 존댓말. 자기변호+이름 질문일 때는 기본 "이름 먼저" 규칙보다 우선: 첫 문장은 부인·반박만, 실명은 둘째·셋째 문장에서 crewPersonalNames만.';
+          ? '\n\nCREW_TO_CAPTAIN: Formal address to Captain. SELF_DEFENSE + name question: sentences 1–2 = denial and alibi/evidence only — NO personal name; crewPersonalNames real name ONLY in sentence 3 or later (never in 1–2).'
+          : '\n\nCREW_TO_CAPTAIN: 함장에게 존댓말. 자기변호+이름 질문: 첫째·둘째 문장에는 실명 금지(부인·알리바이·근거만). crewPersonalNames 실명은 셋째 문장 이후에만.';
     } else {
       system +=
         locale === 'en'
@@ -3710,7 +3721,8 @@ async function tryGenerateLlmDialogueLogs(ctx) {
     loreQuestionTopic: kind === 'LORE_QUESTION' ? loreTopic : undefined,
     loreCanonAnchorText: kind === 'LORE_QUESTION' ? loreCanonSnippet : undefined,
     crewPersonalNames,
-    targetedQuestionSingleSpeaker
+    targetedQuestionSingleSpeaker,
+    selfDefenseSuppressPersonalNames: sdPromptBoost && !targetedNameQuestion
   });
   let strictRetry =
     locale === 'en'
@@ -3720,9 +3732,9 @@ async function tryGenerateLlmDialogueLogs(ctx) {
     if (kind === 'QUESTION' && targetedQuestionSingleSpeaker) {
       strictRetry +=
         ' QUESTION: captain+focusTargetRole만 두 블록. 다른 역할 블록 출력 금지. 비타깃 크루 대사 금지.';
-      if (isSelfDefenseQuestion) {
+      if (isSelfDefenseQuestion || isTargetedAccusation) {
         strictRetry +=
-          ' SELF_DEFENSE: 부인·알리바이·기록 근거·역할상 필요. 금지: 상황 잘 앎, 최선 다함, 증거 없음만 반복.';
+          ' SELF_DEFENSE: 첫 두 문장에 이름·직무 소개 금지. 부인·알리바이·기록 근거. 금지: 상황 잘 앎, 최선 다함, 저는 OO이며.';
       }
     } else if (kind === 'QUESTION' && !targetedNameQuestion) {
       strictRetry +=
@@ -3759,9 +3771,9 @@ async function tryGenerateLlmDialogueLogs(ctx) {
     if (kind === 'QUESTION' && targetedQuestionSingleSpeaker) {
       strictRetry +=
         ' QUESTION: only captain + focusTargetRole blocks. No other crew roles.';
-      if (isSelfDefenseQuestion) {
+      if (isSelfDefenseQuestion || isTargetedAccusation) {
         strictRetry +=
-          ' SELF_DEFENSE: denial, alibi, logs — forbid empty "I know the situation" / "doing my best" without evidence.';
+          ' SELF_DEFENSE: no name or job intro in sentences 1–2; denial, alibi, logs — forbid "I am [Name]" in the same sentence as denial.';
       }
     } else if (kind === 'QUESTION' && !targetedNameQuestion) {
       strictRetry += ' QUESTION: non-target blocks must name focusTargetEnglish. Shorter.';
@@ -4467,6 +4479,264 @@ function applyHonorificCrewKo(text, role) {
   return { text: s, changed };
 }
 
+function escapeRegexForSelfDefense(s) {
+  return String(s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function splitSentencesForSelfDefense(text) {
+  const s = String(text || '').trim();
+  if (!s) return [];
+  return s
+    .split(/(?<=[.!?])\s+/)
+    .map((x) => String(x || '').trim())
+    .filter(Boolean);
+}
+
+function roleSelfDefenseFallbackKo(r) {
+  switch (String(r || '').toLowerCase()) {
+    case 'doctor':
+      return '그건 오해입니다. 그 시각 저는 의무실 생체 모니터 앞에 있었습니다. 바이탈·스트레스 로그와 복도 출입 기록이 제 동선을 말합니다. 저를 지금 제거하시면 남은 환자 기록은 누가 맡습니까?';
+    case 'engineer':
+      return '그건 오해입니다. 접근 로그와 타임스탬프가 제 동선을 찍습니다. 체크섬·감사 로그는 거짓말하지 않습니다. 지금 저를 끊으면 감사 추적은 누가 이어갑니까?';
+    case 'navigator':
+      return '그건 오해입니다. 차트·항해 기록·시간대 대조가 그 시각 제 위치를 말합니다. 항로 로그를 지금 끊으면 누가 교량과 대조합니까?';
+    case 'pilot':
+      return '그건 오해입니다. 그 시각 교량 계기·압력·진동 로그가 제 자리를 말합니다. 브리지 기록을 지금 끊으면 누가 이어갑니까?';
+    default:
+      return '그건 오해입니다. 기록과 로그가 제 동선을 말합니다.';
+  }
+}
+
+function roleSelfDefenseFallbackEn(r) {
+  switch (String(r || '').toLowerCase()) {
+    case 'doctor':
+      return 'That is a misunderstanding, Captain. I was at the medbay biometrics console. Vitals, stress logs, and corridor access corroborate my movement. If you remove me now, who triages the casualties and the charts?';
+    case 'engineer':
+      return 'That is a misunderstanding, Captain. Access logs and timestamps pin my path. Checksums and audit trails do not lie. If you cut me out now, who holds the audit chain?';
+    case 'navigator':
+      return 'That is a misunderstanding, Captain. Charts, route logs, and the time window place me on scope. If you silence me now, who cross-checks the bridge against the plot?';
+    case 'pilot':
+      return 'That is a misunderstanding, Captain. Bridge gauges, pressure traces, and vibration logs put me at the helm stack. If you remove me now, who keeps the bridge record straight?';
+    default:
+      return 'That is a misunderstanding, Captain. Logs and records place me — cutting me out does not make the ship safer.';
+  }
+}
+
+/**
+ * self-defense 첫 1~2문장에서 이름/직무 소개 절을 감지·의미 보존 재작성. strip만 하지 않고 알리바이·근거로 정리.
+ * @returns {{ text: string, rewritten: boolean, stripped: boolean }}
+ */
+function rewriteSelfDefenseOpeningText(raw, role, locale, opts) {
+  opts = opts || {};
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const r = String(role || '').toLowerCase();
+  const targetedNameQ = !!opts.targetedNameQuestion;
+  const cn = opts.crewPersonalNames || null;
+  const stable =
+    cn && r && ['doctor', 'engineer', 'navigator', 'pilot'].includes(r)
+      ? getCrewDisplayName(cn, r, loc)
+      : '';
+  let text = String(raw || '').trim();
+  if (!text) return { text, rewritten: false, stripped: false };
+
+  const sentences = splitSentencesForSelfDefense(text);
+  if (sentences.length === 0) return { text, rewritten: false, stripped: false };
+
+  const patternsHit = [];
+  let strippedAny = false;
+
+  function logPattern(p) {
+    patternsHit.push(p);
+    try {
+      console.log('[bot][dialogue] self_defense_name_pattern_detected role=' + r + ' pattern=' + p);
+    } catch (e) {}
+  }
+
+  function scrubKoSentence(sent) {
+    let s = sent;
+    const beforeScrub = s;
+    const reps = [
+      [/저는\s+[가-힣A-Za-z·]{2,24}(?:이며|입니다|이고|이고요)\s*,?\s*/g, 'intro_jeune_name'],
+      [/저는\s*(?:의사|엔지니어|네비게이터|파일럿|닥터|의관)로서[^.!?]*/g, 'role_roseo_clause'],
+      [/역할을\s*맡고\s*있(?:습니다|어요|다)/g, 'role_malgot'],
+      [/최선을\s*다하고\s*있습니다/g, 'choesun'],
+      [/상황을\s*잘\s*알고\s*있습니다/g, 'situ_well'],
+      [/환자의\s*상태를\s*점검하고[^.!?]*/g, 'patient_check_clause'],
+      [/치료하는\s*역할[^.!?]*/g, 'treat_role_clause']
+    ];
+    if (stable && stable.length >= 2) {
+      const esc = escapeRegexForSelfDefense(stable);
+      reps.push([new RegExp('저는\\s*' + esc + '(?:이며|입니다|이고|이고요)\\s*,?\\s*', 'g'), 'stable_jeune']);
+      reps.push([new RegExp('^' + esc + '입니다\\.?\\s*', 'm'), 'stable_lead_입니다']);
+    }
+    for (const [re, tag] of reps) {
+      const next = s.replace(re, () => {
+        logPattern(tag);
+        strippedAny = true;
+        return '';
+      });
+      s = next;
+    }
+    s = s.replace(/\s+/g, ' ').replace(/^\s*,\s*/g, '').replace(/\s*,\s*,/g, ',').trim();
+    if (s !== beforeScrub && !s) strippedAny = true;
+    return s;
+  }
+
+  function scrubEnSentence(sent) {
+    let s = sent;
+    const beforeScrubEn = s;
+    const reps = [
+      [/\bI\s+am\s+[A-Za-z][A-Za-z'\-]+\s*,?\s*and\s+/gi, 'I_am_name_and'],
+      [/\bMy\s+name\s+is\s+[^,.!?]+[,.]?\s*/gi, 'my_name_is'],
+      [/\bAs\s+a\s+(?:doctor|engineer|navigator|pilot)\b[^.!?]*/gi, 'as_a_role'],
+      [/\bI(?:'|’)?m\s+[A-Za-z][A-Za-z'\-]+\s*,?\s*/g, 'Im_name_comma'],
+      [/my\s+role\s+is[^.!?]*/gi, 'my_role_is'],
+      [/\bdoing\s+my\s+best\b[^.!?]*/gi, 'doing_best'],
+      [/\bI\s+know\s+the\s+situation\s+well\b[^.!?]*/gi, 'know_situation'],
+      [/\bI\s+am\s+responsible\s+for[^.!?]*/gi, 'responsible_for']
+    ];
+    if (stable && /^[A-Za-z]/.test(stable)) {
+      const esc = escapeRegexForSelfDefense(stable);
+      reps.push([new RegExp('\\bI\\s+am\\s+' + esc + '\\b[^.!?]*', 'gi'), 'stable_I_am']);
+    }
+    for (const [re, tag] of reps) {
+      s = s.replace(re, () => {
+        logPattern(tag);
+        strippedAny = true;
+        return '';
+      });
+    }
+    s = s.replace(/\s+/g, ' ').replace(/^\s*,\s*/g, '').trim();
+    if (s !== beforeScrubEn && !s) strippedAny = true;
+    return s;
+  }
+
+  const head = [];
+  const maxEarly = Math.min(1, sentences.length - 1);
+  for (let i = 0; i <= maxEarly; i++) {
+    let sent = sentences[i];
+    if (loc === 'ko') sent = scrubKoSentence(sent);
+    else sent = scrubEnSentence(sent);
+    if (!sent || /^[,.\s]*$/.test(sent)) {
+      strippedAny = true;
+      head.push('');
+    } else {
+      head.push(sent);
+    }
+  }
+
+  let rewritten = patternsHit.length > 0;
+  const needsStableStrip = !targetedNameQ && stable && text.includes(stable);
+  const needsNameAppend = targetedNameQ && stable && !text.includes(stable);
+  if (patternsHit.length === 0 && !strippedAny && !needsStableStrip && !needsNameAppend) {
+    return { text: raw, rewritten: false, stripped: false };
+  }
+
+  let denialKo = '그건 오해입니다.';
+  let denialEn = 'That is a misunderstanding, Captain.';
+  const firstOrig = sentences[0] || '';
+  if (/^(그건\s*오해|함장님,\s*저를\s*오해|그렇게\s*보셨다면)/.test(firstOrig.trim())) {
+    const m = firstOrig.trim().match(/^[^.!?]+[.!?]?/);
+    if (m) denialKo = m[0].trim();
+  }
+  if (/^(That\s+is\s+a\s+misunderstanding|You\s+are\s+reading)/i.test(firstOrig.trim())) {
+    const m = firstOrig.match(/^[^.!?]+[.!?]?/);
+    if (m) denialEn = m[0].trim();
+  }
+
+  function repairHead() {
+    const a = head[0] && head[0].trim() ? head[0].trim() : null;
+    const b = head[1] && head[1].trim() ? head[1].trim() : null;
+    const fb = loc === 'ko' ? roleSelfDefenseFallbackKo(r) : roleSelfDefenseFallbackEn(r);
+    if (!a && !b) {
+      try {
+        console.log('[bot][dialogue] self_defense_name_intro_stripped role=' + r);
+        console.log('[bot][dialogue] self_defense_rewritten_without_intro role=' + r);
+      } catch (e) {}
+      return fb;
+    }
+    let out = [];
+    if (a) out.push(a);
+    else {
+      out.push(loc === 'ko' ? denialKo : denialEn);
+      rewritten = true;
+    }
+    if (b) out.push(b);
+    else if (sentences.length > 2 || (sentences[1] && !head[1])) {
+      let alibiOnly;
+      if (loc === 'ko') {
+        alibiOnly =
+          r === 'doctor'
+            ? '그 시각 저는 의무실 생체 모니터 앞에 있었습니다.'
+            : r === 'engineer'
+              ? '그 시각 접근 로그와 타임스탬프가 제 동선을 찍습니다.'
+              : r === 'navigator'
+                ? '차트·항로 기록이 그 시각 제 위치와 맞습니다.'
+                : r === 'pilot'
+                  ? '교량 계기·압력 로그가 그 시각 제 자리를 말합니다.'
+                  : '기록이 제 동선을 말합니다.';
+      } else {
+        alibiOnly =
+          r === 'doctor'
+            ? 'I was at the medbay biometrics stack at that time.'
+            : r === 'engineer'
+              ? 'Access logs and timestamps pin my path.'
+              : r === 'navigator'
+                ? 'Charts and route logs match that window.'
+                : r === 'pilot'
+                  ? 'Bridge gauges and pressure traces place me at the helm.'
+                  : 'The logs place me.';
+      }
+      out.push(alibiOnly);
+      rewritten = true;
+    }
+    const joined = out.join(' ');
+    try {
+      if (strippedAny || rewritten) {
+        console.log('[bot][dialogue] self_defense_name_intro_stripped role=' + r);
+        console.log('[bot][dialogue] self_defense_rewritten_without_intro role=' + r);
+      }
+    } catch (e) {}
+    return joined;
+  }
+
+  const tail = sentences.slice(2);
+  let newHeadText = repairHead();
+  if (tail.length) {
+    newHeadText = newHeadText + (newHeadText && !/[.!?]$/.test(newHeadText) ? '.' : '') + ' ' + tail.join(' ');
+  }
+
+  newHeadText = newHeadText.replace(/\s+/g, ' ').trim();
+
+  if (!targetedNameQ && stable && newHeadText.includes(stable)) {
+    logPattern('stable_name_in_non_name_self_defense');
+    newHeadText = newHeadText.split(stable).join('').replace(/\s+/g, ' ').replace(/\s*,\s*,/g, ',').trim();
+    rewritten = true;
+    try {
+      console.log('[bot][dialogue] self_defense_rewritten_without_intro role=' + r);
+    } catch (e) {}
+  }
+
+  if (targetedNameQ && stable && newHeadText && !newHeadText.includes(stable)) {
+    const thirdPlus = splitSentencesForSelfDefense(newHeadText);
+    const nameLine =
+      loc === 'ko' ? `제 이름은 ${stable}입니다.` : `My name is ${stable}.`;
+    if (thirdPlus.length >= 3) {
+      thirdPlus.splice(2, 0, nameLine);
+      newHeadText = thirdPlus.join(' ');
+    } else {
+      newHeadText = newHeadText + ' ' + nameLine;
+    }
+    rewritten = true;
+    try {
+      console.log('[bot][dialogue] self_defense_rewritten_without_intro role=' + r);
+    } catch (e) {}
+  }
+
+  if (newHeadText !== text) rewritten = true;
+  return { text: newHeadText || text, rewritten, stripped: strippedAny };
+}
+
 function stabilizeNameQuestionCrewLine(text, role, loc, opts) {
   opts = opts || {};
   const cn = opts.crewPersonalNames || {};
@@ -4480,7 +4750,39 @@ function stabilizeNameQuestionCrewLine(text, role, loc, opts) {
     opts.targetedNameFocusRole &&
     r === String(opts.targetedNameFocusRole).toLowerCase();
   if (!isNameCtx) return { text: s, changed: false };
-  if (loc === 'ko' && looksLikeRoleOnlyKoNameIntro(s)) {
+  const selfDefenseSingle =
+    !!(opts.isSelfDefenseQuestion || opts.isTargetedAccusation) && !!opts.targetedQuestionSingleSpeaker;
+  if (selfDefenseSingle && loc === 'ko' && looksLikeRoleOnlyKoNameIntro(s)) {
+    const alibi =
+      r === 'doctor'
+        ? '그 시각 저는 의무실 생체 모니터 앞에 있었습니다.'
+        : r === 'engineer'
+          ? '그 시각 접근 로그와 타임스탬프가 제 동선을 찍습니다.'
+          : r === 'navigator'
+            ? '차트·항해 기록이 그 시각 제 위치와 맞습니다.'
+            : '교량 계기·압력 로그가 그 시각 제 자리를 말합니다.';
+    s = `그건 오해입니다. ${alibi} 제 이름은 ${stable}입니다.`;
+    changed = true;
+    try {
+      console.log('[bot][dialogue] role_intro_blocked_for_name_question role=' + r);
+      console.log('[bot][dialogue] stable_name_applied role=' + r);
+    } catch (e) {}
+  } else if (selfDefenseSingle && loc === 'en' && looksLikeRoleOnlyEnNameIntro(s)) {
+    const alibi =
+      r === 'doctor'
+        ? 'I was at the medbay biometrics stack at that time.'
+        : r === 'engineer'
+          ? 'Access logs and timestamps pin my path.'
+          : r === 'navigator'
+            ? 'Charts and route logs match that window.'
+            : 'Bridge gauges and pressure traces place me at the helm.';
+    s = `That is a misunderstanding, Captain. ${alibi} My name is ${stable}.`;
+    changed = true;
+    try {
+      console.log('[bot][dialogue] role_intro_blocked_for_name_question role=' + r);
+      console.log('[bot][dialogue] stable_name_applied role=' + r);
+    } catch (e) {}
+  } else if (loc === 'ko' && looksLikeRoleOnlyKoNameIntro(s)) {
     const roleBit =
       r === 'doctor'
         ? '의무실을 맡고 있습니다.'
@@ -4682,6 +4984,18 @@ function applyCharacterToneToDisplayLogs(displayLogs, locale, opts) {
       }
       const st = stabilizeNameQuestionCrewLine(newLine, pendingRole, loc, opts);
       newLine = st.text;
+      const sdRewrite =
+        !!(opts.isSelfDefenseQuestion || opts.isTargetedAccusation) &&
+        !!opts.targetedQuestionSingleSpeaker &&
+        opts.selfDefenseIsolateRole &&
+        pendingRole === opts.selfDefenseIsolateRole;
+      if (sdRewrite) {
+        const rw = rewriteSelfDefenseOpeningText(newLine, pendingRole, loc, {
+          targetedNameQuestion: opts.targetedNameQuestion,
+          crewPersonalNames: opts.crewPersonalNames
+        });
+        newLine = rw.text;
+      }
       out.push({ ...item, type: newLine });
       continue;
     }
@@ -4727,7 +5041,10 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
     targetedNameQuestion: !!targetedNameQuestion,
     targetedNameFocusRole: nameTargetRole,
     crewPersonalNames: null,
-    isSelfDefenseQuestion: !!isSelfDefenseQuestion
+    isSelfDefenseQuestion: !!isSelfDefenseQuestion,
+    isTargetedAccusation: !!isTargetedAccusation,
+    targetedQuestionSingleSpeaker: !!tqSingle,
+    selfDefenseIsolateRole: isolateRole
   };
   try {
     const gs0 = match?.game_state || {};
