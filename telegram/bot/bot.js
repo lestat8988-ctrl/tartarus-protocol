@@ -3678,12 +3678,74 @@ function isSelfDefenseQuestionContext(playerText) {
   );
 }
 
+/**
+ * playerText + match 옵션으로 톤/하이브리드 라우팅용 문맥(기존 상태만 사용).
+ * opts: remainingSec, deadRolesCount, gameOver
+ */
+function computeToneContext(playerText, opts) {
+  opts = opts || {};
+  const pt = String(playerText || '');
+  const remainingSec = opts.remainingSec != null ? Number(opts.remainingSec) : null;
+  const selfDefense = isSelfDefenseQuestionContext(pt);
+  const suspicionHeavy = suspicionHeavyInPlayerText(pt);
+  const suspicionWeak =
+    /(의심|수상|이상|어색|awkward|strange|suspicious|뭔가|who\s*should|누구.*의심)/i.test(pt) &&
+    !suspicionHeavy;
+  const threat = /(권총|총|처형|위협|threat|shoot|execute|pistol|쏘|겨누|총구)/i.test(pt);
+  const groupPressure =
+    /(자네들|다들|모두|승무원들|승무원\s+중|전원|everyone|all\s+of\s+you)/i.test(pt) &&
+    /(의심|범인|누가|말해|증언|alibi|where|why|왜|범인)/i.test(pt);
+  const targetedAccusation =
+    /(당신이|너는\s*범|you\s*(?:are|'re|’re)\s*the|why\s*you|왜\s*당신|pointing\s*at)/i.test(pt);
+  const lateGame = remainingSec != null && remainingSec <= 120;
+  const emotionPeak =
+    !!(selfDefense && threat) || suspicionHeavy || (lateGame && (suspicionHeavy || suspicionWeak));
+  const suspicion = suspicionHeavy || suspicionWeak || selfDefense;
+  return {
+    selfDefense,
+    suspicionHeavy,
+    suspicionWeak,
+    suspicion,
+    threat,
+    groupPressure,
+    targetedAccusation,
+    lateGame,
+    emotionPeak,
+    deadRolesCount: opts.deadRolesCount != null ? Number(opts.deadRolesCount) : 0,
+    gameOver: !!opts.gameOver
+  };
+}
+
+function gatherHighIntensitySceneFlags(ctx) {
+  const o = {};
+  if (ctx.selfDefense) o.isSelfDefenseQuestion = true;
+  if (ctx.groupPressure) o.isGroupPressure = true;
+  if (ctx.lateGame) o.isLateGame = true;
+  if (ctx.emotionPeak) o.isEmotionPeak = true;
+  if (ctx.targetedAccusation) o.isTargetedAccusation = true;
+  return o;
+}
+
 /** LLM/결정적 크루 대사에서 제네릭 문구를 역할 톤으로 치환(숨은 진실·범인 새 사실 없음). */
-function rewriteCrewLineForTone(text, role, loc, suspicion, selfDefense) {
+function rewriteCrewLineForTone(text, role, loc, toneCtx) {
   let s = String(text || '');
   let changed = false;
   let selfDefenseApplied = false;
+  let genericRewritten = false;
   const r = String(role || '').toLowerCase();
+  const suspicion = !!toneCtx.suspicion;
+  const selfDefense = !!toneCtx.selfDefense;
+  const threat = !!toneCtx.threat;
+  const suspicionHeavy = !!toneCtx.suspicionHeavy;
+  const suspicionWeak = !!toneCtx.suspicionWeak;
+  const emotionPeak = !!toneCtx.emotionPeak;
+  const targetedAccusation = !!toneCtx.targetedAccusation;
+  const corneredMedical = selfDefense && threat && emotionPeak && r === 'doctor';
+
+  function markGeneric() {
+    genericRewritten = true;
+  }
+
   if (loc === 'ko') {
     const byRole = {
       doctor: [
@@ -3714,9 +3776,86 @@ function rewriteCrewLineForTone(text, role, loc, suspicion, selfDefense) {
         changed = true;
       }
     }
+    if (suspicionWeak && !suspicionHeavy && r !== 'captain') {
+      const weakExtra = {
+        doctor: [[/모르겠습니다\.?$/gm, '바이탈·기록을 더 대조한 뒤 말씀드리겠습니다.']],
+        engineer: [[/모르겠습니다\.?$/gm, '접근 로그·타임스탬프를 더 맞춘 뒤 말씀드리겠습니다.']],
+        navigator: [[/모르겠습니다\.?$/gm, '항로·차트와 동선을 더 겹친 뒤 말씀드리겠습니다.']],
+        pilot: [[/모르겠습니다\.?$/gm, '계기·교량 감각을 더 짚은 뒤 말씀드리겠습니다.']]
+      };
+      const we = weakExtra[r];
+      if (we) {
+        for (const [re, rep] of we) {
+          if (re.test(s)) {
+            s = s.replace(re, rep);
+            changed = true;
+          }
+        }
+      }
+    }
+    if (r !== 'captain') {
+      const banKo = [
+        {
+          re: /그럴\s*리가\s*없습니다\.?/g,
+          rep: {
+            doctor: threat
+              ? '그건 오해입니다. 그 시각 의무실·복도에 있었습니다. 생존 압박 속에서도 생체·바이탈이 제 동선을 말합니다.'
+              : targetedAccusation
+                ? '그건 오해입니다. 의무 판단은 감정이 아니라 기록입니다. 성급히 저만 몰아붙이지 마십시오.'
+                : suspicionHeavy
+                  ? '그건 성급한 결론입니다. 바이탈·진료 기록으로 말하겠습니다.'
+                  : '그건 성급합니다. 생체·기록을 더 대조해야 합니다.',
+            engineer: threat
+              ? '그건 오해입니다. 릴레이·접근 로그가 제 구역을 찍습니다. 감정보다 체크섬을 보십시오.'
+              : targetedAccusation
+                ? '그건 오해입니다. 시스템 감사 흐름상 제 자리가 맞습니다. 로그 없이 단정하지 마십시오.'
+                : suspicionHeavy
+                  ? '그건 성급한 결론입니다. 타임스탬프·감사 로그로 말하겠습니다.'
+                  : '그건 성급합니다. 로그·체크섬을 더 맞춰야 합니다.',
+            navigator: threat
+              ? '그건 오해입니다. 차트·동선이 같은 분에 겹칩니다. 겨누기 전에 경로부터 맞추십시오.'
+              : targetedAccusation
+                ? '그건 오해입니다. 항해 기록과 제 진술이 같은 구간에 있습니다. 성급히 재단하지 마십시오.'
+                : suspicionHeavy
+                  ? '그건 성급한 결론입니다. 항로·알리바이로 말하겠습니다.'
+                  : '그건 성급합니다. 차트와 시간대를 더 좁혀야 합니다.',
+            pilot: threat
+              ? '그건 오해입니다. 교량 계기·압력이 제 자리를 말합니다. 직감이 아니라 계기를 보십시오.'
+              : targetedAccusation
+                ? '그건 오해입니다. 현장 감각과 로그가 같은 방향입니다. 함부로 겨누지 마십시오.'
+                : suspicionHeavy
+                  ? '그건 성급한 결론입니다. 진동·소리·계기로 말하겠습니다.'
+                  : '그건 성급합니다. 계기와 분위기를 더 짚어야 합니다.'
+          }
+        },
+        {
+          re: /그럴\s*가능성은\s*없습니다\.?/g,
+          rep: {
+            doctor: '의료 판단은 가능성 말고 생체·기록으로 합니다. 성급히 단정하지 마십시오.',
+            engineer: '가능성 말고 타임스탬프·접근 기록으로 말하겠습니다.',
+            navigator: '가능성 말고 차트·동선으로 말하겠습니다.',
+            pilot: '가능성 말고 계기·현장 감각으로 말하겠습니다.'
+          }
+        }
+      ];
+      for (const row of banKo) {
+        const reBan = new RegExp(row.re.source, row.re.flags);
+        if (!reBan.test(s)) continue;
+        const repBan = row.rep && row.rep[r] != null ? row.rep[r] : null;
+        if (repBan == null) continue;
+        s = s.replace(reBan, repBan);
+        changed = true;
+        markGeneric();
+      }
+    }
     if (selfDefense && r !== 'captain') {
       const sdDoctor = [
-        [/저는\s*증거가\s*없습니다\.?/g, '의무실·기록 기준으로는 제 동선이 맞습니다. 성급히 죄목을 견지하지 마십시오.'],
+        [
+          /저는\s*증거가\s*없습니다\.?/g,
+          corneredMedical
+            ? '그건 오해입니다. 그 시각 의무실·복도에 있었습니다. 생존 본능이 아니라 바이탈·생체 기록이 제 알리바이입니다.'
+            : '의무실·기록 기준으로는 제 동선이 맞습니다. 성급히 죄목을 견지하지 마십시오.'
+        ],
         [/의심스러운\s*행동을\s*하지\s*않았습니다\.?/g, '생체·진술 로그로 말하겠습니다. 흥분을 혼동하지 마십시오.'],
         [/항상\s*침착했습니다\.?/g, '그 시각 의무실·복도에 있었습니다. 총부터 들이대지 마십시오.'],
         [/저는\s*아무\s*잘못도\s*없습니다\.?/g, '의료 근거로만 말하겠습니다. 함부로 범인이라 단정하지 마십시오.']
@@ -3751,19 +3890,53 @@ function rewriteCrewLineForTone(text, role, loc, suspicion, selfDefense) {
           s = s.replace(re, rep);
           changed = true;
           selfDefenseApplied = true;
+          markGeneric();
         }
       }
     }
     if (suspicion && r !== 'captain' && /^(그렇군요|알겠습니다|네\.|좋습니다)/.test(s.trim())) {
-      s =
-        (r === 'doctor'
-          ? '그건 오해입니다. 바이탈·기록으로 말하겠습니다. '
-          : r === 'engineer'
-            ? '그건 오해입니다. 로그·타임스탬프로 말하겠습니다. '
-            : r === 'navigator'
-              ? '그건 오해입니다. 항로·동선으로 말하겠습니다. '
-              : '그건 오해입니다. 현장 감각으로 말하겠습니다. ') + s;
-      changed = true;
+      let prefix = '';
+      if (threat) {
+        prefix =
+          r === 'doctor'
+            ? '지금은 감정이 아니라 생체·바이탈입니다. '
+            : r === 'engineer'
+              ? '지금은 감정이 아니라 로그·체크섬입니다. '
+              : r === 'navigator'
+                ? '지금은 감정이 아니라 동선·시간대입니다. '
+                : '지금은 감정이 아니라 계기·압력입니다. ';
+      } else if (suspicionHeavy) {
+        prefix =
+          r === 'doctor'
+            ? '그건 오해입니다. 바이탈·기록으로 말하겠습니다. '
+            : r === 'engineer'
+              ? '그건 오해입니다. 로그·타임스탬프로 말하겠습니다. '
+              : r === 'navigator'
+                ? '그건 오해입니다. 항로·동선으로 말하겠습니다. '
+                : '그건 오해입니다. 현장 감각으로 말하겠습니다. ';
+      } else if (suspicionWeak) {
+        prefix =
+          r === 'doctor'
+            ? '성급한 추측입니다. 바이탈·기록으로 말하겠습니다. '
+            : r === 'engineer'
+              ? '성급한 추측입니다. 로그·타임스탬프로 말하겠습니다. '
+              : r === 'navigator'
+                ? '성급한 추측입니다. 항로·동선으로 말하겠습니다. '
+                : '성급한 추측입니다. 계기·분위기로 말하겠습니다. ';
+      } else if (selfDefense) {
+        prefix =
+          r === 'doctor'
+            ? '그건 오해입니다. 바이탈·기록으로 말하겠습니다. '
+            : r === 'engineer'
+              ? '그건 오해입니다. 로그·타임스탬프로 말하겠습니다. '
+              : r === 'navigator'
+                ? '그건 오해입니다. 항로·동선으로 말하겠습니다. '
+                : '그건 오해입니다. 현장 감각으로 말하겠습니다. ';
+      }
+      if (prefix) {
+        s = prefix + s;
+        changed = true;
+      }
     }
   } else {
     const byRoleEn = {
@@ -3797,9 +3970,77 @@ function rewriteCrewLineForTone(text, role, loc, suspicion, selfDefense) {
         }
       }
     }
+    if (suspicionWeak && !suspicionHeavy && r !== 'captain') {
+      const weakEn = {
+        doctor: [[/I\s+don'?t\s+know\.?$/gim, 'I need another pass on vitals and charts before I answer.']],
+        engineer: [[/I\s+don'?t\s+know\.?$/gim, 'I need to align timestamps and access logs before I answer.']],
+        navigator: [[/I\s+don'?t\s+know\.?$/gim, 'I need to line up route slices and charts before I answer.']],
+        pilot: [[/I\s+don'?t\s+know\.?$/gim, 'I need to replay instruments and what the bridge felt like before I answer.']]
+      };
+      const we = weakEn[r];
+      if (we) {
+        for (const [re, rep] of we) {
+          if (re.test(s)) {
+            s = s.replace(re, rep);
+            changed = true;
+          }
+        }
+      }
+    }
+    if (r !== 'captain') {
+      const banEn = [
+        {
+          re: /(That\s+can'?t\s+be\s+true|That'?s\s+impossible)\.?/gi,
+          rep: {
+            doctor: threat
+              ? 'That is a misread. Medbay and corridor time line up on vitals—do not convict on panic.'
+              : targetedAccusation
+                ? 'That is a misread. I answer from biometrics and duty logs, not theatrics.'
+                : suspicionHeavy
+                  ? 'Too fast a verdict. Let vitals and records speak.'
+                  : 'Too fast. Cross-check vitals and the charted timeline.',
+            engineer: threat
+              ? 'That is a misread. Access logs and checksums place me—feelings are not audit trails.'
+              : targetedAccusation
+                ? 'That is a misread. Timestamps beat accusations—show the mismatch first.'
+                : suspicionHeavy
+                  ? 'Too fast a verdict. Pull the audit trail.'
+                  : 'Too fast. Align relays and timestamps.',
+            navigator: threat
+              ? 'That is a misread. Routes and charts pin that minute—do not shoot the map.'
+              : targetedAccusation
+                ? 'That is a misread. Plot my route against the chart before you name me.'
+                : suspicionHeavy
+                  ? 'Too fast a verdict. Tighten route versus alibi.'
+                  : 'Too fast. Cross-check charts and who was where.',
+            pilot: threat
+              ? 'That is a misread. Instruments and pressure tell where I stood—do not aim on vibes.'
+              : targetedAccusation
+                ? 'That is a misread. Helm readouts back my story—verify before you point.'
+                : suspicionHeavy
+                  ? 'Too fast a verdict. Replay instruments and what the hull felt like.'
+                  : 'Too fast. Re-read gauges and bridge feel.'
+          }
+        }
+      ];
+      for (const row of banEn) {
+        const reBan = new RegExp(row.re.source, row.re.flags);
+        if (!reBan.test(s)) continue;
+        const repBan = row.rep && row.rep[r] != null ? row.rep[r] : null;
+        if (repBan == null) continue;
+        s = s.replace(reBan, repBan);
+        changed = true;
+        markGeneric();
+      }
+    }
     if (selfDefense && r !== 'captain') {
       const sdDoctorEn = [
-        [/I\s+have\s+no\s+evidence/gi, 'The medbay logs place me on station—do not convict me on vibes.'],
+        [
+          /I\s+have\s+no\s+evidence/gi,
+          corneredMedical
+            ? 'That is wrong. I was in medbay corridor when it mattered—vitals and triage logs are my alibi, not vibes.'
+            : 'The medbay logs place me on station—do not convict me on vibes.'
+        ],
         [
           /I\s+didn'?t\s+do\s+anything\s+suspicious/gi,
           'Cross-check vitals and statements—I will answer from records, not panic.'
@@ -3845,11 +4086,56 @@ function rewriteCrewLineForTone(text, role, loc, suspicion, selfDefense) {
           s = s.replace(re, rep);
           changed = true;
           selfDefenseApplied = true;
+          markGeneric();
         }
       }
     }
+    if (suspicion && r !== 'captain' && /^(Okay\.|I\s+see\.|Understood\.|Yes\.)/i.test(s.trim())) {
+      let prefix = '';
+      if (threat) {
+        prefix =
+          r === 'doctor'
+            ? 'This is vitals and triage, not theater. '
+            : r === 'engineer'
+              ? 'This is logs and checksums, not theater. '
+              : r === 'navigator'
+                ? 'This is routes and charts, not theater. '
+                : 'This is instruments and bridge feel, not theater. ';
+      } else if (suspicionHeavy) {
+        prefix =
+          r === 'doctor'
+            ? 'That is a misread—vitals and records first. '
+            : r === 'engineer'
+              ? 'That is a misread—timestamps and access trails first. '
+              : r === 'navigator'
+                ? 'That is a misread—routes and alibis first. '
+                : 'That is a misread—gauges and what the hull felt like first. ';
+      } else if (suspicionWeak) {
+        prefix =
+          r === 'doctor'
+            ? 'Slow down—vitals and charts deserve another pass. '
+            : r === 'engineer'
+              ? 'Slow down—logs need another pass. '
+              : r === 'navigator'
+                ? 'Slow down—routes need another pass. '
+                : 'Slow down—instruments need another pass. ';
+      } else if (selfDefense) {
+        prefix =
+          r === 'doctor'
+            ? 'That is a misread—vitals and records first. '
+            : r === 'engineer'
+              ? 'That is a misread—timestamps and access trails first. '
+              : r === 'navigator'
+                ? 'That is a misread—routes and alibis first. '
+                : 'That is a misread—gauges and bridge feel first. ';
+      }
+      if (prefix) {
+        s = prefix + s;
+        changed = true;
+      }
+    }
   }
-  return { text: s, changed, selfDefenseApplied };
+  return { text: s, changed, selfDefenseApplied, genericRewritten };
 }
 
 /** 이름 질문에 역할 슬로건만 있는지(실명 없음) 대략 감지 — 후처리 교정용 */
@@ -3972,8 +4258,13 @@ function roleKeyFromBracketHeaderLine(line) {
 function applyCharacterToneToDisplayLogs(displayLogs, locale, opts) {
   opts = opts || {};
   const loc = locale === 'en' ? 'en' : 'ko';
-  const selfDefense = isSelfDefenseQuestionContext(opts.playerText || '');
-  const suspicion = suspicionHeavyInPlayerText(opts.playerText || '') || selfDefense;
+  const toneCtx = computeToneContext(opts.playerText || '', opts);
+  const hiFlags = gatherHighIntensitySceneFlags(toneCtx);
+  if (Object.keys(hiFlags).length) {
+    try {
+      console.log('[bot][dialogue] high_intensity_scene flags=' + JSON.stringify(hiFlags));
+    } catch (e) {}
+  }
   if (!displayLogs || !displayLogs.length) return displayLogs;
   const out = [];
   let pendingRole = null;
@@ -3992,12 +4283,11 @@ function applyCharacterToneToDisplayLogs(displayLogs, locale, opts) {
     }
     if (pendingRole && pendingRole !== 'captain' && typeLine) {
       let newLine = typeLine;
-      const { text: w1, changed: c1, selfDefenseApplied } = rewriteCrewLineForTone(
+      const { text: w1, changed: c1, selfDefenseApplied, genericRewritten } = rewriteCrewLineForTone(
         newLine,
         pendingRole,
         loc,
-        suspicion,
-        selfDefense
+        toneCtx
       );
       newLine = w1;
       if (c1) {
@@ -4008,6 +4298,11 @@ function applyCharacterToneToDisplayLogs(displayLogs, locale, opts) {
       if (selfDefenseApplied) {
         try {
           console.log('[bot][dialogue] self_defense_tone_applied role=' + pendingRole);
+        } catch (e) {}
+      }
+      if (genericRewritten) {
+        try {
+          console.log('[bot][dialogue] generic_response_rewritten role=' + pendingRole);
         } catch (e) {}
       }
       if (loc === 'ko') {
@@ -4057,6 +4352,15 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
     targetedNameFocusRole: nameTargetRole,
     crewPersonalNames: null
   };
+  try {
+    const gs0 = match?.game_state || {};
+    if (match && ep1Engine.getTimerStatus) {
+      const t0 = ep1Engine.getTimerStatus(match, Date.now());
+      toneOptsBase.remainingSec = Math.max(0, Math.floor(t0.remaining_sec ?? 0));
+    }
+    toneOptsBase.deadRolesCount = Array.isArray(gs0.dead_roles) ? gs0.dead_roles.length : 0;
+    toneOptsBase.gameOver = !!gs0.game_over;
+  } catch (e) {}
 
   if (match?.match_id) {
     await ensureCrewPersonalNamesPersisted(match.match_id);
@@ -4655,8 +4959,18 @@ async function handleTextMessage(playerId, text, opts = {}) {
       console.log('[bot] role_opinion_question captain_display_source=final_only');
       console.log('[bot] role_opinion_question captain_body_preserved=true');
     }
-    const timer = ep1Engine.getTimerStatus(updated, now);
-    const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
+    const timerRo = ep1Engine.getTimerStatus(updated, now);
+    const rem = Math.max(0, Math.floor(timerRo.remaining_sec ?? 0));
+    const gsToneRo = updated?.game_state || {};
+    if (!isErrorRoleOpinion) {
+      recentDisplay = applyCharacterToneToDisplayLogs(recentDisplay, locale, {
+        playerText: String(text || ''),
+        crewPersonalNames: updated?.game_state?.crew_names || null,
+        remainingSec: rem,
+        deadRolesCount: Array.isArray(gsToneRo.dead_roles) ? gsToneRo.dead_roles.length : 0,
+        gameOver: !!gsToneRo.game_over
+      });
+    }
     let reply = recentDisplay.map((e) => e.type).filter(Boolean).join('\n') || '…';
     const m = Math.floor(rem / 60);
     const sec = rem % 60;
@@ -4681,12 +4995,16 @@ async function handleTextMessage(playerId, text, opts = {}) {
       recentDisplay = applyTargetedQuestionCaptainDisplayBody(recentDisplay, captainBodyForGroup, locale);
       recentDisplay = dedupeDisplayLogs(recentDisplay, locale);
     }
-    recentDisplay = applyCharacterToneToDisplayLogs(recentDisplay, locale, {
-      playerText: String(text || ''),
-      crewPersonalNames: updated?.game_state?.crew_names || null
-    });
     const timer = ep1Engine.getTimerStatus(updated, now);
     const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
+    const gsToneG = updated?.game_state || {};
+    recentDisplay = applyCharacterToneToDisplayLogs(recentDisplay, locale, {
+      playerText: String(text || ''),
+      crewPersonalNames: updated?.game_state?.crew_names || null,
+      remainingSec: rem,
+      deadRolesCount: Array.isArray(gsToneG.dead_roles) ? gsToneG.dead_roles.length : 0,
+      gameOver: !!gsToneG.game_over
+    });
     let reply = recentDisplay.map((e) => e.type).filter(Boolean).join('\n') || '…';
     const m = Math.floor(rem / 60);
     const sec = rem % 60;
@@ -4708,8 +5026,16 @@ async function handleTextMessage(playerId, text, opts = {}) {
       recentDisplay = applyTargetedQuestionCaptainDisplayBody(recentDisplay, captainBodyForSusp, locale);
       recentDisplay = dedupeDisplayLogs(recentDisplay, locale);
     }
-    const timer = ep1Engine.getTimerStatus(updated, now);
-    const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
+    const timerSq = ep1Engine.getTimerStatus(updated, now);
+    const rem = Math.max(0, Math.floor(timerSq.remaining_sec ?? 0));
+    const gsToneSq = updated?.game_state || {};
+    recentDisplay = applyCharacterToneToDisplayLogs(recentDisplay, locale, {
+      playerText: String(text || ''),
+      crewPersonalNames: updated?.game_state?.crew_names || null,
+      remainingSec: rem,
+      deadRolesCount: Array.isArray(gsToneSq.dead_roles) ? gsToneSq.dead_roles.length : 0,
+      gameOver: !!gsToneSq.game_over
+    });
     let reply = recentDisplay.map((e) => e.type).filter(Boolean).join('\n') || '…';
     const m = Math.floor(rem / 60);
     const sec = rem % 60;
@@ -5168,8 +5494,18 @@ async function processMessageApi(playerId, text, opts = {}) {
       console.log('[bot] role_opinion_question captain_display_source=final_only');
       console.log('[bot] role_opinion_question captain_body_preserved=true');
     }
-    const timer = ep1Engine.getTimerStatus(updated, now);
-    const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
+    const timerRo = ep1Engine.getTimerStatus(updated, now);
+    const rem = Math.max(0, Math.floor(timerRo.remaining_sec ?? 0));
+    const gsToneRo = updated?.game_state || {};
+    if (!isErrorRoleOpinion) {
+      newDisplayLogs = applyCharacterToneToDisplayLogs(newDisplayLogs, locale, {
+        playerText: String(text || ''),
+        crewPersonalNames: updated?.game_state?.crew_names || null,
+        remainingSec: rem,
+        deadRolesCount: Array.isArray(gsToneRo.dead_roles) ? gsToneRo.dead_roles.length : 0,
+        gameOver: !!gsToneRo.game_over
+      });
+    }
     const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
     return {
       ok: true,
@@ -5200,12 +5536,16 @@ async function processMessageApi(playerId, text, opts = {}) {
       newDisplayLogs = applyTargetedQuestionCaptainDisplayBody(newDisplayLogs, captainBodyForGroup, locale);
       newDisplayLogs = dedupeDisplayLogs(newDisplayLogs, locale);
     }
-    newDisplayLogs = applyCharacterToneToDisplayLogs(newDisplayLogs, locale, {
-      playerText: String(text || ''),
-      crewPersonalNames: updated?.game_state?.crew_names || null
-    });
     const timer = ep1Engine.getTimerStatus(updated, now);
     const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
+    const gsToneG = updated?.game_state || {};
+    newDisplayLogs = applyCharacterToneToDisplayLogs(newDisplayLogs, locale, {
+      playerText: String(text || ''),
+      crewPersonalNames: updated?.game_state?.crew_names || null,
+      remainingSec: rem,
+      deadRolesCount: Array.isArray(gsToneG.dead_roles) ? gsToneG.dead_roles.length : 0,
+      gameOver: !!gsToneG.game_over
+    });
     const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
     return {
       ok: true,
@@ -5233,8 +5573,16 @@ async function processMessageApi(playerId, text, opts = {}) {
       newDisplayLogs = applyTargetedQuestionCaptainDisplayBody(newDisplayLogs, captainBodyForSusp, locale);
       newDisplayLogs = dedupeDisplayLogs(newDisplayLogs, locale);
     }
-    const timer = ep1Engine.getTimerStatus(updated, now);
-    const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
+    const timerSq = ep1Engine.getTimerStatus(updated, now);
+    const rem = Math.max(0, Math.floor(timerSq.remaining_sec ?? 0));
+    const gsToneSq = updated?.game_state || {};
+    newDisplayLogs = applyCharacterToneToDisplayLogs(newDisplayLogs, locale, {
+      playerText: String(text || ''),
+      crewPersonalNames: updated?.game_state?.crew_names || null,
+      remainingSec: rem,
+      deadRolesCount: Array.isArray(gsToneSq.dead_roles) ? gsToneSq.dead_roles.length : 0,
+      gameOver: !!gsToneSq.game_over
+    });
     const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
     return {
       ok: true,
