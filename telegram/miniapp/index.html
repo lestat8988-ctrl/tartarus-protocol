@@ -775,9 +775,9 @@
 </head>
 <body>
   <script>
-    console.log('[miniapp-build] poll-trace-v3');
+    console.log('[miniapp-build] poll-trace-v4');
   </script>
-  <div id="miniapp-build-marker" class="miniapp-build-marker" aria-hidden="true">build: poll-trace-v3</div>
+  <div id="miniapp-build-marker" class="miniapp-build-marker" aria-hidden="true">build: poll-trace-v4</div>
   <div id="app">
     <!-- Intro screen -->
     <div id="intro-screen">
@@ -1028,6 +1028,13 @@
       var appRequestGeneration = 0;
       /** 현재 폴링이 따라야 할 match_id (start 성공 직후 설정) */
       var activeMatchPollId = null;
+
+      /** 서버 기준 종료 시각(ms). remaining_sec 또는 deadline_at으로 매 응답마다 재설정 — setInterval은 표시만. */
+      var serverDeadlineMs = null;
+      var deadlineBoundMatchId = null;
+      var timerDisplayIntervalId = null;
+      /** visibility·즉시 fetch 등 /api/state 명시 요청의 stale 가드 */
+      var latestStateFetchGen = 0;
 
       var screen = 'intro';
       var storedLang;
@@ -1789,9 +1796,14 @@
 
       if (typeof document !== 'undefined') {
         document.addEventListener('visibilitychange', function() {
+          var vis = document.visibilityState === 'visible';
+          try {
+            console.log('[miniapp][timer] visibility changed visible=' + vis);
+          } catch (e) {}
           if (document.visibilityState === 'hidden') {
             clearStatePollTimer();
-          } else if (document.visibilityState === 'visible') {
+          } else if (vis) {
+            fetchLatestStateImmediate('visibility');
             if (statePollingEnabled && screen === 'game' && !isGameOver) {
               scheduleNextStatePoll(STATE_POLL_BASE_MS);
             }
@@ -1878,7 +1890,7 @@
           .then(function(data) {
             if (pollOwnerGen !== appRequestGeneration) {
               try {
-                console.log('[miniapp] state_poll_stale_response_dropped');
+                console.log('[miniapp][state] stale response ignored');
               } catch (e) {}
               return;
             }
@@ -1902,6 +1914,7 @@
               remaining_sec: data.remaining_sec,
               game_state: gs
             };
+            if (data.deadline_at != null) st.deadline_at = data.deadline_at;
             if (data.actual_imposter != null) st.actual_imposter = data.actual_imposter;
             if (data.is_timeout) st.is_timeout = data.is_timeout;
             /* 배경 폴링: userActionPending·잠금 시퀀스에 관여하지 않음 */
@@ -1954,6 +1967,7 @@
           );
         } catch (e) {}
         scheduleNextStatePoll(STATE_POLL_BASE_MS);
+        fetchLatestStateImmediate('polling-reconnect');
       }
 
       function clearGameLogPanelAndState() {
@@ -2015,6 +2029,9 @@
         } catch (e) {}
         bumpAppRequestGeneration();
         stopStatePolling();
+        stopTimerDisplay();
+        serverDeadlineMs = null;
+        deadlineBoundMatchId = null;
         lastKnownMatchId = null;
         activeMatchPollId = null;
         clearGameLogPanelAndState();
@@ -2119,6 +2136,169 @@
         var m = Math.floor(sec / 60);
         var s = Math.floor(sec % 60);
         return m + ':' + String(s).padStart(2, '0');
+      }
+
+      /**
+       * /state·/start·message 응답에서 절대시각 우선, 없으면 remaining_sec로 수신 시각 기준 deadline 계산.
+       */
+      function extractDeadlineMsFromPayload(data) {
+        if (!data || typeof data !== 'object') return null;
+        var abs = data.deadline_at || data.ends_at || data.turn_deadline;
+        if (abs) {
+          var t = Date.parse(String(abs));
+          if (!isNaN(t)) return t;
+        }
+        if (data.remaining_sec != null && data.remaining_sec !== '') {
+          var rs = Number(data.remaining_sec);
+          if (!isNaN(rs) && rs >= 0) return Date.now() + rs * 1000;
+        }
+        return null;
+      }
+
+      function stopTimerDisplay() {
+        if (timerDisplayIntervalId != null) {
+          clearInterval(timerDisplayIntervalId);
+          timerDisplayIntervalId = null;
+        }
+      }
+
+      function tickTimerDisplay() {
+        if (screen !== 'game') return;
+        if (deadlineBoundMatchId && activeMatchPollId && String(deadlineBoundMatchId) !== String(activeMatchPollId)) {
+          stopTimerDisplay();
+          try {
+            console.log('[miniapp][timer] rebound to current match deadline');
+          } catch (e) {}
+          return;
+        }
+        if (isGameOver || previousGameOver) {
+          if (statusTime) statusTime.textContent = formatTime(0);
+          if (hudCountdown) hudCountdown.textContent = getL().countdown + ' : ' + formatTime(0);
+          return;
+        }
+        if (serverDeadlineMs == null) return;
+        var rem = Math.max(0, Math.floor((serverDeadlineMs - Date.now()) / 1000));
+        if (statusTime) statusTime.textContent = formatTime(rem);
+        if (hudCountdown) hudCountdown.textContent = getL().countdown + ' : ' + formatTime(rem);
+      }
+
+      function ensureTimerDisplayInterval() {
+        if (timerDisplayIntervalId != null) return;
+        timerDisplayIntervalId = setInterval(tickTimerDisplay, 1000);
+      }
+
+      /**
+       * 서버 응답마다 deadline 재바인딩. match_id 불일치·stale match면 무시.
+       */
+      function rebindDeadlineFromServerState(state) {
+        if (!state) return;
+        var mid =
+          state.match_id != null
+            ? String(state.match_id)
+            : lastKnownMatchId != null
+              ? String(lastKnownMatchId)
+              : '';
+        if (!mid) return;
+        if (activeMatchPollId && String(activeMatchPollId) !== mid) {
+          try {
+            console.log('[miniapp][state] stale response ignored');
+          } catch (e) {}
+          return;
+        }
+        var gs = state.game_state || {};
+        if (gs.game_over) {
+          stopTimerDisplay();
+          serverDeadlineMs = null;
+          deadlineBoundMatchId = null;
+          return;
+        }
+        var prevMid = deadlineBoundMatchId;
+        var dl = extractDeadlineMsFromPayload(state);
+        if (dl == null) return;
+        if (prevMid != null && String(prevMid) !== String(mid)) {
+          try {
+            console.log('[miniapp][timer] rebound to current match deadline');
+          } catch (e) {}
+        }
+        serverDeadlineMs = dl;
+        deadlineBoundMatchId = mid;
+        var rem = Math.max(0, Math.floor((serverDeadlineMs - Date.now()) / 1000));
+        try {
+          console.log('[miniapp][timer] deadline recalculated remaining=' + rem);
+        } catch (e) {}
+        ensureTimerDisplayInterval();
+      }
+
+      /**
+       * visibility 복귀·폴링 재시작 등 — 최신 /api/state 즉시 1회 (generation·match_id stale 가드).
+       */
+      function fetchLatestStateImmediate(reason) {
+        if (screen !== 'game') return;
+        var playerId = getPlayerId();
+        var reqId = ++latestStateFetchGen;
+        var fetchGen = appRequestGeneration;
+        try {
+          if (String(reason || '') === 'visibility') {
+            console.log('[miniapp][state] fetching latest state on visibility restore');
+          } else {
+            console.log('[miniapp][state] fetching latest state reason=' + String(reason || ''));
+          }
+        } catch (e) {}
+        fetch(
+          API_BASE +
+            '/api/state?playerId=' +
+            encodeURIComponent(playerId) +
+            '&lang=' +
+            encodeURIComponent(getLangForApi())
+        )
+          .then(function(r) {
+            return r.json();
+          })
+          .then(function(data) {
+            if (reqId !== latestStateFetchGen) {
+              try {
+                console.log('[miniapp][state] stale response ignored');
+              } catch (e) {}
+              return;
+            }
+            if (fetchGen !== appRequestGeneration) {
+              try {
+                console.log('[miniapp][state] stale response ignored');
+              } catch (e) {}
+              return;
+            }
+            if (!data || !data.ok) return;
+            if (!data.match_id) return;
+            if (activeMatchPollId && String(data.match_id) !== String(activeMatchPollId)) {
+              try {
+                console.log('[miniapp][state] stale response ignored');
+              } catch (e) {}
+              return;
+            }
+            var gs = data.game_state || {};
+            var st = {
+              match_id: data.match_id,
+              remaining_sec: data.remaining_sec,
+              game_state: gs
+            };
+            if (data.actual_imposter != null) st.actual_imposter = data.actual_imposter;
+            if (data.is_timeout) st.is_timeout = data.is_timeout;
+            if (data.deadline_at != null) st.deadline_at = data.deadline_at;
+            updateStatus(st, { forApiMessage: true, fromPoll: true });
+            applyEntitlementFromResponse(data);
+            if (data.recent_events && data.recent_events.length) {
+              appendRecentEventsIfFresh(
+                {
+                  match_id: data.match_id,
+                  recent_events: data.recent_events,
+                  remaining_sec: data.remaining_sec
+                },
+                String(reason || 'immediate')
+              );
+            }
+            if (gs.game_over) stopStatePolling();
+          })
+          .catch(function() {});
       }
 
       function truncateMatchId(id) {
@@ -2691,6 +2871,7 @@
         } else if (statusDeadWrap) { statusDeadWrap.style.display = 'none'; statusDead.classList.remove('threat'); }
 
         applyDeadStateToModalButtons();
+        rebindDeadlineFromServerState(state);
       }
 
       function applyEvents(events) {
@@ -2834,6 +3015,7 @@
             lastRenderedRecentEventsSig = '';
             ensureIntroButtonsEnabled();
             var st = { match_id: data.match_id, remaining_sec: data.remaining_sec, game_state: data.game_state };
+            if (data.deadline_at != null) st.deadline_at = data.deadline_at;
             if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
             if (data.is_timeout) st.is_timeout = data.is_timeout;
             updateStatus(st, { fromStart: true });
@@ -3208,6 +3390,9 @@
         } catch (e) {}
         bumpAppRequestGeneration();
         stopStatePolling();
+        stopTimerDisplay();
+        serverDeadlineMs = null;
+        deadlineBoundMatchId = null;
         lastKnownMatchId = null;
         activeMatchPollId = null;
         lastRenderedRecentEventsSig = '';
