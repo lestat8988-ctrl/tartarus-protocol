@@ -3231,6 +3231,7 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
     if (kind === 'QUESTION') {
       if (promptOpts.targetedQuestionSingleSpeaker) {
         const sdBoost = !!(promptOpts.isSelfDefenseQuestion || promptOpts.isTargetedAccusation);
+        const generalTargetedQuestion = !!promptOpts.generalTargetedQuestion;
         const qEnS = [
           ...jsonContractEn,
           'ROLE FIELD: captain|doctor|engineer|navigator|pilot only.',
@@ -3255,12 +3256,20 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
             'Pilot: (1) denial (2) bridge instruments / pressure / vibration (3) helm or bridge log evidence (4) desperation.',
             'Tone: survival pressure, not brochure copy. Concrete ship nouns only.'
           );
-        } else {
+        } else if (promptOpts.targetedNameQuestion) {
           qEnS.push(
-            promptOpts.targetedNameQuestion
-              ? 'NAME_ONLY: only focusTargetRole states their personal name from crewPersonalNames when asked.'
-              : 'focusTargetRole answers the captain\'s question directly — 2–4 sentences. No other crew.'
+            'TARGETED_NAME_QUESTION: only focusTargetRole states their personal name from crewPersonalNames when asked.'
           );
+        } else if (generalTargetedQuestion) {
+          qEnS.push(
+            'GENERAL_TARGETED_QUESTION (NOT a name question, NOT self-defense): answer the captain\'s question directly — 1–3 sentences.',
+            'FORBIDDEN: personal name, "I am [Name]", "My name is …", name-first sentence, any crewPersonalNames string in focusTargetRole.text.',
+            'FORBIDDEN: opening with role self-intro ("As a doctor I …") instead of answering.',
+            'Doctor: medbay, patients, records, vitals. Engineer: machine room, logs, equipment. Navigator: chart, route, time window. Pilot: bridge, gauges, pressure, vibration.',
+            'GOOD: "I was in medbay with patients on record that window." BAD: "I am Alex Kim. I was in medbay."'
+          );
+        } else {
+          qEnS.push('focusTargetRole answers the captain\'s question directly — 2–4 sentences. No other crew.');
         }
         qEnS.push('Respond JSON only.');
         return qEnS.join('\n');
@@ -3313,7 +3322,8 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
         'ROLE FIELD: captain|doctor|engineer|navigator|pilot only.',
         'BLOCK ORDER: blocks[0]=captain; blocks[1]=engineer; then doctor, navigator, pilot (omit dead).',
         'CHECK_LOG: Engineer leads with logs/access/timestamp mismatch/gap/unauthorized-query — audit-narrow.',
-        'doctor: biometrics/stress-log only as auxiliary. navigator: route/alibi auxiliary. pilot: mood/gut auxiliary.',
+        'doctor: biometrics/stress-log only as auxiliary. navigator: route/alibi auxiliary.',
+        'pilot: bridge instrumentation — gauge lag vs baseline, pressure band drift, helm vibration, helm response delay, display timestamp skew vs audit trail, metal/mechanical transients. FORBIDDEN: "I feel off", "odd vibe", "something feels wrong", "unstable" without bridge nouns.',
         'Stay on audit facts; no unrelated small talk.',
         'Respond JSON only.'
       ].join('\n');
@@ -3374,6 +3384,7 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
   if (kind === 'QUESTION') {
     if (promptOpts.targetedQuestionSingleSpeaker) {
       const sdBoost = !!(promptOpts.isSelfDefenseQuestion || promptOpts.isTargetedAccusation);
+      const generalTargetedQuestion = !!promptOpts.generalTargetedQuestion;
       const qKoS = [
         'USSC Tartarus E1. Korean spoken lines. Output JSON only: {"blocks":[...]} — no markdown.',
         'ROLE FIELD (required): each block.role MUST be exactly one of: captain, doctor, engineer, navigator, pilot — lowercase English only.',
@@ -3400,11 +3411,21 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
           '파일럿: (1) 부인 (2) 교량·계기·압력·진동 (3) 브리지·조종 로그 근거 (4) 절박함.',
           '톤: 생존 압박·긴장. 소개서가 아니라 방어다.'
         );
+      } else if (promptOpts.targetedNameQuestion) {
+        qKoS.push(
+          'TARGETED_NAME_QUESTION: focusTargetRole만 crewPersonalNames의 실명을 말함. 다른 역할 블록 없음.'
+        );
+      } else if (generalTargetedQuestion) {
+        qKoS.push(
+          'GENERAL_TARGETED_QUESTION (이름 질문 아님, 자기변호 아님): 함장 질문에 바로 답할 것. 1~3문장.',
+          '금지: 실명·성함·crewPersonalNames·"저는 OO입니다"·"OO입니다"로 문장을 열기. 이름 소개·자기소개 금지.',
+          '금지: "저는 의사로서/엔지니어로서"로 질문 답변 대신 직무 소개하기.',
+          '닥터: 의무실·환자·기록·바이탈. 엔지니어: 기계실·로그·장비. 네비게이터: 차트·항로·시간대. 파일럿: 브리지·계기·압력·진동.',
+          '좋은 예: "그때 저는 의무실에서 환자를 치료하고 있었습니다." 나쁜 예: "김민호입니다. 그때 저는 …"'
+        );
       } else {
         qKoS.push(
-          promptOpts.targetedNameQuestion
-            ? '이름 질문: focusTargetRole만 crewPersonalNames의 실명을 말함. 다른 역할 블록 없음.'
-            : 'focusTargetRole만 함장 질문에 직접 답함. 2–4문장. 대상의 말을 반복·요약하는 비타깃 멘트 금지(비타깃 블록 없음).'
+          'focusTargetRole만 함장 질문에 직접 답함. 2–4문장. 대상의 말을 반복·요약하는 비타깃 멘트 금지(비타깃 블록 없음).'
         );
       }
       qKoS.push('Respond JSON only.');
@@ -3472,7 +3493,8 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
       'captain.text = captainSpokenLineVerbatim exactly when user JSON provides it; captain.narration always "".',
       'Forbidden: 모두 진정, 신중해야, 침착하게, 우리는 함께, 훈계, 교훈, 빈 위로, 범용 팀워크 멘트.',
       'CHECK_LOG: Engineer block (second) opens with logs/access trail/timestamp mismatch/gap/unauthorized-query trace — audit-narrow, no sermon.',
-      'doctor: only auxiliary biometrics/stress-log spike observation. navigator: route/alibi auxiliary only. pilot: mood/gut auxiliary only.',
+      'doctor: only auxiliary biometrics/stress-log spike observation. navigator: route/alibi auxiliary only.',
+      'pilot: 브리지 계기 응답 지연·압력 밴드·조종대 진동·표시계 타임스탬프와 감사 로그 불일치·금속·기계음 등 구체적으로. 금지: "기분이 좋지 않습니다", "이상한 기운", "뭔가 잘못된 것 같은 느낌", "불안정해 보입니다"만으로 끝내기.',
       'Stay on: log gaps, access records, timestamp skew, privilege/query anomalies. No unrelated small talk or widening the mystery.',
       'Respond JSON only.'
     ].join('\n');
@@ -3624,6 +3646,12 @@ function buildDialogueUserPayload(ctx) {
         ? 'SELF_DEFENSE (not a name question): focusTargetRole.text must NOT contain any personal name, callsign, or crewPersonalNames string. No "My name is", no "I am [Name]", no comma-spliced name after denial.'
         : '자기변호(이름 질문 아님): focusTargetRole.text에 실명·호출명·crewPersonalNames 값을 절대 넣지 마라. "저는 OO이며", "OO입니다" 형태 금지.');
   }
+  if (ctx.generalTargetedQuestionNoName) {
+    o.crewNameInstruction =
+      loc === 'en'
+        ? 'GENERAL_TARGETED_QUESTION (not a name question): focusTargetRole.text must NOT contain any personal name, callsign, or crewPersonalNames string. No "I am [Name]", no sentence starting with your name. Answer the captain\'s question directly; 1–3 sentences; concrete role facts only.'
+        : '일반 지목 질문(이름 질문 아님, 자기변호 아님): focusTargetRole.text에 실명·crewPersonalNames·성함·이름으로 문장을 열지 마라. "저는 OO입니다", "OO입니다" 금지. 함장 질문에 바로 답하고 역할 근거만.';
+  }
   return JSON.stringify(o, null, 0);
 }
 
@@ -3709,6 +3737,11 @@ async function tryGenerateLlmDialogueLogs(ctx) {
       : '';
 
   const isTargetedAccusation = !!ctx.isTargetedAccusation;
+  const generalTargetedQuestionNoName =
+    kind === 'QUESTION' &&
+    targetedQuestionSingleSpeaker &&
+    !targetedNameQuestion &&
+    !(isSelfDefenseQuestion || isTargetedAccusation);
   const sdPromptBoost =
     kind === 'QUESTION' &&
     targetedQuestionSingleSpeaker &&
@@ -3725,7 +3758,8 @@ async function tryGenerateLlmDialogueLogs(ctx) {
     targetedNameQuestion: !!targetedNameQuestion,
     targetedQuestionSingleSpeaker,
     isSelfDefenseQuestion,
-    isTargetedAccusation
+    isTargetedAccusation,
+    generalTargetedQuestion: generalTargetedQuestionNoName
   });
   if (kind === 'LORE_QUESTION') {
     system += '\n\n' + getLoreCanonSystemExtension(locale);
@@ -3770,6 +3804,7 @@ async function tryGenerateLlmDialogueLogs(ctx) {
     crewPersonalNames,
     targetedQuestionSingleSpeaker,
     selfDefenseSuppressPersonalNames: sdPromptBoost && !targetedNameQuestion,
+    generalTargetedQuestionNoName: generalTargetedQuestionNoName,
     threatTakePistolNoNames: kind === 'THREATEN' || kind === 'TAKE_PISTOL'
   });
   let strictRetry =
@@ -3783,6 +3818,9 @@ async function tryGenerateLlmDialogueLogs(ctx) {
       if (isSelfDefenseQuestion || isTargetedAccusation) {
         strictRetry +=
           ' SELF_DEFENSE: 첫 두 문장에 이름·직무 소개 금지. 부인·알리바이·기록 근거. 금지: 상황 잘 앎, 최선 다함, 저는 OO이며.';
+      } else if (!targetedNameQuestion) {
+        strictRetry +=
+          ' GENERAL_TARGETED: 이름 질문 아님—실명·성함·저는 OO입니다·OO입니다로 시작 금지. 질문에 바로 답. 역할 근거만.';
       }
     } else if (kind === 'QUESTION' && !targetedNameQuestion) {
       strictRetry +=
@@ -3792,7 +3830,7 @@ async function tryGenerateLlmDialogueLogs(ctx) {
         ' QUESTION: 이름 질문—포커스 역할만 실명 중심. 비타깃은 짧은 반응만, 대상 이름 금지. 존댓말 유지. role은 captain|doctor|engineer|navigator|pilot 만; header 금지.';
     } else if (kind === 'CHECK_LOG') {
       strictRetry +=
-        ' CHECK_LOG: 엔지니어 중심 로그/접근/타임스탬프 불일치만. role은 captain|doctor|engineer|navigator|pilot 만; header 금지.';
+        ' CHECK_LOG: 엔지니어 중심 로그/접근/타임스탬프 불일치만. 파일럿은 브리지 계기·압력·진동·응답지연·표시계 구체. 금지: 기분이 좋지 않습니다/이상한 기운/느낌만. role은 captain|doctor|engineer|navigator|pilot 만; header 금지.';
     } else if (kind === 'THREATEN') {
       strictRetry +=
         ' THREATEN: captain+focusTargetRole 두 블록만(비타깃 블록 금지). narration "". 실명 금지. 타깃=2–4문장 긴장+근거+경고, 1인칭만(제3자 소설체 금지).';
@@ -3822,6 +3860,9 @@ async function tryGenerateLlmDialogueLogs(ctx) {
       if (isSelfDefenseQuestion || isTargetedAccusation) {
         strictRetry +=
           ' SELF_DEFENSE: no name or job intro in sentences 1–2; denial, alibi, logs — forbid "I am [Name]" in the same sentence as denial.';
+      } else if (!targetedNameQuestion) {
+        strictRetry +=
+          ' GENERAL_TARGETED: not a name question—no personal name, no "I am [Name]" opener; answer directly with role facts.';
       }
     } else if (kind === 'QUESTION' && !targetedNameQuestion) {
       strictRetry += ' QUESTION: non-target blocks must name focusTargetEnglish. Shorter.';
@@ -3829,7 +3870,8 @@ async function tryGenerateLlmDialogueLogs(ctx) {
       strictRetry +=
         ' QUESTION: name question—only focusTargetRole gives their personal name; non-target brief reaction only, no target name. Formal to Captain.';
     } else if (kind === 'CHECK_LOG') {
-      strictRetry += ' CHECK_LOG: engineer-first audit lines only.';
+      strictRetry +=
+        ' CHECK_LOG: engineer-first audit; pilot must cite bridge gauges/pressure/vibration/response lag—no vague mood lines.';
     } else if (kind === 'THREATEN') {
       strictRetry +=
         ' THREATEN: exactly captain + focusTargetRole blocks only (no non-target crew). Empty narration; no names; target first-person lines only (no third-person novel narration).';
@@ -5146,6 +5188,112 @@ function rewriteSelfDefenseOpeningText(raw, role, locale, opts) {
   return { text: newHeadText || text, rewritten, stripped: strippedAny };
 }
 
+function generalTargetedFallbackNoName(role, loc) {
+  const r = String(role || '').toLowerCase();
+  if (loc === 'en') {
+    const m = {
+      doctor:
+        'I was in medbay with patients on record—vitals and corridor access are logged.',
+      engineer: 'I was at the machine room console; access stamps still pin my path.',
+      navigator: 'I was on the chart stack; the bridge clock and route window place me there.',
+      pilot: 'I was on the bridge; helm gauges and pressure response were logged.'
+    };
+    return m[r] || m.doctor;
+  }
+  const m = {
+    doctor: '그때 저는 의무실에서 환자 케어와 바이탈 기록을 맞추고 있었습니다.',
+    engineer: '그 시각 저는 기계실 콘솔에서 접근 로그와 스탬프를 확인하고 있었습니다.',
+    navigator: '그때 저는 차트 스택과 교량 시계에 맞춰 항로를 확인하고 있었습니다.',
+    pilot: '그때 저는 브리지에서 계기·압력 반응을 확인하고 있었습니다.'
+  };
+  return m[r] || m.doctor;
+}
+
+function rewriteGeneralTargetedNoNameIntro(text, role, loc, crewPersonalNames) {
+  void crewPersonalNames;
+  const r = String(role || '').toLowerCase();
+  let s = String(text || '').trim();
+  if (!s) return { text: s, changed: false };
+  const orig = s;
+
+  function stripLead(sentence) {
+    let x = String(sentence || '').trim();
+    const before = x;
+    if (loc === 'ko') {
+      x = x.replace(/^[가-힣A-Za-z]{2,20}입니다\.\s*/u, '');
+      x = x.replace(/^[가-힣A-Za-z]{2,20}입니다\s+/u, '');
+      x = x.replace(/^저는\s+[가-힣A-Za-z]{2,20}(?:입니다|이며)[,.\s]*/u, '');
+      x = x.replace(/^저는\s+[가-힣A-Za-z]{2,20}\s*,\s*/u, '');
+    } else {
+      x = x.replace(/^I\s+am\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?[.,]?\s*/i, '');
+      x = x.replace(/^I'm\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?[.,]?\s*/i, '');
+      x = x.replace(/^My\s+name\s+is\s+[A-Za-z .]+[.,]?\s*/i, '');
+    }
+    if (x !== before) {
+      try {
+        console.log('[bot][dialogue] non_name_targeted_intro_blocked role=' + r);
+      } catch (e) {}
+    }
+    return x.trim();
+  }
+
+  const parts = s.split(/(?<=[.!?。])\s+/).filter(Boolean);
+  const newParts = parts.map((p, i) => (i < 2 ? stripLead(p) : p));
+  s = newParts.filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+
+  if (!s || s.length < 6) {
+    s = generalTargetedFallbackNoName(r, loc);
+    try {
+      console.log('[bot][dialogue] targeted_question_rewritten_without_name role=' + r);
+    } catch (e) {}
+    return { text: s, changed: true };
+  }
+
+  if (s !== orig) {
+    try {
+      console.log('[bot][dialogue] targeted_question_rewritten_without_name role=' + r);
+    } catch (e) {}
+  }
+  return { text: s, changed: s !== orig };
+}
+
+function rewriteCheckLogPilotGeneric(text, loc) {
+  const t = String(text || '').trim();
+  if (!t) return { text: t, changed: false };
+  if (loc === 'ko') {
+    if (
+      /기분이\s*좋지\s*않|이상한\s*기운|잘못된\s*것\s*같은\s*느낌|뭔가\s*잘못|불안정해\s*보입니다/.test(
+        t
+      )
+    ) {
+      try {
+        console.log('[bot][dialogue] pilot_checklog_generic_detected role=pilot');
+      } catch (e) {}
+      const out =
+        '브리지 계기 반응이 평소보다 늦고, 압력 표시가 감사 로그 타임스탬프와 어긋납니다. 조종대 아래에서 미세한 진동이 올라옵니다.';
+      try {
+        console.log('[bot][dialogue] pilot_checklog_rewritten role=pilot');
+      } catch (e) {}
+      return { text: out, changed: true };
+    }
+  } else if (
+    /feel(?:ing)?\s+off|odd\s+vibe|something\s+feels\s+wrong|unstable\s+here|something(?:'s|s)\s+wrong/i.test(
+      t
+    )
+  ) {
+    try {
+      console.log('[bot][dialogue] pilot_checklog_generic_detected role=pilot');
+    } catch (e) {}
+    const out =
+      'Bridge gauge response is lagging versus baseline; pressure trace skews from the audit timestamps. A faint vibration rides up through the helm stack.';
+    try {
+      console.log('[bot][dialogue] pilot_checklog_rewritten role=pilot');
+    } catch (e) {}
+    return { text: out, changed: true };
+  }
+  return { text: t, changed: false };
+}
+
 function stabilizeNameQuestionCrewLine(text, role, loc, opts) {
   opts = opts || {};
   const cn = opts.crewPersonalNames || {};
@@ -5393,6 +5541,18 @@ function applyCharacterToneToDisplayLogs(displayLogs, locale, opts) {
       }
       const st = stabilizeNameQuestionCrewLine(newLine, pendingRole, loc, opts);
       newLine = st.text;
+      if (
+        opts.generalTargetedQuestion &&
+        opts.selfDefenseIsolateRole &&
+        pendingRole === opts.selfDefenseIsolateRole
+      ) {
+        const rw = rewriteGeneralTargetedNoNameIntro(newLine, pendingRole, loc, opts.crewPersonalNames);
+        if (rw.changed) newLine = rw.text;
+      }
+      if (opts.dialogueLlmKind === 'CHECK_LOG' && pendingRole === 'pilot') {
+        const ck = rewriteCheckLogPilotGeneric(newLine, loc);
+        if (ck.changed) newLine = ck.text;
+      }
       const sdRewrite =
         !!(opts.isSelfDefenseQuestion || opts.isTargetedAccusation) &&
         !!opts.targetedQuestionSingleSpeaker &&
@@ -5451,6 +5611,11 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
       : null;
   const tqSingle = !!targetedQuestionSingleSpeaker && kind === 'QUESTION' && ev0?.target;
   const isolateRole = tqSingle ? String(ev0.target).toLowerCase() : null;
+  const generalTargetedQuestion =
+    !!tqSingle &&
+    !targetedNameQuestion &&
+    !isSelfDefenseQuestion &&
+    !isTargetedAccusation;
 
   const toneOptsBase = {
     playerText: playerText || '',
@@ -5460,7 +5625,8 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
     isSelfDefenseQuestion: !!isSelfDefenseQuestion,
     isTargetedAccusation: !!isTargetedAccusation,
     targetedQuestionSingleSpeaker: !!tqSingle,
-    selfDefenseIsolateRole: isolateRole
+    selfDefenseIsolateRole: isolateRole,
+    generalTargetedQuestion: generalTargetedQuestion
   };
   try {
     const gs0 = match?.game_state || {};
