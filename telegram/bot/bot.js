@@ -3499,6 +3499,7 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
       '닥터: 의무실 기록·생체 모니터·스트레스 로그·바이탈·환자 상태—구체 명사만. crewPersonalNames 실명·「OO의 생체 데이터」형 금지.',
       'navigator: route/alibi auxiliary only.',
       'pilot: 브리지 계기 응답 지연·압력 밴드·조종대 진동·표시계 타임스탬프와 감사 로그 불일치·금속·기계음 등 구체적으로. 금지: "기분이 좋지 않습니다", "이상한 기운", "뭔가 잘못된 것 같은 느낌", "불안정해 보입니다"만으로 끝내기.',
+      '크루 대사는 함장에게 존댓말(합니다체)—반말·「…해」「…있어」 평서형 종결 금지.',
       'Stay on: log gaps, access records, timestamp skew, privilege/query anomalies. No unrelated small talk or widening the mystery.',
       'Respond JSON only.'
     ].join('\n');
@@ -3512,7 +3513,9 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
       'Each block shape ONLY: {"role":"captain|doctor|engineer|navigator|pilot","text":"...","narration":"..."} — narration optional. Do NOT include a "header" key; the client adds [함장] etc.',
       '단일 위협 응답: 블록은 정확히 둘 — blocks[0]=captain; blocks[1]=focusTargetRole 만. 닥터·엔지니어·네비게이터·파일럿 중 focusTargetRole 이외 역할 출력 금지(비타깃 침묵).',
       'THREATEN: 함장이 focusTargetRole을 겨누거나 위협하는 상황. focusTargetRole.text는 2–4문장: (1) 즉각 긴장·반박 (2) 알리바이 또는 함선 근거 (3) 성급한 판단 경고 또는 역할상 필요성.',
-      'focusTargetRole 역할별: 닥터—의무실 기록·생체 모니터·스트레스 로그·바이탈·환자 상태(추상만으로 끝내지 말 것); 엔지니어—로그·접근·기계실·보안; 네비게이터—차트·시간대·경로 판단; 파일럿—브리지·계기·압력·진동.',
+      '닥터 위협 응답 우선 순서: (1) 성급한 판단 경고 (2) 의무실 기록·생체 모니터·스트레스 로그·바이탈·환자 상태 근거 (3) 지금 자신이 필요한 이유—「환자 생명을 책임진다」 같은 추상만으로 끝내지 말 것.',
+      'focusTargetRole 역할별: 닥터—의무실 기록·생체 모니터·스트레스 로그·바이탈·환자 상태(추상만으로 끝내지 말 것); 엔지니어—접근 로그·장비 점검·시스템 기록·기계실 작업; 네비게이터—차트·시간대·경로·항로 대조; 파일럿—브리지 계기·압력·진동·조종석 반응.',
+      '크루 대사는 함장에게 항상 존댓말(합니다체)—반말·「…해」「…있어」 평서형 종결 금지.',
       '금지: 「한시우는 …」「조재민은 …」처럼 타인 이름으로 시작하는 제3자 소설체; 「…은 움츠러들며」「…의 눈빛이」「…를 지켜보고」 등 무대 지문. 반드시 위협받은 역할 본인의 1인칭 대사만.',
       'crewPersonalNames 실명 출력 금지. narration은 모든 블록 "".',
       'focusTargetRole는 함장 위협 문장을 복창·인용하지 마라.',
@@ -3536,6 +3539,7 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
       '엔지니어: 무장 시 보안·접근 통제·시스템 권한—구체적으로.',
       '네비게이터: 압박 속 판단 오류·동선·복도 리스크—구체적으로.',
       '파일럿: 브리지 긴장·계기 실수·압력·진동·시야·소음—브리지 명사로; 금지: "이상한 기운", "기분이 좋지 않습니다", "뭔가 이상합니다"만 반복.',
+      '크루 대사는 함장에게 존댓말(합니다체)—반말·「…해」「…있어」 평서형 종결 금지.',
       '함장 문장 복창·실명(crewPersonalNames) 금지. 제3자 무대 내레이션 금지.',
       'No generic advice or empty reassurance. Respond JSON only.'
     ].join('\n');
@@ -3548,7 +3552,8 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
   ];
   if (kind === 'FIND_CLUE') {
     tail.push(
-      'FIND_CLUE: crew reactions only; never put clue body in JSON (server adds [시스템]). 크루 대사에 실명·crewPersonalNames·「OO의 기록」형 소유격 금지.'
+      'FIND_CLUE: crew reactions only; never put clue body in JSON (server adds [시스템]). 크루 대사에 실명·crewPersonalNames·「OO의 기록」형 소유격 금지.',
+      '크루 대사는 함장에게 존댓말(합니다체)—반말·「…해」「…있어」 평서형 종결 금지.'
     );
   } else {
     tail.push('SUSPECT: every non-target crew block names focusTargetKorean in text or narration.');
@@ -4130,6 +4135,107 @@ function actionLogSlugForKind(kind) {
   return m[kind] || String(kind || '').toLowerCase();
 }
 
+function rewriteKoActionInformalEndings(s) {
+  let t = String(s || '').trim();
+  if (!t) return { text: t, changed: false };
+  const orig = t;
+  const pairs = [
+    [/조심해야\s*해\b/g, '조심해야 합니다'],
+    [/흐려질\s*수\s*있어\b/g, '흐려질 수 있습니다'],
+    [/고조되고\s*있어\b/g, '고조되고 있습니다'],
+    [/위험해\b/g, '위험합니다'],
+    [/부상자가\s*발생할\s*수\s*있어\b/g, '부상자가 발생할 수 있습니다'],
+    [/발생할\s*수\s*있어\b/g, '발생할 수 있습니다'],
+    [/할\s*수\s*있어\b/g, '할 수 있습니다'],
+    [/되고\s*있어\b/g, '되고 있습니다'],
+    [/해야\s*해\b/g, '해야 합니다'],
+    [/필요해\b/g, '필요합니다'],
+    [/중요해\b/g, '중요합니다'],
+    [/어려워\b/g, '어렵습니다'],
+    [/바빠\b/g, '바쁩니다'],
+    [/많아\b/g, '많습니다'],
+    [/같아\b/g, '같습니다'],
+    [/없어([.!?…\s]|$)/g, '없습니다$1'],
+    [/않아([.!?…\s]|$)/g, '않습니다$1']
+  ];
+  for (const [re, rep] of pairs) {
+    t = t.replace(re, rep);
+  }
+  if (t !== orig) return { text: t.replace(/\s+/g, ' ').trim(), changed: true };
+  return { text: t, changed: false };
+}
+
+function maybeThreatTargetSpecificityBoost(s, role, loc, kind, actionSlug) {
+  if (kind !== 'THREATEN' || loc !== 'ko') return { text: s, changed: false };
+  const r = String(role || '').toLowerCase();
+  const t0 = String(s || '').trim();
+  if (!t0) return { text: t0, changed: false };
+  let t = t0;
+  const hasDoc = /의무실|생체|모니터|스트레스\s*로그|바이탈|기록|환자/.test(t);
+  const hasEng = /접근\s*로그|체크섬|기계실|시스템\s*기록|감사|타임스탬프|장비/.test(t);
+  const hasNav = /차트|시간대|항로|경로|대조/.test(t);
+  const hasPilot = /계기|압력|진동|브리지|조종석|조종/.test(t);
+  if (r === 'doctor') {
+    if (
+      /(책임지고|생명과\s*건강|환자들의\s*생명|건강을\s*책임|환자들의)/.test(t) &&
+      !hasDoc
+    ) {
+      try {
+        console.log('[bot][dialogue] threat_target_specificity_boost_applied role=doctor');
+      } catch (e) {}
+      if (/총|겨누|방아쇠|거두|총구/.test(t)) {
+        let out = t.replace(/[.]+$/, '').trim();
+        if (!/성급한\s*판단/.test(out)) out = '지금 저를 위협하시는 건 성급한 판단입니다. ' + out;
+        out +=
+          ' 의무실 기록·생체 모니터·스트레스 로그를 보면 아직 확인해야 할 수치가 남아 있습니다. 지금 저를 잃으면 환자 상태와 바이탈 기록은 누가 관리하겠습니까?';
+        return { text: out.replace(/\s+/g, ' ').trim(), changed: true };
+      }
+      return {
+        text:
+          '지금 저를 위협하시는 건 성급한 판단입니다. 의무실 기록과 생체 모니터를 보면 아직 확인해야 할 수치가 남아 있습니다. 지금 저를 잃으면 환자 상태와 바이탈 기록은 누가 관리하겠습니까?',
+        changed: true
+      };
+    }
+  } else if (r === 'engineer') {
+    if (/(책임지고\s*있습니다|맡고\s*있습니다|제\s*역할|시스템을\s*맡)/.test(t) && !hasEng) {
+      try {
+        console.log('[bot][dialogue] threat_target_specificity_boost_applied role=engineer');
+      } catch (e) {}
+      return {
+        text:
+          t.replace(/[.]+$/, '') +
+          ' 접근 로그·시스템 기록·장비 점검 태그가 기계실 작업 동선을 찍습니다.',
+        changed: true
+      };
+    }
+  } else if (r === 'navigator') {
+    if (t.length < 55 && /항해|판단/.test(t) && !hasNav) {
+      try {
+        console.log('[bot][dialogue] threat_target_specificity_boost_applied role=navigator');
+      } catch (e) {}
+      return {
+        text: t.replace(/[.]+$/, '') + ' 차트·시간대·항로 대조가 그 시각 제 위치를 말합니다.',
+        changed: true
+      };
+    }
+  } else if (r === 'pilot') {
+    if (
+      !hasPilot &&
+      t.length < 55 &&
+      /(느낌|기분|이상|애매|막연|위험해|조심해야\s*해|흐려질|고조되고)/.test(t)
+    ) {
+      try {
+        console.log('[bot][dialogue] threat_target_specificity_boost_applied role=pilot');
+      } catch (e) {}
+      return {
+        text: t.replace(/[.]+$/, '') + ' 브리지 계기·압력·진동 반응이 제 자리를 말합니다.',
+        changed: true
+      };
+    }
+  }
+  return { text: s, changed: false };
+}
+
 function maybeDoctorActionSpecificityBoost(s, loc, kind, actionSlug) {
   if (kind !== 'CHECK_LOG' && kind !== 'THREATEN') return { text: s, changed: false };
   const t = String(s || '').trim();
@@ -4164,7 +4270,7 @@ function maybeDoctorActionSpecificityBoost(s, loc, kind, actionSlug) {
   return { text: s, changed: false };
 }
 
-function rewriteActionResponseNoPersonalNamesLine(text, role, loc, crewPersonalNames, kind) {
+function rewriteActionResponseNoPersonalNamesLine(text, role, loc, crewPersonalNames, kind, threatTargetRole) {
   const actionSlug = actionLogSlugForKind(kind);
   const r = String(role || '').toLowerCase();
   let s = String(text || '').trim();
@@ -4237,6 +4343,14 @@ function rewriteActionResponseNoPersonalNamesLine(text, role, loc, crewPersonalN
     s = s.replace(/\s+/g, ' ').trim();
   }
 
+  if (kind === 'THREATEN' && loc === 'ko' && r !== 'captain') {
+    const tt = threatTargetRole ? String(threatTargetRole).toLowerCase() : null;
+    if (!tt || r === tt) {
+      const tb = maybeThreatTargetSpecificityBoost(s, r, loc, kind, actionSlug);
+      if (tb.changed) s = tb.text;
+    }
+  }
+
   if ((kind === 'CHECK_LOG' || kind === 'THREATEN') && r === 'doctor') {
     const boost = maybeDoctorActionSpecificityBoost(s, loc, kind, actionSlug);
     if (boost.changed) s = boost.text;
@@ -4268,6 +4382,7 @@ function sanitizeActionResponseNoPersonalNames(displayLogs, locale, opts) {
   }
   const loc = locale === 'en' ? 'en' : 'ko';
   const crewPersonalNames = opts.crewPersonalNames || null;
+  const threatTargetRole = opts.threatTargetRole || null;
   const logs = Array.isArray(displayLogs) ? displayLogs.slice() : [];
   const headers = getLlmRoleHeaders(loc);
   const hToRole = {
@@ -4290,14 +4405,83 @@ function sanitizeActionResponseNoPersonalNames(displayLogs, locale, opts) {
       continue;
     }
     if (awaitingCaptainBody && typ && !typ.startsWith('[') && !rk) {
-      const rw = rewriteActionResponseNoPersonalNamesLine(typ, 'captain', loc, crewPersonalNames, kind);
+      const rw = rewriteActionResponseNoPersonalNamesLine(typ, 'captain', loc, crewPersonalNames, kind, threatTargetRole);
       logs[i] = { ...logs[i], type: rw.text };
       awaitingCaptainBody = false;
       continue;
     }
     if (awaitingCrewBody && pendingRole && pendingRole !== 'captain' && typ && !typ.startsWith('[')) {
-      const rw = rewriteActionResponseNoPersonalNamesLine(typ, pendingRole, loc, crewPersonalNames, kind);
+      const rw = rewriteActionResponseNoPersonalNamesLine(typ, pendingRole, loc, crewPersonalNames, kind, threatTargetRole);
       logs[i] = { ...logs[i], type: rw.text };
+      awaitingCrewBody = false;
+      continue;
+    }
+    if (typ.startsWith('[') && !rk) {
+      awaitingCrewBody = false;
+      awaitingCaptainBody = false;
+    }
+  }
+  return logs;
+}
+
+/**
+ * CHECK_LOG / TAKE_PISTOL / THREATEN / FIND_CLUE: 크루→함장 한국어 존댓말 후처리(반말 종결 교정 + applyHonorificCrewKo).
+ */
+function sanitizeActionResponseHonorificKo(displayLogs, locale, opts) {
+  opts = opts || {};
+  const kind = opts.dialogueLlmKind;
+  if (kind !== 'CHECK_LOG' && kind !== 'TAKE_PISTOL' && kind !== 'THREATEN' && kind !== 'FIND_CLUE') {
+    return displayLogs;
+  }
+  const loc = locale === 'en' ? 'en' : 'ko';
+  if (loc !== 'ko') return displayLogs;
+  const actionSlug = actionLogSlugForKind(kind);
+  const logs = Array.isArray(displayLogs) ? displayLogs.slice() : [];
+  const headers = getLlmRoleHeaders(loc);
+  const hToRole = {
+    [headers.doctor]: 'doctor',
+    [headers.engineer]: 'engineer',
+    [headers.navigator]: 'navigator',
+    [headers.pilot]: 'pilot',
+    [captainHeader(loc)]: 'captain'
+  };
+  let pendingRole = null;
+  let awaitingCrewBody = false;
+  let awaitingCaptainBody = false;
+  for (let i = 0; i < logs.length; i++) {
+    const typ = String(logs[i]?.type || '').trim();
+    const rk = hToRole[typ];
+    if (rk) {
+      pendingRole = rk;
+      awaitingCrewBody = rk !== 'captain';
+      awaitingCaptainBody = rk === 'captain';
+      continue;
+    }
+    if (awaitingCaptainBody && typ && !typ.startsWith('[') && !rk) {
+      awaitingCaptainBody = false;
+      continue;
+    }
+    if (awaitingCrewBody && pendingRole && pendingRole !== 'captain' && typ && !typ.startsWith('[')) {
+      let line = typ;
+      const rw = rewriteKoActionInformalEndings(line);
+      if (rw.changed) {
+        line = rw.text;
+        try {
+          console.log(
+            '[bot][dialogue] action_informal_ending_rewritten action=' + actionSlug + ' role=' + pendingRole
+          );
+        } catch (e) {}
+      }
+      const h = applyHonorificCrewKo(line, pendingRole);
+      if (h.changed) {
+        line = h.text;
+        try {
+          console.log(
+            '[bot][dialogue] action_honorific_tone_applied action=' + actionSlug + ' role=' + pendingRole
+          );
+        } catch (e) {}
+      }
+      logs[i] = { ...logs[i], type: line };
       awaitingCrewBody = false;
       continue;
     }
@@ -5785,7 +5969,12 @@ function applyCharacterToneToDisplayLogs(displayLogs, locale, opts) {
   if (ak === 'CHECK_LOG' || ak === 'TAKE_PISTOL' || ak === 'THREATEN' || ak === 'FIND_CLUE') {
     outFinal = sanitizeActionResponseNoPersonalNames(outFinal, loc, {
       dialogueLlmKind: ak,
-      crewPersonalNames: opts.crewPersonalNames || null
+      crewPersonalNames: opts.crewPersonalNames || null,
+      threatTargetRole: opts.threatTargetRole || null
+    });
+    outFinal = sanitizeActionResponseHonorificKo(outFinal, loc, {
+      dialogueLlmKind: ak,
+      threatTargetRole: opts.threatTargetRole || null
     });
   }
   return outFinal;
