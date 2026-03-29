@@ -328,14 +328,14 @@ async function consumeFreePromptIfAllowed(userKey, opts = {}) {
 }
 
 /**
- * lore / open_question(brief_question)만 일일 자유 프롬프트 차갑 대상.
- * 승무원 심문(targeted_question), 의견 질문(role_opinion_question), 액션형 mapped 등은 gameplay — 차갑 없음.
+ * lore_question만 일일 자유 프롬프트 차갑 대상.
+ * group/targeted/suspicion/brief 등 gameplay·오픈 심문은 차갑 없음.
  */
 function shouldConsumeFreePromptForMessageKind(cls, parsed, text) {
   void parsed;
   void text;
   if (!cls || !cls.kind) return false;
-  return cls.kind === 'lore_question' || cls.kind === 'brief_question';
+  return cls.kind === 'lore_question';
 }
 
 /** match_events / 로그용 짧은 kind 문자열 */
@@ -348,6 +348,9 @@ function getIntentLogKindForPayload(cls, parsed) {
   }
   if (cls.kind === 'targeted_question' && cls.crewGameplayTargetRole) {
     return 'role_question';
+  }
+  if (cls.kind === 'group_question' && cls.groupSubkind === 'suspicion') {
+    return 'suspicion_question';
   }
   return String(cls.kind);
 }
@@ -924,7 +927,7 @@ function matchStateQuerySubtype(lower) {
 }
 
 /**
- * 세계관·설명 질문 — state_query보다 lore_question 우선. brief_question(수상·동선 요약 류)과 분리.
+ * 세계관·설명 질문 — 정규 키워드 또는 무엇인가+캐논/미확인 고유명사 게이트. 이름·집단·의심 심문은 제외.
  */
 function isLoreQuestion(raw) {
   const t = String(raw || '').trim();
@@ -938,13 +941,16 @@ function isLoreQuestion(raw) {
   if (/왜\s*이런\s*일이?\s*벌어졌/.test(t)) return true;
   if (/이\s*배.*무슨\s*일이?\s*있었/.test(t)) return true;
   if (/(이\s*배|함선|ship).*(무슨\s*일|무슨일|있었|happened)/i.test(t)) return true;
-  if (/(무엇인가|뭐지|뭐야|뭔지|정체|what\s+is|what\s+are)/i.test(t) && /\?/.test(t)) {
+  if (containsLoreCanonSubject(raw)) return true;
+  if (isGameplayAntiLoreQuestion(t)) return false;
+  if (/(무엇인가|뭐지|뭐야|뭔지|정체|what\s+is|what\s+are)/i.test(t) && /[?？]/.test(t)) {
     if (
       /수상|범인|이상한|뭘\s*더|확인해야|의심|who\s*(is\s*)?suspicious|suspicious|verify\s*next/i.test(t)
     ) {
       return false;
     }
-    return true;
+    if (detectCrewRoleForGameplayQuestion(raw) && !isGameplayCrewQuestionPattern(raw)) return true;
+    return false;
   }
   return false;
 }
@@ -1001,6 +1007,67 @@ function isGroupQuestionLike(raw) {
   if (!/(자네들|다들|모두|승무원들)/.test(t)) return false;
   return /(무엇|뭐|뭔|누구|누가|이름|어디|언제|왜|어떻게|그때|수상|범인|알리바이|동선|가장)/i.test(
     t
+  );
+}
+
+/** 이름·집단·의심/알리바이 심문은 lore로 보내지 않음(정규 키워드는 위에서 이미 lore 처리). */
+function isGameplayAntiLoreQuestion(t) {
+  const s = String(t || '');
+  if (!s) return false;
+  if (/이름|이름이|이름은|이름을/.test(s)) return true;
+  if (/(자네들|다들|모두|승무원들|승무원\s*,|승무원\s+중|전원|여러분)/.test(s)) return true;
+  if (
+    /(누가\s*가장\s*수상|누굴\s*의심|누가\s*범인|가장\s*수상|who.*suspicious|suspicious|traitor|impost)/i.test(
+      s
+    )
+  ) {
+    return true;
+  }
+  if (/(그때\s*어디|어디\s*있었|알리바이|동선)/i.test(s) && /(다들|모두|승무원들|자네들|여러분)/.test(s)) {
+    return true;
+  }
+  return false;
+}
+
+function isGroupGameplayQuestion(raw) {
+  const t = String(raw || '').trim();
+  if (!t) return false;
+  if (containsLoreCanonSubject(raw)) return false;
+  const groupMarker = /(자네들|다들|모두|승무원들|승무원\s*,|승무원\s+중|전원|여러분)/.test(t);
+  if (!groupMarker) return false;
+  return /(이름|무엇|뭐|뭔|누구|누가|어디|수상|의심|범인|알리바이|동선|그때\s*어디|있었지|가장\s*수상|제일\s*수상)/i.test(
+    t
+  );
+}
+
+function detectGroupSubkind(raw) {
+  const t = String(raw || '').trim();
+  if (/이름|이름이|이름은|무엇이라|뭐라고|call\s*sign|your\s*names/i.test(t)) return 'name';
+  if (/(그때\s*어디|어디\s*있었|알리바이|동선)/i.test(t) && !/(수상|의심|범인|가장\s*수상|제일\s*수상)/i.test(t)) {
+    return 'alibi';
+  }
+  if (/(수상|의심|범인|가장\s*수상|누가\s*가장|누굴\s*의심|suspicious|traitor|impost)/i.test(t)) {
+    return 'suspicion';
+  }
+  return 'suspicion';
+}
+
+function isStandaloneSuspicionQuestion(raw) {
+  const t = String(raw || '').trim();
+  if (!t) return false;
+  if (isGroupGameplayQuestion(t)) return false;
+  if (containsLoreCanonSubject(raw)) return false;
+  if (/이름|이름이/.test(t)) return false;
+  if (
+    !/(범인|누가\s*범인|누굴\s*의심|가장\s*수상|누가\s*제일\s*수상|who.*impost|who.*traitor|whom.*suspect|suspicious)/i.test(
+      t
+    )
+  ) {
+    return false;
+  }
+  return (
+    /[?？]/.test(t) ||
+    /(하나요|하나\?|하지\s*\?|죠\?|니까\?|습니까|해요|합니다|해\s*$|지\s*$|냐\s*$|냐\?)/i.test(t)
   );
 }
 
@@ -1114,7 +1181,7 @@ function isGameplayCrewQuestionPattern(raw) {
   );
   if (m && m[2]) {
     const subj = m[2];
-    const allowed = new Set(['자네', '그때', '이름', '당신', '너', '누구', '그때는']);
+    const allowed = new Set(['자네', '그때', '이름', '이름이', '이름은', '이름을', '당신', '너', '누구', '그때는']);
     if (/^[가-힣]+$/.test(subj) && !allowed.has(subj)) {
       return false;
     }
@@ -1154,8 +1221,8 @@ function classifyMiniappMessageKind(text, parsed) {
 }
 
 /**
- * miniapp 자유입력 분류 — check_log → role_opinion → 승무원 심문(targeted) → state_query → mapped → lore → brief/mapped
- * lore_question은 승무원 대상 gameplay 질문보다 뒤에 판정(오분류 방지).
+ * miniapp 자유입력 분류 — check_log → role_opinion → targeted → state_query → mapped → group → suspicion → lore → brief/mapped
+ * lore_question은 gameplay·집단 심문보다 뒤에 판정.
  */
 function classifyMiniappFreeText(text, parsed) {
   const raw = String(text || '').trim();
@@ -1172,6 +1239,10 @@ function classifyMiniappFreeText(text, parsed) {
 
   const crewRole = isTargetedCrewQuestion(raw);
   if (crewRole) {
+    try {
+      if (/이름|name/i.test(raw)) console.log('[bot][intent] name question detected');
+      console.log('[bot][intent] final kind=targeted_question');
+    } catch (e) {}
     const merged = { ...parsed, intent_type: parsed.intent_type || 'question', target: crewRole };
     return { kind: 'targeted_question', parsed: merged, crewGameplayTargetRole: crewRole };
   }
@@ -1181,6 +1252,24 @@ function classifyMiniappFreeText(text, parsed) {
 
   const mappedIntents = new Set(['accuse_hint', 'threaten', 'threat', 'observe']);
   if (mappedIntents.has(intent)) return { kind: 'mapped', parsed };
+
+  if (isGroupGameplayQuestion(raw)) {
+    const sub = detectGroupSubkind(raw);
+    try {
+      console.log('[bot][intent] group question detected');
+      console.log('[bot][intent] final kind=group_question sub=' + sub);
+      if (sub === 'suspicion') console.log('[bot][intent] suspicion question detected');
+    } catch (e) {}
+    return { kind: 'group_question', parsed, groupSubkind: sub };
+  }
+
+  if (isStandaloneSuspicionQuestion(raw)) {
+    try {
+      console.log('[bot][intent] suspicion question detected');
+      console.log('[bot][intent] final kind=suspicion_question');
+    } catch (e) {}
+    return { kind: 'suspicion_question', parsed };
+  }
 
   if (isLoreQuestion(raw)) {
     return { kind: 'lore_question', parsed };
@@ -1319,6 +1408,96 @@ function buildOpenQuestionCrewEvents(match, locale) {
     if (line) events.push({ type: 'CREW_DIALOGUE', role: r, dialogue: line });
   }
   return events;
+}
+
+/** 집단 이름·호칭 질문 — 짧은 자기소개(역할명·호출명), lore general 토픽으로 보내지 않음. */
+function buildGroupNameQuestionCrewEvents(match, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const headers = getLlmRoleHeaders(loc);
+  const gs = match.game_state || {};
+  const deadRoles = gs.dead_roles || [];
+  const crewOrder = ['doctor', 'engineer', 'navigator', 'pilot'];
+  const alive = crewOrder.filter((r) => !deadRoles.includes(r));
+  const cap = headers.captain;
+
+  const captainLine =
+    loc === 'en'
+      ? `${cap} Names and call signs—short, in order.`
+      : `${cap} 이름과 호출명을 짧게, 순서대로 말하게.`;
+
+  const byRole = {
+    doctor:
+      loc === 'en'
+        ? `${headers.doctor} Ship physician—call me Doctor. Medbay and vitals are my lane.`
+        : `${headers.doctor} 함선 의관—닥터로 부르게. 의무실·생체는 내 구역이다.`,
+    engineer:
+      loc === 'en'
+        ? `${headers.engineer} Engineer—core and access logs. You want timestamps, you get me.`
+        : `${headers.engineer} 엔지니어—코어와 접근 로그. 타임스탬프는 내 쪽이다.`,
+    navigator:
+      loc === 'en'
+        ? `${headers.navigator} Navigator—charts and routes. I match corridors to minutes.`
+        : `${headers.navigator} 네비게이터—차트·항로. 복도와 시각을 맞춘다.`,
+    pilot:
+      loc === 'en'
+        ? `${headers.pilot} Pilot—bridge and helm. I speak in instruments and air pressure.`
+        : `${headers.pilot} 파일럿—교량·조종. 계기와 분위기로 말하지.`
+  };
+
+  const events = [{ type: 'CREW_DIALOGUE', role: 'captain', dialogue: captainLine }];
+  for (const r of alive) {
+    const line = byRole[r];
+    if (line) events.push({ type: 'CREW_DIALOGUE', role: r, dialogue: line });
+  }
+  return events;
+}
+
+/** 집단 동선·알리바이 질문 — 짧은 위치 답변. */
+function buildGroupAlibiQuestionCrewEvents(match, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const headers = getLlmRoleHeaders(loc);
+  const gs = match.game_state || {};
+  const deadRoles = gs.dead_roles || [];
+  const crewOrder = ['doctor', 'engineer', 'navigator', 'pilot'];
+  const alive = crewOrder.filter((r) => !deadRoles.includes(r));
+  const cap = headers.captain;
+
+  const captainLine =
+    loc === 'en'
+      ? `${cap} Where was each of you—one line, no speeches.`
+      : `${cap} 그때 각자 어디에 있었는지—한 줄로만 말하게.`;
+
+  const byRole = {
+    doctor:
+      loc === 'en'
+        ? `${headers.doctor} Medbay and corridor checks—patients and vitals first.`
+        : `${headers.doctor} 의무실·복도 점검—환자·바이탈 우선이었다.`,
+    engineer:
+      loc === 'en'
+        ? `${headers.engineer} Core access and relay panels—logs will show the windows.`
+        : `${headers.engineer} 코어 접근과 릴레이 패널—로그에 구간이 남는다.`,
+    navigator:
+      loc === 'en'
+        ? `${headers.navigator} Chart room and bridge tie-ins—matching routes to orders.`
+        : `${headers.navigator} 차트실·교량 연계—항로와 지시를 맞추고 있었다.`,
+    pilot:
+      loc === 'en'
+        ? `${headers.pilot} Bridge watch—helm and pressure readouts in front of me.`
+        : `${headers.pilot} 교량 근무—조종대와 압력 계기 앞이었다.`
+  };
+
+  const events = [{ type: 'CREW_DIALOGUE', role: 'captain', dialogue: captainLine }];
+  for (const r of alive) {
+    const line = byRole[r];
+    if (line) events.push({ type: 'CREW_DIALOGUE', role: r, dialogue: line });
+  }
+  return events;
+}
+
+function resolveGroupCrewEvents(match, locale, groupSubkind) {
+  if (groupSubkind === 'name') return buildGroupNameQuestionCrewEvents(match, locale);
+  if (groupSubkind === 'alibi') return buildGroupAlibiQuestionCrewEvents(match, locale);
+  return buildOpenQuestionCrewEvents(match, locale);
 }
 
 /**
@@ -1500,10 +1679,19 @@ function isInvalidLoreCandidateTerm(term) {
   return false;
 }
 
-/** unknown lore 차단은 lore_question / open_question 경로에서만 */
+/** unknown lore 안전 응답은 lore_question 분기에서만 (액션·로그 확인·버튼 경로 제외) */
 function shouldApplyUnknownLoreGuard(kind) {
   const k = String(kind || '').toLowerCase();
-  return k === 'lore_question' || k === 'open_question';
+  return k === 'lore_question';
+}
+
+/** 로그/CCTV/감사 등 액션형 문장 — unknown lore gate 대상 아님(오분류 시에도 안전 응답 미발동). */
+function isNonLoreActionOrLogCheckPlayerText(raw) {
+  const t = String(raw || '').trim();
+  if (!t) return false;
+  return /(로그\s*(를|을)?\s*확인|확인한다|확인\s*요청|check\s+log|CCTV|cctv|교량\s*로그|감사\s*로그|접근\s*로그|audit|access\s+log|버튼|단서\s*확보|권총|집는다|집은다|조회|스캔|열어봐|opens?\s+the\s+log|타임스탬프\s*불일치|timestamp)/i.test(
+    t
+  );
 }
 
 function normalizeLoreTermToken(raw) {
@@ -1631,6 +1819,12 @@ function evaluateLoreUnknownTermGate(clsKind, raw, locale) {
   if (!shouldApplyUnknownLoreGuard(clsKind)) {
     try {
       console.log('[bot][lore] skip_unknown_gate reason=non_lore_kind');
+    } catch (e) {}
+    return { block: false };
+  }
+  if (isNonLoreActionOrLogCheckPlayerText(t)) {
+    try {
+      console.log('[bot][lore] skip_unknown_gate reason=action_or_log_like_text');
     } catch (e) {}
     return { block: false };
   }
@@ -2694,6 +2888,12 @@ function validateLlmDialogueBlocks(parsed, kind, expectedCrew, opts) {
       console.log('[bot] targeted_question side_reactions_question_like_filtered=true');
       return null;
     }
+    if (opts.targetedNameQuestion) {
+      if (!targetedNameQuestionNonTargetBlocksOk(sorted, opts.target, locale)) {
+        console.log('[bot] targeted_name_question_non_target_filtered=true');
+        return null;
+      }
+    }
   }
   return sorted;
 }
@@ -2735,6 +2935,54 @@ function targetedQuestionSideReactionBlocksOk(sorted, focusTarget, locale) {
     if (/[?？]/.test(pack)) return false;
     if (loc === 'ko' && koRoleComma.test(pack)) return false;
     if (loc === 'en' && enRoleComma.test(pack)) return false;
+  }
+  return true;
+}
+
+/** 특정 역할 이름·호출명 질문(타깃이 직접 답해야 함). */
+function isTargetedRoleNameQuestion(raw) {
+  const t = String(raw || '').trim();
+  if (!t) return false;
+  return /(이름|이름이|이름은|무엇이라\s*불|뭐라고\s*불|호출명|call\s*sign|your\s+name|what\s+is\s+.+\s+name|name\s+of\s+the)/i.test(
+    t
+  );
+}
+
+function focusRoleAliasesKo(focus) {
+  const m = {
+    doctor: ['닥터', '의사'],
+    engineer: ['엔지니어', '기술자'],
+    navigator: ['네비게이터', '항해사'],
+    pilot: ['파일럿', '조종사']
+  };
+  return m[String(focus || '').toLowerCase()] || [];
+}
+
+/** 이름 질문: 비타깃이 대상 역할의 이름·성함·호출을 대신 말하면 LLM 응답 폐기 */
+function targetedNameQuestionNonTargetBlocksOk(sorted, focusTarget, locale) {
+  const focus = String(focusTarget || '').toLowerCase();
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const focusEn = roleNameEn(focus);
+  for (const b of sorted) {
+    const r = String(b.role || '').toLowerCase();
+    if (r === 'captain' || r === focus) continue;
+    const pack = `${String(b.text || '').trim()}\n${String(b.narration || '').trim()}`.trim();
+    if (!pack) continue;
+    if (loc === 'ko') {
+      for (const al of focusRoleAliasesKo(focus)) {
+        const esc = al.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        if (
+          new RegExp(`${esc}[^\\n]{0,32}(이름|성함|호출명|이라고 부르|라고 부른다|라고 한다|라고 부르)`, 'i').test(
+            pack
+          )
+        ) {
+          return false;
+        }
+      }
+    } else {
+      if (focusEn && new RegExp(`\\b${focusEn}(?:'s)?\\s+name\\s+is\\b`, 'i').test(pack)) return false;
+      if (focusEn && new RegExp(`\\b${focusEn}\\s+is\\s+(called|named)\\b`, 'i').test(pack)) return false;
+    }
   }
   return true;
 }
@@ -2892,6 +3140,12 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
           'Do NOT rewrite captain.text into a different question; copy captainSpokenLineVerbatim only.'
         );
       }
+      if (promptOpts.targetedNameQuestion) {
+        qEn.push(
+          'NAME_TARGETING: Only focusTargetRole states their name/callsign/identity. Non-target: one short reaction only — do NOT state, guess, or repeat the target\'s name. Forbidden: "The Doctor\'s name is...", "He is called...", "Her name is..." about the target.',
+          'Non-target lines must not answer the name question on behalf of the target.'
+        );
+      }
       qEn.push('Respond JSON only.');
       return qEn.join('\n');
     }
@@ -2981,6 +3235,12 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
       qKo.push(
         'TARGETED_QUESTION(자유입력): 비타깃 크루는 짧은 관찰·코멘트만 — 물음표(?) 금지, "닥터/엔지니어/네비게이터/파일럿, …" 형태로 제3자에게 새 질문·심문 금지.',
         'captain.text는 captainSpokenLineVerbatim과 동일하게만 — 내부 고정 질문 문장으로 바꾸지 말 것.'
+      );
+    }
+    if (promptOpts.targetedNameQuestion) {
+      qKo.push(
+        'NAME_TARGETING: 이름·호출명·자기소개는 focusTargetRole 블록만 답한다. 비타깃은 한 줄 짧은 반응만 — 대상의 이름·성함·호출명을 대신 말하거나 반복하지 말 것. "닥터 이름은 …" 같은 제3자 서술 금지.',
+        '비타깃은 focusTargetKorean을 꼭 넣지 않아도 됨(이름을 말하게 될 때는 생략).'
       );
     }
     qKo.push('Respond JSON only.');
@@ -3164,6 +3424,7 @@ async function tryGenerateLlmDialogueLogs(ctx) {
     clueText,
     forcedCaptainText,
     targetedQuestionSideReactionRules,
+    targetedNameQuestion,
     loreQuestionTopic: loreTopicOpt,
     loreCanonAnchorText: loreCanonOpt
   } = ctx;
@@ -3187,7 +3448,10 @@ async function tryGenerateLlmDialogueLogs(ctx) {
         : getLoreTopicSnippet(loreTopic, locale)
       : '';
 
-  let system = buildDialogueSystemPrompt(kind, locale, { targetedQuestionSideReactionRules });
+  let system = buildDialogueSystemPrompt(kind, locale, {
+    targetedQuestionSideReactionRules,
+    targetedNameQuestion: !!targetedNameQuestion
+  });
   if (kind === 'LORE_QUESTION') {
     system += '\n\n' + getLoreCanonSystemExtension(locale);
   }
@@ -3234,6 +3498,10 @@ async function tryGenerateLlmDialogueLogs(ctx) {
       strictRetry +=
         ' 비타깃: 물음표·질문형 금지. 다른 역할 호명 심문 금지. 짧은 관찰만. captain.text는 제공 문장만.';
     }
+    if (targetedNameQuestion && kind === 'QUESTION') {
+      strictRetry +=
+        ' NAME_TARGETING: 비타깃은 대상 이름·성함·호출명 금지. 포커스 역할만 이름 답.';
+    }
   } else {
     if (kind === 'QUESTION') {
       strictRetry += ' QUESTION: non-target blocks must name focusTargetEnglish. Shorter.';
@@ -3254,6 +3522,10 @@ async function tryGenerateLlmDialogueLogs(ctx) {
     if (targetedQuestionSideReactionRules && kind === 'QUESTION') {
       strictRetry +=
         ' Non-target: no ?; no "RoleName," interrogation; brief observation only. captain.text = verbatim only.';
+    }
+    if (targetedNameQuestion && kind === 'QUESTION') {
+      strictRetry +=
+        ' NAME_TARGETING: non-target must NOT give the target\'s name or callsign; only focusTargetRole answers the name question.';
     }
   }
 
@@ -3278,7 +3550,8 @@ async function tryGenerateLlmDialogueLogs(ctx) {
       forcedCaptainText: captainForced,
       target,
       locale,
-      targetedQuestionSideReactionRules: !!targetedQuestionSideReactionRules
+      targetedQuestionSideReactionRules: !!targetedQuestionSideReactionRules,
+      targetedNameQuestion: !!targetedNameQuestion
     });
     if (valid) {
       console.log(
@@ -3304,10 +3577,18 @@ function suspicionHeavyInPlayerText(playerText) {
   );
 }
 
+/** 함장이 특정 역할에게 “왜 당신이 아닌가” 류로 압박할 때 — 자기변호 톤 레이어. */
+function isSelfDefenseQuestionContext(playerText) {
+  return /(왜\s*당신|왜\s*아니|아닌가|왜\s*아닌|not\s*you|why\s*you|why\s*not|why\s*me)/i.test(
+    String(playerText || '')
+  );
+}
+
 /** LLM/결정적 크루 대사에서 제네릭 문구를 역할 톤으로 치환(숨은 진실·범인 새 사실 없음). */
-function rewriteCrewLineForTone(text, role, loc, suspicion) {
+function rewriteCrewLineForTone(text, role, loc, suspicion, selfDefense) {
   let s = String(text || '');
   let changed = false;
+  let selfDefenseApplied = false;
   const r = String(role || '').toLowerCase();
   if (loc === 'ko') {
     const byRole = {
@@ -3337,6 +3618,46 @@ function rewriteCrewLineForTone(text, role, loc, suspicion) {
       if (re.test(s)) {
         s = s.replace(re, rep);
         changed = true;
+      }
+    }
+    if (selfDefense && r !== 'captain') {
+      const sdDoctor = [
+        [/저는\s*증거가\s*없습니다\.?/g, '의무실·기록 기준으로는 제 동선이 맞습니다. 성급히 죄목을 견지하지 마십시오.'],
+        [/의심스러운\s*행동을\s*하지\s*않았습니다\.?/g, '생체·진술 로그로 말하겠습니다. 흥분을 혼동하지 마십시오.'],
+        [/항상\s*침착했습니다\.?/g, '그 시각 의무실·복도에 있었습니다. 총부터 들이대지 마십시오.'],
+        [/저는\s*아무\s*잘못도\s*없습니다\.?/g, '의료 근거로만 말하겠습니다. 함부로 범인이라 단정하지 마십시오.']
+      ];
+      const sdEngineer = [
+        [/저는\s*증거가\s*없습니다\.?/g, '접근 로그·릴레이 기준으로는 제 구역이 맞습니다. 성급히 몰아붙이지 마십시오.'],
+        [/의심스러운\s*행동을\s*하지\s*않았습니다\.?/g, '타임스탬프로 말하겠습니다. 체크섬이 거짓말하지 않습니다.'],
+        [/항상\s*침착했습니다\.?/g, '그 시각 코어 쪽에 있었습니다. 로그를 더 까보기 전에 단정하지 마십시오.']
+      ];
+      const sdNav = [
+        [/저는\s*증거가\s*없습니다\.?/g, '항로·차트 기록과 제 진술은 같은 분에 겹칩니다. 성급히 재단하지 마십시오.'],
+        [/의심스러운\s*행동을\s*하지\s*않았습니다\.?/g, '동선은 차트로 말합니다. 감으로 쏘지 마십시오.'],
+        [/항상\s*침착했습니다\.?/g, '그 시각 차트실·교량 연계에 있었습니다. 알리바이부터 맞추십시오.']
+      ];
+      const sdPilot = [
+        [/저는\s*증거가\s*없습니다\.?/g, '교량 계기·압력 로그가 제 자리를 말합니다. 함부로 겨누지 마십시오.'],
+        [/의심스러운\s*행동을\s*하지\s*않았습니다\.?/g, '계기와 현장 감각으로 말하겠습니다. 성급한 처형만은 막아 주십시오.'],
+        [/항상\s*침착했습니다\.?/g, '그 시각 조종대 앞이었습니다. 침착이 죄는 아닙니다.']
+      ];
+      const pick =
+        r === 'doctor'
+          ? sdDoctor
+          : r === 'engineer'
+            ? sdEngineer
+            : r === 'navigator'
+              ? sdNav
+              : r === 'pilot'
+                ? sdPilot
+                : [];
+      for (const [re, rep] of pick) {
+        if (re.test(s)) {
+          s = s.replace(re, rep);
+          changed = true;
+          selfDefenseApplied = true;
+        }
       }
     }
     if (suspicion && r !== 'captain' && /^(그렇군요|알겠습니다|네\.|좋습니다)/.test(s.trim())) {
@@ -3382,8 +3703,59 @@ function rewriteCrewLineForTone(text, role, loc, suspicion) {
         }
       }
     }
+    if (selfDefense && r !== 'captain') {
+      const sdDoctorEn = [
+        [/I\s+have\s+no\s+evidence/gi, 'The medbay logs place me on station—do not convict me on vibes.'],
+        [
+          /I\s+didn'?t\s+do\s+anything\s+suspicious/gi,
+          'Cross-check vitals and statements—I will answer from records, not panic.'
+        ],
+        [/I\s+(stayed|was)\s+calm/gi, 'I was at my post when it mattered—do not point before you prove.']
+      ];
+      const sdEngineerEn = [
+        [/I\s+have\s+no\s+evidence/gi, 'Access logs and relays put me in my lane—slow down the accusation.'],
+        [
+          /I\s+didn'?t\s+do\s+anything\s+suspicious/gi,
+          'Timestamps and checksums are my reply—do not rush execution.'
+        ],
+        [/I\s+(stayed|was)\s+calm/gi, 'I was on core-side duty—calm is not a confession.']
+      ];
+      const sdNavEn = [
+        [/I\s+have\s+no\s+evidence/gi, 'Charts and routes line up with my story—verify before you name me.'],
+        [
+          /I\s+didn'?t\s+do\s+anything\s+suspicious/gi,
+          'I will walk you through route slices—do not shoot on instinct.'
+        ],
+        [/I\s+(stayed|was)\s+calm/gi, 'I was tying bridge and chart—nerves are not proof.']
+      ];
+      const sdPilotEn = [
+        [/I\s+have\s+no\s+evidence/gi, 'Instruments show where I was—do not aim on a hunch.'],
+        [
+          /I\s+didn'?t\s+do\s+anything\s+suspicious/gi,
+          'Helm and pressure tell the tale—hold fire until logs match.'
+        ],
+        [/I\s+(stayed|was)\s+calm/gi, 'I was at the helm readouts—steady hands are not guilt.']
+      ];
+      const pickEn =
+        r === 'doctor'
+          ? sdDoctorEn
+          : r === 'engineer'
+            ? sdEngineerEn
+            : r === 'navigator'
+              ? sdNavEn
+              : r === 'pilot'
+                ? sdPilotEn
+                : [];
+      for (const [re, rep] of pickEn) {
+        if (re.test(s)) {
+          s = s.replace(re, rep);
+          changed = true;
+          selfDefenseApplied = true;
+        }
+      }
+    }
   }
-  return { text: s, changed };
+  return { text: s, changed, selfDefenseApplied };
 }
 
 function roleKeyFromBracketHeaderLine(line) {
@@ -3399,7 +3771,8 @@ function roleKeyFromBracketHeaderLine(line) {
 function applyCharacterToneToDisplayLogs(displayLogs, locale, opts) {
   opts = opts || {};
   const loc = locale === 'en' ? 'en' : 'ko';
-  const suspicion = suspicionHeavyInPlayerText(opts.playerText || '');
+  const selfDefense = isSelfDefenseQuestionContext(opts.playerText || '');
+  const suspicion = suspicionHeavyInPlayerText(opts.playerText || '') || selfDefense;
   if (!displayLogs || !displayLogs.length) return displayLogs;
   const out = [];
   let pendingRole = null;
@@ -3417,15 +3790,21 @@ function applyCharacterToneToDisplayLogs(displayLogs, locale, opts) {
       continue;
     }
     if (pendingRole && pendingRole !== 'captain' && typeLine) {
-      const { text: newLine, changed } = rewriteCrewLineForTone(
+      const { text: newLine, changed, selfDefenseApplied } = rewriteCrewLineForTone(
         typeLine,
         pendingRole,
         loc,
-        suspicion
+        suspicion,
+        selfDefense
       );
       if (changed) {
         try {
           console.log('[bot][dialogue] character_tone_applied role=' + pendingRole);
+        } catch (e) {}
+      }
+      if (selfDefenseApplied) {
+        try {
+          console.log('[bot][dialogue] self_defense_tone_applied role=' + pendingRole);
         } catch (e) {}
       }
       out.push({ ...item, type: newLine });
@@ -3445,6 +3824,7 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
   locale,
   forcedCaptainTextOverride,
   targetedQuestionSideReactionRules,
+  targetedNameQuestion,
   loreQuestionTopic,
   loreCanonAnchorText
 }) {
@@ -3473,6 +3853,7 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
     clueText: clueTextFromEvent != null ? clueTextFromEvent : undefined,
     forcedCaptainText,
     targetedQuestionSideReactionRules: !!targetedQuestionSideReactionRules,
+    targetedNameQuestion: !!targetedNameQuestion,
     locale: loc,
     loreQuestionTopic,
     loreCanonAnchorText
@@ -3872,6 +4253,53 @@ async function handleTextMessage(playerId, text, opts = {}) {
     return reply;
   }
 
+  if (cls.kind === 'group_question') {
+    const sub = cls.groupSubkind || 'suspicion';
+    console.log('[bot] message kind=group_question sub=' + sub);
+    await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
+    const events = resolveGroupCrewEvents(match, locale, sub);
+    for (const ev of events) await matchStore.appendEvent(matchId, ev);
+    const updated = await matchStore.getMatch(matchId);
+    const captainBodyForGroup =
+      stripLeadingCaptainBracketFromUserLine(String(text || '').trim(), locale) ||
+      String(text || '').trim();
+    let recentDisplay = dedupeDisplayLogs(toPlayerDisplayLogs(events, { locale }), locale);
+    if (captainBodyForGroup) {
+      recentDisplay = applyTargetedQuestionCaptainDisplayBody(recentDisplay, captainBodyForGroup, locale);
+      recentDisplay = dedupeDisplayLogs(recentDisplay, locale);
+    }
+    const timer = ep1Engine.getTimerStatus(updated, now);
+    const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
+    let reply = recentDisplay.map((e) => e.type).filter(Boolean).join('\n') || '…';
+    const m = Math.floor(rem / 60);
+    const sec = rem % 60;
+    reply += '\n⏱ ' + m + ':' + String(sec).padStart(2, '0') + ' left';
+    return reply;
+  }
+
+  if (cls.kind === 'suspicion_question') {
+    console.log('[bot] message kind=suspicion_question');
+    await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
+    const events = buildOpenQuestionCrewEvents(match, locale);
+    for (const ev of events) await matchStore.appendEvent(matchId, ev);
+    const updated = await matchStore.getMatch(matchId);
+    const captainBodyForSusp =
+      stripLeadingCaptainBracketFromUserLine(String(text || '').trim(), locale) ||
+      String(text || '').trim();
+    let recentDisplay = dedupeDisplayLogs(toPlayerDisplayLogs(events, { locale }), locale);
+    if (captainBodyForSusp) {
+      recentDisplay = applyTargetedQuestionCaptainDisplayBody(recentDisplay, captainBodyForSusp, locale);
+      recentDisplay = dedupeDisplayLogs(recentDisplay, locale);
+    }
+    const timer = ep1Engine.getTimerStatus(updated, now);
+    const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
+    let reply = recentDisplay.map((e) => e.type).filter(Boolean).join('\n') || '…';
+    const m = Math.floor(rem / 60);
+    const sec = rem % 60;
+    reply += '\n⏱ ' + m + ':' + String(sec).padStart(2, '0') + ' left';
+    return reply;
+  }
+
   if (cls.kind === 'lore_question') {
     console.log('[bot] message kind=lore_question');
     const gateTg = evaluateLoreUnknownTermGate('lore_question', String(text || ''), locale);
@@ -4023,6 +4451,13 @@ async function handleTextMessage(playerId, text, opts = {}) {
   );
   const clueEv = (result.events || []).find((e) => e && String(e.type).toUpperCase() === 'FIND_CLUE');
   const clueTextFromEvent = clueEv && clueEv.clue_text ? String(clueEv.clue_text) : undefined;
+  const targetedNameQ =
+    cls.kind === 'targeted_question' && isTargetedRoleNameQuestion(String(text || ''));
+  if (targetedNameQ) {
+    try {
+      console.log('[bot] targeted_name_question rules=true');
+    } catch (e) {}
+  }
   let recentDisplay = dedupeDisplayLogs(
     await maybeDialogueLogsFromLlmOrDeterministic({
       rawEvents: result.events || [],
@@ -4033,7 +4468,8 @@ async function handleTextMessage(playerId, text, opts = {}) {
       locale,
       forcedCaptainTextOverride:
         cls.kind === 'targeted_question' && captainBodyForTq ? captainBodyForTq : undefined,
-      targetedQuestionSideReactionRules: cls.kind === 'targeted_question'
+      targetedQuestionSideReactionRules: cls.kind === 'targeted_question',
+      targetedNameQuestion: targetedNameQ
     }),
     locale
   );
@@ -4329,6 +4765,65 @@ async function processMessageApi(playerId, text, opts = {}) {
     };
   }
 
+  if (cls.kind === 'group_question') {
+    const sub = cls.groupSubkind || 'suspicion';
+    console.log('[bot] message kind=group_question sub=' + sub);
+    await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
+    const events = resolveGroupCrewEvents(match, locale, sub);
+    for (const ev of events) await matchStore.appendEvent(matchId, ev);
+    const updated = await matchStore.getMatch(matchId);
+    const captainBodyForGroup =
+      stripLeadingCaptainBracketFromUserLine(String(text || '').trim(), locale) ||
+      String(text || '').trim();
+    let newDisplayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(events, { locale }), locale);
+    if (captainBodyForGroup) {
+      newDisplayLogs = applyTargetedQuestionCaptainDisplayBody(newDisplayLogs, captainBodyForGroup, locale);
+      newDisplayLogs = dedupeDisplayLogs(newDisplayLogs, locale);
+    }
+    const timer = ep1Engine.getTimerStatus(updated, now);
+    const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
+    const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
+    return {
+      ok: true,
+      summary: summaryText,
+      remaining_sec: rem,
+      game_over: false,
+      outcome: null,
+      events: newDisplayLogs,
+      recent_events: newDisplayLogs,
+      match_state: updated?.game_state || {}
+    };
+  }
+
+  if (cls.kind === 'suspicion_question') {
+    console.log('[bot] message kind=suspicion_question');
+    await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
+    const events = buildOpenQuestionCrewEvents(match, locale);
+    for (const ev of events) await matchStore.appendEvent(matchId, ev);
+    const updated = await matchStore.getMatch(matchId);
+    const captainBodyForSusp =
+      stripLeadingCaptainBracketFromUserLine(String(text || '').trim(), locale) ||
+      String(text || '').trim();
+    let newDisplayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(events, { locale }), locale);
+    if (captainBodyForSusp) {
+      newDisplayLogs = applyTargetedQuestionCaptainDisplayBody(newDisplayLogs, captainBodyForSusp, locale);
+      newDisplayLogs = dedupeDisplayLogs(newDisplayLogs, locale);
+    }
+    const timer = ep1Engine.getTimerStatus(updated, now);
+    const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
+    const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
+    return {
+      ok: true,
+      summary: summaryText,
+      remaining_sec: rem,
+      game_over: false,
+      outcome: null,
+      events: newDisplayLogs,
+      recent_events: newDisplayLogs,
+      match_state: updated?.game_state || {}
+    };
+  }
+
   if (cls.kind === 'lore_question') {
     console.log('[bot] message kind=lore_question');
     const gateApi = evaluateLoreUnknownTermGate('lore_question', String(text || ''), locale);
@@ -4473,6 +4968,13 @@ async function processMessageApi(playerId, text, opts = {}) {
   );
   const clueEv = (result.events || []).find((e) => e && String(e.type).toUpperCase() === 'FIND_CLUE');
   const clueTextFromEvent = clueEv && clueEv.clue_text ? String(clueEv.clue_text) : undefined;
+  const targetedNameQ =
+    cls.kind === 'targeted_question' && isTargetedRoleNameQuestion(String(text || ''));
+  if (targetedNameQ) {
+    try {
+      console.log('[bot] targeted_name_question rules=true');
+    } catch (e) {}
+  }
   let newDisplayLogs = dedupeDisplayLogs(
     await maybeDialogueLogsFromLlmOrDeterministic({
       rawEvents: result.events || [],
@@ -4483,7 +4985,8 @@ async function processMessageApi(playerId, text, opts = {}) {
       locale,
       forcedCaptainTextOverride:
         cls.kind === 'targeted_question' && captainBodyForTq ? captainBodyForTq : undefined,
-      targetedQuestionSideReactionRules: cls.kind === 'targeted_question'
+      targetedQuestionSideReactionRules: cls.kind === 'targeted_question',
+      targetedNameQuestion: targetedNameQ
     }),
     locale
   );
