@@ -950,6 +950,10 @@ function isLoreQuestion(raw) {
       return false;
     }
     if (detectCrewRoleForGameplayQuestion(raw) && !isGameplayCrewQuestionPattern(raw)) return true;
+    const ex = extractPrimaryLoreTerm(t, 'ko');
+    if (ex && !isGameplayAntiLoreQuestion(t) && !isKnownCanonLoreTerm(ex)) {
+      return true;
+    }
     return false;
   }
   return false;
@@ -979,7 +983,7 @@ function isQuestionLikeCaptainText(raw) {
   if (!t) return false;
   if (/[?？]/.test(t)) return true;
   if (
-    /(무엇|뭐|뭔|누구|누가|이름|정체|어디|언제|왜|어떻게|있었지|했지|봤지|기억하나|말해봐|설명해봐|알려|말해|가장\s*수상|수상하지|누가\s*범)/i.test(
+    /(무엇|뭐|뭔|누구|누가|이름|성함|정체|어디|언제|왜|어떻게|있었지|했지|봤지|기억하나|말해봐|설명해봐|알려|말해|가장\s*수상|수상하지|누가\s*범)/i.test(
       t
     ) &&
     /(인가|나요|습니까|을까|를까|지요|죠|니까|까\?|을까요|나\?|죠\?)/i.test(t)
@@ -995,6 +999,23 @@ function isQuestionLikeCaptainText(raw) {
   if (
     /(who|what|when|where|why|how|name|identity|remember|explain)/i.test(t) &&
     /[?？]/.test(t)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * observe/accuse_hint 등 액션으로 분류되어도 질문 경로로 보내야 하는 강한 질문 단서
+ * (mapped 분기 전에 intent를 question으로 승격하는 데 사용).
+ */
+function isStrongQuestionCueText(raw) {
+  if (isQuestionLikeCaptainText(raw)) return true;
+  const t = String(raw || '').trim();
+  if (!t) return false;
+  if (
+    /(무엇|뭐|뭔|누구|누가|이름|성함|정체|어디|언제|왜|어떻게|있었지|했지|봤지|기억하나|말해봐|설명해봐)/i.test(t) &&
+    /(자네들|다들|모두|승무원들|승무원\s+중|전원|여러분)/.test(t)
   ) {
     return true;
   }
@@ -1227,14 +1248,23 @@ function classifyMiniappMessageKind(text, parsed) {
 function classifyMiniappFreeText(text, parsed) {
   const raw = String(text || '').trim();
   const lower = raw.toLowerCase();
-  const intent = String(parsed.intent_type || 'unknown').toLowerCase();
-
-  if (intent === 'check_log') {
-    return { kind: 'mapped', parsed };
+  const mappedActionIntents = new Set(['accuse_hint', 'threaten', 'threat', 'observe']);
+  let intent = String(parsed.intent_type || 'unknown').toLowerCase();
+  let effParsed = parsed;
+  if (mappedActionIntents.has(intent) && isStrongQuestionCueText(raw)) {
+    try {
+      console.log('[bot][intent] action fallback blocked for question-like cue');
+    } catch (e) {}
+    effParsed = { ...parsed, intent_type: 'question' };
+    intent = 'question';
   }
 
-  if (parsed.target && isRoleOpinionQuestion(text, parsed)) {
-    return { kind: 'role_opinion_question', parsed };
+  if (intent === 'check_log') {
+    return { kind: 'mapped', parsed: effParsed };
+  }
+
+  if (effParsed.target && isRoleOpinionQuestion(text, effParsed)) {
+    return { kind: 'role_opinion_question', parsed: effParsed };
   }
 
   const crewRole = isTargetedCrewQuestion(raw);
@@ -1246,15 +1276,18 @@ function classifyMiniappFreeText(text, parsed) {
       }
       console.log('[bot][intent] final kind=targeted_question');
     } catch (e) {}
-    const merged = { ...parsed, intent_type: parsed.intent_type || 'question', target: crewRole };
+    const merged = {
+      ...effParsed,
+      intent_type: effParsed.intent_type || 'question',
+      target: crewRole
+    };
     return { kind: 'targeted_question', parsed: merged, crewGameplayTargetRole: crewRole };
   }
 
   const sq = matchStateQuerySubtype(lower);
   if (sq) return { kind: 'state_query', subtype: sq };
 
-  const mappedIntents = new Set(['accuse_hint', 'threaten', 'threat', 'observe']);
-  if (mappedIntents.has(intent)) return { kind: 'mapped', parsed };
+  if (mappedActionIntents.has(intent)) return { kind: 'mapped', parsed: effParsed };
 
   if (isGroupGameplayQuestion(raw)) {
     const sub = detectGroupSubkind(raw);
@@ -1266,7 +1299,7 @@ function classifyMiniappFreeText(text, parsed) {
       }
       if (sub === 'suspicion') console.log('[bot][intent] suspicion question detected');
     } catch (e) {}
-    return { kind: 'group_question', parsed, groupSubkind: sub };
+    return { kind: 'group_question', parsed: effParsed, groupSubkind: sub };
   }
 
   if (isStandaloneSuspicionQuestion(raw)) {
@@ -1274,24 +1307,24 @@ function classifyMiniappFreeText(text, parsed) {
       console.log('[bot][intent] suspicion question detected');
       console.log('[bot][intent] final kind=suspicion_question');
     } catch (e) {}
-    return { kind: 'suspicion_question', parsed };
+    return { kind: 'suspicion_question', parsed: effParsed };
   }
 
   if (isLoreQuestion(raw)) {
-    return { kind: 'lore_question', parsed };
+    return { kind: 'lore_question', parsed: effParsed };
   }
 
   if (intent === 'question') {
-    if (parsed.target) return { kind: 'targeted_question', parsed };
-    return { kind: 'brief_question', parsed };
+    if (effParsed.target) return { kind: 'targeted_question', parsed: effParsed };
+    return { kind: 'brief_question', parsed: effParsed };
   }
 
   if (intent === 'unknown') {
-    if (looksLikeOpenQuestion(lower, raw)) return { kind: 'brief_question', parsed };
-    return { kind: 'mapped', parsed };
+    if (looksLikeOpenQuestion(lower, raw)) return { kind: 'brief_question', parsed: effParsed };
+    return { kind: 'mapped', parsed: effParsed };
   }
 
-  return { kind: 'mapped', parsed };
+  return { kind: 'mapped', parsed: effParsed };
 }
 
 function buildStateQueryDialogueLine(match, subtype, locale, now) {
@@ -1881,6 +1914,7 @@ function evaluateLoreUnknownTermGate(clsKind, raw, locale) {
   }
   try {
     console.log('[bot][lore] unknown lore term term=' + extracted);
+    console.log('[bot][intent] unknown lore safe response selected');
   } catch (e) {}
   return { block: true, term: extracted };
 }
