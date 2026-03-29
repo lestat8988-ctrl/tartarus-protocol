@@ -3309,13 +3309,32 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
       ].join('\n');
     }
 
+    if (kind === 'THREATEN') {
+      return [
+        ...jsonContractEn,
+        'ROLE FIELD: captain|doctor|engineer|navigator|pilot only.',
+        'BLOCK ORDER: blocks[0]=captain; blocks[1]=focusTargetRole (threatened crew) with the strongest reaction first; then remaining alive crew in crewSpeakingOrder.',
+        'THREATEN: Captain is threatening focusTargetRole at gunpoint or equivalent. focusTargetRole.text = 2–4 sentences: (1) immediate tension / pushback (2) alibi or concrete ship evidence (3) warning against hasty judgment OR why the role still matters.',
+        'focusTargetRole role-specific anchors: doctor — medbay, patients, vitals, biometrics; engineer — logs, access, machine room, security systems; navigator — chart, time window, route judgment; pilot — bridge, gauges, pressure, vibration, helm.',
+        'NON-TARGET crew (not focusTargetRole): at most ONE short sentence each — restrain rash judgment, suggest log cross-check, or procedural caution only.',
+        'FORBIDDEN for non-target: cheering, comfort, pity, sympathy, encouragement, "hang in there", "I feel for you", moral commentary, speculation about the target\'s feelings.',
+        'FORBIDDEN everywhere: any personal name or string from crewPersonalNames; third-person stage narration ("X\'s voice trembles"); narration field must be empty string for every block — dialogue in text only, first person.',
+        'Never echo or paraphrase captain.text as the threatened crew line.',
+        'Respond JSON only.'
+      ].join('\n');
+    }
+
     if (kind === 'TAKE_PISTOL') {
       return [
         ...jsonContractEn,
         'ROLE FIELD: captain|doctor|engineer|navigator|pilot only.',
         'BLOCK ORDER: blocks[0]=captain; then doctor, engineer, navigator, pilot (omit dead).',
-        'TAKE_PISTOL: Captain is armed with the sidearm. Crew react to that — never echo or copy captain.text.',
-        'doctor: tension/vitals/stress. engineer: locks, access audit, security logs. navigator: corridors, readiness. pilot: bridge atmosphere.',
+        'TAKE_PISTOL: Captain has armed with the sidearm. Each crew: 1–2 sentences in text only; narration must be empty for every block.',
+        'doctor: injury risk / mis-shot consequences / medbay stability under armed tension — no generic comfort.',
+        'engineer: security posture / access control / system authority when the captain is armed — concrete.',
+        'navigator: judgment under pressure / route and corridor risk if shots go wrong — concrete.',
+        'pilot: bridge tension / instrument slip risk / pressure and vibration on the helm stack — use gauges, pressure, vibration, sightlines, sound; FORBID vague lines like "odd vibe", "I feel off", "something is strange" without bridge nouns.',
+        'Never echo or copy captain.text. No personal names from crewPersonalNames. No third-person narration.',
         'Respond JSON only.'
       ].join('\n');
     }
@@ -3327,11 +3346,6 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
     ];
     if (kind === 'FIND_CLUE') {
       tailEn.push('FIND_CLUE: crew reactions only; never put clue body in JSON (server adds [System]).');
-    } else if (kind === 'THREATEN') {
-      tailEn.push(
-        'THREATEN: threatened crew never echoes captain.text — wholly different sentence; reaction to pressure only.'
-      );
-      tailEn.push('Non-target crew blocks must name focusTargetEnglish in text or narration.');
     } else {
       tailEn.push('SUSPECT: every non-target crew block names focusTargetEnglish in text or narration.');
     }
@@ -3454,6 +3468,23 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
     ].join('\n');
   }
 
+  if (kind === 'THREATEN') {
+    return [
+      'USSC Tartarus E1. Korean spoken lines. Output JSON only: {"blocks":[...]} — no markdown.',
+      'ROLE FIELD (required): each block.role MUST be exactly one of: captain, doctor, engineer, navigator, pilot — lowercase English only.',
+      'NEVER set role to "header", "system", "title", "speaker", or any other string.',
+      'Each block shape ONLY: {"role":"captain|doctor|engineer|navigator|pilot","text":"...","narration":"..."} — narration optional. Do NOT include a "header" key; the client adds [함장] etc.',
+      'BLOCK ORDER: blocks[0]=captain; blocks[1]=focusTargetRole(위협 대상)이 가장 강한 반응으로 먼저; 이후 살아 있는 나머지 역할을 crewSpeakingOrder대로.',
+      'THREATEN: 함장이 focusTargetRole을 겨누거나 위협하는 상황. focusTargetRole.text는 2–4문장: (1) 즉각 긴장·반박 (2) 알리바이 또는 함선 근거 (3) 성급한 판단 경고 또는 역할상 필요성.',
+      'focusTargetRole 역할별: 닥터—의무실·환자·바이탈·생체; 엔지니어—로그·접근·기계실·보안; 네비게이터—차트·시간대·경로 판단; 파일럿—브리지·계기·압력·진동.',
+      '비타깃(위협 대상 아님): 역할당 최대 1문장—성급한 판단 경고·로그 대조 제안·절차상 제지만. 금지: 힘내, 도와줄게, 안쓰럽다, 걱정된다, 응원, 위로, 감상평.',
+      '전 블록 공통: crewPersonalNames 실명·이름 출력 금지. 제3자 내레이션 금지(「OO의 목소리에 긴장이…」 등). narration은 모든 블록 ""(빈 문자열)—대사는 text만, 1인칭.',
+      'focusTargetRole는 함장 위협 문장을 복창·인용하지 마라.',
+      'Forbidden: 모두 진정, 신중해야, 침착하게, 우리는 함께, 훈계, 교훈, 빈 위로, 범용 팀워크 멘트.',
+      'Respond JSON only.'
+    ].join('\n');
+  }
+
   if (kind === 'TAKE_PISTOL') {
     return [
       'USSC Tartarus E1. Korean spoken lines. Output JSON only: {"blocks":[...]} — no markdown.',
@@ -3464,11 +3495,12 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
       'Never decide rules, deaths, clue facts, timers, or impostor.',
       'captain.text = captainSpokenLineVerbatim exactly when user JSON provides it; captain.narration always "".',
       'Forbidden: 모두 진정, 신중해야, 침착하게, 우리는 함께, 훈계, 교훈, 빈 위로, 범용 팀워크 멘트.',
-      'TAKE_PISTOL: The captain has armed with the sidearm. React only to that fact — never repeat, echo, or copy captain.text (e.g. do not reuse "권총을 집었다" or the captain\'s exact wording).',
-      'doctor: tension from the captain being armed; psychophys / vitals / breath or stress shift — concrete, brief.',
-      'engineer: weapon lock release, privilege/access audit trail, security or system-log angle — not the captain\'s line parroted.',
-      'navigator: rising tension; corridors, boundaries, immediate readiness — situational.',
-      'pilot: bridge atmosphere, gut unease, how the air in the room changes.',
+      'TAKE_PISTOL: 함장이 권총을 든 상태. 각 역할 1–2문장, text만 사용하고 narration은 모든 블록 "".',
+      '닥터: 오판 시 부상·오발 위험, 의무실 안정성—구체적으로.',
+      '엔지니어: 무장 시 보안·접근 통제·시스템 권한—구체적으로.',
+      '네비게이터: 압박 속 판단 오류·동선·복도 리스크—구체적으로.',
+      '파일럿: 브리지 긴장·계기 실수·압력·진동·시야·소음—브리지 명사로; 금지: "이상한 기운", "기분이 좋지 않습니다", "뭔가 이상합니다"만 반복.',
+      '함장 문장 복창·실명(crewPersonalNames) 금지. 제3자 무대 내레이션 금지.',
       'No generic advice or empty reassurance. Respond JSON only.'
     ].join('\n');
   }
@@ -3480,14 +3512,6 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
   ];
   if (kind === 'FIND_CLUE') {
     tail.push('FIND_CLUE: crew reactions only; never put clue body in JSON (server adds [시스템]).');
-  } else if (kind === 'THREATEN') {
-    tail.push(
-      'THREATEN: focusTargetRole (threatened crew) must NEVER repeat, echo, or copy captain.text — write a wholly different sentence.'
-    );
-    tail.push(
-      'Target block only: their own reaction to pressure (tension, defense, pushback, fear) in new words; do not quote or paraphrase the captain\'s threat as their line.'
-    );
-    tail.push('Non-target crew blocks must name focusTargetKorean in text or narration.');
   } else {
     tail.push('SUSPECT: every non-target crew block names focusTargetKorean in text or narration.');
   }
@@ -3558,11 +3582,24 @@ function buildDialogueUserPayload(ctx) {
     o.auditFocus = 'Engineer-first; narrow audit: gaps, access, timestamps, stray queries.';
     o.blocksOrder =
       'blocks[0]=captain, blocks[1]=engineer, then doctor, navigator, pilot (omit dead); role must be captain|doctor|engineer|navigator|pilot only.';
+  } else if (ctx.kind === 'THREATEN') {
+    o.situation = 'Captain is threatening focusTargetRole (weapon or lethal pressure).';
+    o.blocksOrder =
+      'blocks[0]=captain, blocks[1]=focusTargetRole (threatened crew reacts strongest first), then other alive crew; role must be captain|doctor|engineer|navigator|pilot only.';
+    o.pacing =
+      'Target: 2–4 sentences tension + evidence + warning. Non-target: one short procedural line each — no cheering or comfort.';
   } else if (ctx.kind === 'TAKE_PISTOL') {
     o.situation = 'Captain has taken / armed with the sidearm on the ship.';
     o.blocksOrder =
       'blocks[0]=captain, then doctor, engineer, navigator, pilot (omit dead); role must be captain|doctor|engineer|navigator|pilot only.';
-    o.pacing = 'Short lines; each crew one tight reaction to the captain being armed; no echo of captain.text.';
+    o.pacing =
+      'Each crew 1–2 sentences: role-specific concern only; narration empty; no echo of captain.text.';
+  }
+  if (ctx.threatTakePistolNoNames) {
+    o.crewNameInstruction =
+      loc === 'en'
+        ? 'THREATEN/TAKE_PISTOL: Do NOT output any personal name or crewPersonalNames value in any block. Role titles only (Doctor, Engineer, Navigator, Pilot). narration must be empty string for every block.'
+        : 'THREATEN/TAKE_PISTOL: 모든 블록에서 실명·crewPersonalNames 문자열 출력 금지. 역할 호칭만. 모든 블록 narration은 빈 문자열.';
   }
   if (ctx.clueText != null) {
     o.note =
@@ -3722,7 +3759,8 @@ async function tryGenerateLlmDialogueLogs(ctx) {
     loreCanonAnchorText: kind === 'LORE_QUESTION' ? loreCanonSnippet : undefined,
     crewPersonalNames,
     targetedQuestionSingleSpeaker,
-    selfDefenseSuppressPersonalNames: sdPromptBoost && !targetedNameQuestion
+    selfDefenseSuppressPersonalNames: sdPromptBoost && !targetedNameQuestion,
+    threatTakePistolNoNames: kind === 'THREATEN' || kind === 'TAKE_PISTOL'
   });
   let strictRetry =
     locale === 'en'
@@ -3747,14 +3785,14 @@ async function tryGenerateLlmDialogueLogs(ctx) {
         ' CHECK_LOG: 엔지니어 중심 로그/접근/타임스탬프 불일치만. role은 captain|doctor|engineer|navigator|pilot 만; header 금지.';
     } else if (kind === 'THREATEN') {
       strictRetry +=
-        ' THREATEN: 타깃 블록은 함장 문장 복창·인용 금지; 압박에 대한 본인 반응만. 비타깃에 focusTargetKorean.';
+        ' THREATEN: 모든 블록 narration "". 실명·이름 금지. 비타깃 응원·위로·감상 금지. 타깃=긴장+근거+경고. 비타깃=짧은 제지/로그 제안만.';
     } else if (kind === 'SUSPECT') {
       strictRetry += ' 비타깃에 focusTargetKorean.';
     } else if (kind === 'FIND_CLUE') {
       strictRetry += ' FIND_CLUE: 단서 본문 금지.';
     } else if (kind === 'TAKE_PISTOL') {
       strictRetry +=
-        ' TAKE_PISTOL: 함장 문장·권총 집기 문구 복창·인용 금지. 역할별 짧은 반응만. role은 captain|doctor|engineer|navigator|pilot 만; header 금지.';
+        ' TAKE_PISTOL: narration "" 전 블록. 실명 금지. 역할별 1~2문장 우려만. 함장 문장 복창 금지. 파일럿: 계기·압력·진동 구체. role은 captain|doctor|engineer|navigator|pilot 만; header 금지.';
     } else if (kind === 'LORE_QUESTION') {
       strictRetry +=
         ' LORE_QUESTION: 타르타로스 canon만. health monitoring·life support manager·hazard routing·backup navigation·medical-protocol-as-HADES 금지. AXIS 질문이면 HADES가 AXIS 내부에 봉인됐다는 문장 필수. captain.text는 captainSpokenLineVerbatim과 동일만.';
@@ -3783,13 +3821,15 @@ async function tryGenerateLlmDialogueLogs(ctx) {
     } else if (kind === 'CHECK_LOG') {
       strictRetry += ' CHECK_LOG: engineer-first audit lines only.';
     } else if (kind === 'THREATEN') {
-      strictRetry += ' THREATEN: target never echoes captain; non-target names focusTargetEnglish.';
+      strictRetry +=
+        ' THREATEN: empty narration every block; no personal names; non-target no cheer/comfort; target strongest reaction first.';
     } else if (kind === 'SUSPECT') {
       strictRetry += ' SUSPECT: non-target names focusTargetEnglish.';
     } else if (kind === 'FIND_CLUE') {
       strictRetry += ' FIND_CLUE: no clue body in JSON.';
     } else if (kind === 'TAKE_PISTOL') {
-      strictRetry += ' TAKE_PISTOL: no echo of captain line.';
+      strictRetry +=
+        ' TAKE_PISTOL: empty narration every block; no names; 1–2 sentences role worry each; pilot: gauges/pressure/vibration not vague mood; no echo of captain line.';
     } else if (kind === 'LORE_QUESTION') {
       strictRetry +=
         ' LORE_QUESTION: Tartarus canon only; forbid health monitoring system, life support manager, hazard routing protocol, backup navigation system, medical-protocol-as-HADES. AXIS answers must include HADES sealed inside AXIS. captain.text = captainSpokenLineVerbatim only.';
@@ -3834,7 +3874,11 @@ async function tryGenerateLlmDialogueLogs(ctx) {
         '[bot] LLM_DIALOGUE normalized ' +
           JSON.stringify({ kind, roles: valid.map((b) => b.role) })
       );
-      let logs = llmBlocksToDisplayLogs(valid, batchKey, locale);
+      let blocksOut = valid;
+      if (kind === 'THREATEN' || kind === 'TAKE_PISTOL') {
+        blocksOut = applyThreatTakePistolNarrationPolicy(blocksOut, kind);
+      }
+      let logs = llmBlocksToDisplayLogs(blocksOut, batchKey, locale);
       if (kind === 'FIND_CLUE' && clueText) {
         const clueIdOpt = ev0?.clue_id != null ? String(ev0.clue_id) : '';
         logs = mergeFindClueDeterministicClue(logs, clueText, batchKey, locale, clueIdOpt);
@@ -3845,6 +3889,263 @@ async function tryGenerateLlmDialogueLogs(ctx) {
   }
   log('LLM_DIALOGUE', 'aborted_after_retry', { kind, rawHead: String(lastRaw).slice(0, 120) });
   return null;
+}
+
+function applyThreatTakePistolNarrationPolicy(blocks, kind) {
+  if (kind !== 'THREATEN' && kind !== 'TAKE_PISTOL') return blocks;
+  return (blocks || []).map((b) => ({ ...b, narration: '' }));
+}
+
+function collectCrewPersonalNameTokens(crewNames) {
+  const out = [];
+  const cn = crewNames || {};
+  for (const r of CREW_ROLES_FOR_NAMES) {
+    const e = cn[r];
+    if (!e) continue;
+    if (typeof e === 'string') {
+      if (e.length >= 2) out.push(e);
+      continue;
+    }
+    if (e.ko && String(e.ko).length >= 2) out.push(String(e.ko));
+    if (e.en && String(e.en).length >= 2) out.push(String(e.en));
+  }
+  return out;
+}
+
+function threatTargetFallbackLine(role, loc) {
+  const r = String(role || '').toLowerCase();
+  if (loc === 'en') {
+    const m = {
+      doctor:
+        'That barrel does not rewrite my vitals trail. Medbay still shows where I was—pull that trigger and triage collapses with me.',
+      engineer:
+        'Point it—my access stamps and checksums still pin my path. Cutting me out will not erase the audit chain.',
+      navigator:
+        'The chart window and bridge clock still place me on scope. A hasty shot does not straighten the plot line.',
+      pilot:
+        'Pressure at the helm stack is already skewed—your aim does not rewrite the bridge log. One twitch here shows on every gauge.'
+    };
+    return m[r] || m.doctor;
+  }
+  const m = {
+    doctor:
+      '총구가 바이탈 기록을 지우지는 않습니다. 의무실 로그는 그대로이고, 지금 방아쇠를 당기면 부상자 처리만 꼬입니다.',
+    engineer:
+      '겨누셔도 접근 스탬프와 체크섬은 남습니다. 저를 끊어도 감사 추적이 사라지지는 않습니다.',
+    navigator:
+      '차트 시간대와 교량 시계는 제 위치를 말합니다. 성급한 한 발이 항로 판단을 바로잡지는 못합니다.',
+    pilot:
+      '교량 계기·압력이 이미 흔들립니다. 겨누는 것만으로 브리지 로그가 바뀌지는 않습니다.'
+  };
+  return m[r] || m.doctor;
+}
+
+function threatNonTargetMinimalLine(role, loc) {
+  const r = String(role || '').toLowerCase();
+  if (loc === 'en') {
+    const m = {
+      doctor: 'Captain—confirm biometrics before you fire.',
+      engineer: 'Captain—lock the access logs before you commit.',
+      navigator: 'Captain—cross the chart to the clock first.',
+      pilot: 'Captain—helm gauges are already live; do not add another variable.'
+    };
+    return m[r] || 'Captain—verify the record before you shoot.';
+  }
+  const m = {
+    doctor: '함장님—방아쇠 전에 생체 기록부터 맞추십시오.',
+    engineer: '함장님—접근 로그부터 고정해야 합니다.',
+    navigator: '함장님—차트와 시계부터 대조하십시오.',
+    pilot: '함장님—교량 계기가 이미 불안정합니다.'
+  };
+  return m[r] || '함장님—기록부터 확인하십시오.';
+}
+
+function takePistolFallbackLine(role, loc) {
+  const r = String(role || '').toLowerCase();
+  if (loc === 'en') {
+    const m = {
+      doctor:
+        'Sidearm on the deck raises mis-shot risk—one wrong angle in medbay corridor costs lives we cannot spare.',
+      engineer:
+        'Armed captain shifts privilege boundaries—I need the weapon lock state and access tree reconciled now.',
+      navigator:
+        'Judgment under muzzle pressure skews plot fixes—corridor timing goes nonlinear if we panic.',
+      pilot:
+        'Bridge vibration and gauge jitter are up; a tremor on the helm stack propagates to pressure trim.'
+    };
+    return m[r] || m.pilot;
+  }
+  const m = {
+    doctor: '권총이 나오면 오판·오발로 부상자 처리가 꼬입니다. 의무실 복도에서 각도 하나가 치명적입니다.',
+    engineer: '함장 무장은 접근 권한 경계를 바꿉니다. 지금 무기 잠금과 권한 트리를 맞춰야 합니다.',
+    navigator: '총구 압박 아래 판단이 흔들리면 동선·시간대 보정이 무너집니다.',
+    pilot: '브리지 진동·계기 떨림이 올라갔습니다. 조종대 떨림이 압력 트림까지 번집니다.'
+  };
+  return m[r] || m.pilot;
+}
+
+function replacePilotGenericMoodLine(s, loc) {
+  const t = String(s || '').trim();
+  if (!t) return t;
+  if (loc === 'ko') {
+    if (/이상한\s*기운|기분이\s*좋지\s*않|뭔가\s*이상/.test(t)) {
+      return '브리지 계기 떨림이 잡히지 않습니다. 압력 게이지가 한쪽으로 붙었습니다.';
+    }
+  } else if (/odd\s*vibe|feel(?:ing)?\s+off|something\s*(?:feels\s*)?strange|not\s+right\s+here/i.test(t)) {
+    return 'Helm stack gauges are wandering; pressure trace is pinned to one side of the band.';
+  }
+  return t;
+}
+
+/**
+ * THREATEN/TAKE_PISTOL: 이름 제거·제3자 무대 묘사 축소·비타깃 응원 멘트 교체.
+ */
+function sanitizeThreatTakePistolDisplayLogs(displayLogs, locale, opts) {
+  opts = opts || {};
+  const kind = opts.dialogueLlmKind;
+  if (kind !== 'THREATEN' && kind !== 'TAKE_PISTOL') return displayLogs;
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const tokens = collectCrewPersonalNameTokens(opts.crewPersonalNames);
+  const threatT = opts.threatTargetRole ? String(opts.threatTargetRole).toLowerCase() : null;
+  const actionSlug = kind === 'THREATEN' ? 'threat' : 'take_pistol';
+
+  const cheerKo =
+    /(힘내|힘들겠|도와줄|안쓰럽|걱정|응원|위로|파이팅|괜찮을\s*거|괜찮아|수고|고생)/;
+  const cheerEn = /\b(hang\s*in|you\s*got\s*this|I\s*feel\s*for|cheer\s*up|poor\s+you|stay\s+strong)\b/i;
+
+  const stageKo = /[가-힣]{2,12}의\s*(목소리|눈빛|표정|손|숨|어깨)/;
+  const stageEn = /\b[A-Z][a-z]+\s+[A-Z][a-z]+'s\s+(voice|eyes|gaze|breath|hands)\b/;
+
+  function stripNames(line) {
+    let s = String(line || '');
+    for (const tok of tokens) {
+      if (tok && tok.length >= 2) s = s.split(tok).join('');
+    }
+    s = s.replace(/\s+/g, ' ').replace(/^\s*,\s*/, '').replace(/\s*,\s*$/g, '').trim();
+    return s;
+  }
+
+  function processBodyLine(text, role) {
+    const r = String(role || '').toLowerCase();
+    let s = stripNames(text);
+    if (loc === 'ko' && stageKo.test(s)) {
+      try {
+        console.log('[bot][dialogue] narrative_stage_cue_blocked role=' + r);
+      } catch (e) {}
+      s = s.replace(stageKo, '').replace(/\s+/g, ' ').trim();
+    }
+    if (loc === 'en' && stageEn.test(s)) {
+      try {
+        console.log('[bot][dialogue] narrative_stage_cue_blocked role=' + r);
+      } catch (e) {}
+      s = s.replace(stageEn, '').replace(/\s+/g, ' ').trim();
+    }
+    if (tokens.some((tok) => tok && String(text).includes(tok))) {
+      try {
+        console.log('[bot][dialogue] name_leak_blocked action=' + actionSlug + ' role=' + r);
+      } catch (e) {}
+    }
+    if (r === 'pilot') {
+      s = replacePilotGenericMoodLine(s, loc);
+    }
+    if (kind === 'THREATEN' && threatT && r !== 'captain' && r !== threatT) {
+      if ((loc === 'ko' && cheerKo.test(s)) || (loc === 'en' && cheerEn.test(s))) {
+        s = threatNonTargetMinimalLine(r, loc);
+        try {
+          console.log('[bot][dialogue] non_target_threat_reply_suppressed role=' + r);
+        } catch (e) {}
+      }
+    }
+    if (!s && r !== 'captain') {
+      s =
+        kind === 'THREATEN' && threatT && r === threatT
+          ? threatTargetFallbackLine(r, loc)
+          : kind === 'THREATEN' && threatT && r !== threatT
+            ? threatNonTargetMinimalLine(r, loc)
+            : takePistolFallbackLine(r, loc);
+      try {
+        console.log('[bot][dialogue] fallback_template_used action=' + actionSlug + ' role=' + r);
+      } catch (e) {}
+    }
+    return s;
+  }
+
+  const logs = Array.isArray(displayLogs) ? displayLogs.slice() : [];
+  const headers = getLlmRoleHeaders(loc);
+  const hToRole = {
+    [headers.doctor]: 'doctor',
+    [headers.engineer]: 'engineer',
+    [headers.navigator]: 'navigator',
+    [headers.pilot]: 'pilot',
+    [captainHeader(loc)]: 'captain'
+  };
+  let pendingRole = null;
+  let awaitingCrewBody = false;
+  for (let i = 0; i < logs.length; i++) {
+    const typ = String(logs[i]?.type || '').trim();
+    const rk = hToRole[typ];
+    if (rk) {
+      pendingRole = rk;
+      awaitingCrewBody = rk !== 'captain';
+      continue;
+    }
+    if (awaitingCrewBody && pendingRole && pendingRole !== 'captain' && typ && !typ.startsWith('[')) {
+      logs[i] = { ...logs[i], type: processBodyLine(typ, pendingRole) };
+      awaitingCrewBody = false;
+      continue;
+    }
+    if (typ.startsWith('[') && !rk) awaitingCrewBody = false;
+  }
+  try {
+    console.log('[bot][dialogue] action_tone_applied type=' + actionSlug + ' sanitized=1');
+  } catch (e) {}
+  return logs;
+}
+
+/**
+ * LLM 실패 시 THREATEN/TAKE_PISTOL 전용 결정적 표시 로그(실명·응원·3인칭 내레이션 없음).
+ */
+function buildThreatTakePistolFallbackDisplayLogs(match, locale, kind, rawEvents, captainForced) {
+  if (kind !== 'THREATEN' && kind !== 'TAKE_PISTOL') return null;
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const capH = captainHeader(loc);
+  const headers = getLlmRoleHeaders(loc);
+  const gs = match?.game_state || {};
+  const deadRoles = gs.dead_roles || [];
+  const alive = CREW_ROLES_FOR_NAMES.filter((r) => !deadRoles.includes(r));
+  const ev0 = rawEvents && rawEvents[0];
+  const target = kind === 'THREATEN' && ev0?.target ? String(ev0.target).toLowerCase() : null;
+  const capBody =
+    String(captainForced || '').trim() ||
+    (kind === 'THREATEN'
+      ? loc === 'en'
+        ? 'Hold the line.'
+        : '함장이 방아쇠에 손을 올렸다.'
+      : loc === 'en'
+        ? 'The captain arms with the sidearm.'
+        : '함장이 권총을 취했다.');
+  const out = [];
+  out.push({ type: capH, role: 'system', target: null, _key: 'tp-fb|cap-h' });
+  out.push({ type: capBody, role: 'system', target: null, _key: 'tp-fb|cap-b' });
+  try {
+    console.log('[bot][dialogue] fallback_template_used action=' + dialogueActionKindSlug(kind) + ' role=all');
+  } catch (e) {}
+
+  const order =
+    kind === 'THREATEN' && target && alive.includes(target)
+      ? [target, ...alive.filter((x) => x !== target)]
+      : alive;
+  for (const r of order) {
+    const line =
+      kind === 'THREATEN' && target && r === target
+        ? threatTargetFallbackLine(r, loc)
+        : kind === 'THREATEN'
+          ? threatNonTargetMinimalLine(r, loc)
+          : takePistolFallbackLine(r, loc);
+    out.push({ type: headers[r], role: 'system', target: null, _key: 'tp-fb|h|' + r });
+    out.push({ type: line, role: 'system', target: null, _key: 'tp-fb|b|' + r });
+  }
+  return normalizePlayerFacingDisplayLogs(out, loc);
 }
 
 function suspicionHeavyInPlayerText(playerText) {
@@ -5001,6 +5302,13 @@ function applyCharacterToneToDisplayLogs(displayLogs, locale, opts) {
     }
     out.push(item);
   }
+  if (opts.dialogueLlmKind === 'THREATEN' || opts.dialogueLlmKind === 'TAKE_PISTOL') {
+    return sanitizeThreatTakePistolDisplayLogs(out, loc, {
+      dialogueLlmKind: opts.dialogueLlmKind,
+      threatTargetRole: opts.threatTargetRole || null,
+      crewPersonalNames: opts.crewPersonalNames || null
+    });
+  }
   return out;
 }
 
@@ -5061,9 +5369,23 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
     const m2 = await matchStore.getMatch(match.match_id);
     toneOptsBase.crewPersonalNames = m2?.game_state?.crew_names || match?.game_state?.crew_names || null;
   }
+  toneOptsBase.dialogueLlmKind = kind;
+  toneOptsBase.threatTargetRole =
+    kind === 'THREATEN' && ev0?.target ? String(ev0.target).toLowerCase() : null;
 
   if (!isDialogueLlmConfigured()) {
     logDialogueTrace(actionSlug, 'deterministic', modelStr, 'fallback', eventsCount);
+    if (kind === 'THREATEN' || kind === 'TAKE_PISTOL') {
+      try {
+        console.log(
+          '[bot][dialogue] action=' +
+            actionSlug +
+            ' provider=deterministic model=' +
+            modelStr +
+            ' result=fallback'
+        );
+      } catch (e) {}
+    }
     let det = deterministicLogs;
     if (targetedNameQuestion && kind === 'QUESTION' && nameTargetRole && match?.match_id) {
       const m3 = await matchStore.getMatch(match.match_id);
@@ -5076,6 +5398,14 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
           : extractCaptainSpokenFromDisplayLogs(deterministicLogs, loc)
       );
       if (fb && fb.length) det = fb;
+    }
+    const capFb =
+      forcedCaptainTextOverride != null && String(forcedCaptainTextOverride).trim()
+        ? String(forcedCaptainTextOverride).trim()
+        : extractCaptainSpokenFromDisplayLogs(deterministicLogs, loc);
+    if ((kind === 'THREATEN' || kind === 'TAKE_PISTOL') && match) {
+      const tpf = buildThreatTakePistolFallbackDisplayLogs(match, loc, kind, rawEvents, capFb);
+      if (tpf && tpf.length) det = tpf;
     }
     let detTone = det;
     if (tqSingle && isolateRole) {
@@ -5106,6 +5436,19 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
   });
   if (llmLogs && llmLogs.length) {
     logDialogueTrace(actionSlug, apiProvider, modelStr, 'llm', eventsCount);
+    if (kind === 'THREATEN' || kind === 'TAKE_PISTOL') {
+      try {
+        console.log(
+          '[bot][dialogue] action=' +
+            actionSlug +
+            ' provider=' +
+            apiProvider +
+            ' model=' +
+            modelStr +
+            ' result=llm'
+        );
+      } catch (e) {}
+    }
     let outL = llmLogs;
     if (tqSingle && isolateRole) {
       outL = filterDisplayLogsToTargetedSingleSpeaker(outL, isolateRole, loc);
@@ -5113,6 +5456,19 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
     return applyCharacterToneToDisplayLogs(outL, loc, toneOptsBase);
   }
   logDialogueTrace(actionSlug, apiProvider, modelStr, 'fallback', eventsCount);
+  if (kind === 'THREATEN' || kind === 'TAKE_PISTOL') {
+    try {
+      console.log(
+        '[bot][dialogue] action=' +
+          actionSlug +
+          ' provider=' +
+          apiProvider +
+          ' model=' +
+          modelStr +
+          ' result=fallback'
+      );
+    } catch (e) {}
+  }
   let detOut = deterministicLogs;
   if (targetedNameQuestion && kind === 'QUESTION' && nameTargetRole && match?.match_id) {
     const m4 = await matchStore.getMatch(match.match_id);
@@ -5123,6 +5479,10 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
       forcedCaptainText
     );
     if (fb2 && fb2.length) detOut = fb2;
+  }
+  if ((kind === 'THREATEN' || kind === 'TAKE_PISTOL') && match) {
+    const tpf = buildThreatTakePistolFallbackDisplayLogs(match, loc, kind, rawEvents, forcedCaptainText);
+    if (tpf && tpf.length) detOut = tpf;
   }
   if (tqSingle && isolateRole) {
     detOut = filterDisplayLogsToTargetedSingleSpeaker(detOut, isolateRole, loc);
