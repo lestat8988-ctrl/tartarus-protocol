@@ -1024,6 +1024,10 @@
 
       const PLAYER_KEY = 'tartarus_miniapp_playerId';
       const LANG_KEY = 'tartarus_miniapp_lang';
+      /** 새 start/restart·부트 시 증가 — 오래된 /start·/state 응답 무시 */
+      var appRequestGeneration = 0;
+      /** 현재 폴링이 따라야 할 match_id (start 성공 직후 설정) */
+      var activeMatchPollId = null;
 
       var screen = 'intro';
       var storedLang;
@@ -1122,6 +1126,7 @@
         };
       }
 
+      /** 서버가 준 entitlement 객체로 UI 전체를 덮어씀(이전 스냅샷과 merge 안 함) */
       function applyEntitlementFromResponse(data) {
         if (!data || typeof data !== 'object') return;
         if (data.entitlement != null) updateEntitlementUI(data.entitlement);
@@ -1857,6 +1862,7 @@
           );
         } catch (e) {}
         statePollInFlight = true;
+        var pollOwnerGen = appRequestGeneration;
         var chainStopped = false;
         var playerId = getPlayerId();
         statePollRequestId++;
@@ -1870,8 +1876,22 @@
         fetch(API_BASE + '/api/state?playerId=' + encodeURIComponent(playerId) + '&lang=' + encodeURIComponent(getLangForApi()))
           .then(function(r) { return r.json(); })
           .then(function(data) {
+            if (pollOwnerGen !== appRequestGeneration) {
+              try {
+                console.log('[miniapp] state_poll_stale_response_dropped');
+              } catch (e) {}
+              return;
+            }
             if (!data.ok) return;
             if (!data.match_id) {
+              stopStatePolling();
+              chainStopped = true;
+              return;
+            }
+            if (activeMatchPollId && String(data.match_id) !== String(activeMatchPollId)) {
+              try {
+                console.log('[miniapp] state_poll_match_id_mismatch ignored');
+              } catch (e) {}
               stopStatePolling();
               chainStopped = true;
               return;
@@ -1905,15 +1925,19 @@
           .catch(function() { /* network noise: ignore */ })
           .finally(function() {
             statePollInFlight = false;
+            if (pollOwnerGen !== appRequestGeneration) return;
             if (!statePollingEnabled || chainStopped) return;
             scheduleNextStatePoll(getNextPollDelayMs());
           });
       }
 
       /** 폴링 리셋 후 첫 poll은 1500ms 뒤부터 (start 응답만으로 1차 렌더, 추가 즉시 /api/state 없음) */
-      function startStatePolling() {
+      function startStatePolling(midForLog) {
         try {
           console.log('[miniapp] state_poll_reset_on_start=true');
+        } catch (e) {}
+        try {
+          console.log('[miniapp] polling rebound newMatchId=' + String(midForLog != null ? midForLog : activeMatchPollId || ''));
         } catch (e) {}
         stopStatePolling();
         statePollingEnabled = true;
@@ -1939,6 +1963,77 @@
         lastLogBlockRole = null;
         if (logPanel) logPanel.innerHTML = '';
       }
+
+      function bumpAppRequestGeneration() {
+        appRequestGeneration++;
+        return appRequestGeneration;
+      }
+
+      /** blocked 배너·프롬프트 잠금만 해제 (폴링 정지는 호출부에서) */
+      function clearBlockedState() {
+        try {
+          console.log('[miniapp] clearing blocked state');
+        } catch (e) {}
+        if (gameScreen) gameScreen.classList.remove('start-blocked');
+        if (entitlementStartBanner) {
+          entitlementStartBanner.classList.remove('visible');
+          entitlementStartBanner.innerHTML = '';
+        }
+        promptEntitlementBlocked = false;
+        if (entitlementPromptHint) {
+          entitlementPromptHint.classList.remove('visible');
+          entitlementPromptHint.textContent = '';
+        }
+        applyCaptainInputChrome();
+      }
+
+      /** 새 매치 바인딩 전 HUD — 7:00(420초) 기준 표시 */
+      function resetHudTimerToNewMatch() {
+        if (statusTime) statusTime.textContent = '7:00';
+        if (hudCountdown) {
+          var L0 = getL();
+          hudCountdown.textContent = L0.countdown + ' : 7:00';
+        }
+        if (statusMatchId) {
+          statusMatchId.textContent = '--';
+          statusMatchId.removeAttribute('title');
+        }
+        if (statusLocation) statusLocation.textContent = 'Bridge';
+        if (statusThreat) {
+          statusThreat.textContent = 'NOMINAL';
+          statusThreat.classList.remove('threat');
+          statusThreat.classList.add('nominal');
+        }
+      }
+
+      /**
+       * /api/start 직전: 이전 match·로그·blocked·타이머·모달 상태 제거
+       */
+      function clearStaleMatchStateBeforeStart() {
+        try {
+          console.log('[miniapp] clearing stale match state');
+        } catch (e) {}
+        bumpAppRequestGeneration();
+        stopStatePolling();
+        lastKnownMatchId = null;
+        activeMatchPollId = null;
+        clearGameLogPanelAndState();
+        clearBlockedState();
+        resetResultUI();
+        previousGameOver = false;
+        previousOutcome = null;
+        setGameOverLock(false);
+        resetHudTimerToNewMatch();
+        lastDeadRoles = [];
+        if (statusDeadWrap) statusDeadWrap.style.display = 'none';
+        if (statusOutcomeWrap) statusOutcomeWrap.style.display = 'none';
+        if (statusDead) {
+          statusDead.textContent = '';
+          statusDead.classList.remove('threat');
+        }
+        if (freeInput) freeInput.value = '';
+      }
+
       function resetResultUI() {
         forceInvalidateUserActionLock();
         accuseRequestInFlight = false;
@@ -2679,6 +2774,12 @@
 
       function doStart(restart) {
         if (startRequestInFlight) return;
+        var oldMid = lastKnownMatchId;
+        try {
+          console.log('[miniapp] start requested oldMatchId=' + (oldMid != null ? String(oldMid) : ''));
+        } catch (e) {}
+        clearStaleMatchStateBeforeStart();
+        var startGen = appRequestGeneration;
         forceInvalidateUserActionLock();
         startRequestInFlight = true;
         setRestartButtonsDisabled(true);
@@ -2691,6 +2792,12 @@
         })
           .then(readFetchJsonResponse)
           .then(function(meta) {
+            if (startGen !== appRequestGeneration) {
+              try {
+                console.log('[miniapp] start response stale ignored');
+              } catch (e) {}
+              return;
+            }
             var data = meta.json || {};
             if (!meta.okHttp) {
               try {
@@ -2719,9 +2826,12 @@
               }
               return;
             }
-            hideEntitlementStartBanner();
+            var newMid = data.match_id != null ? String(data.match_id) : '';
+            try {
+              console.log('[miniapp] start success newMatchId=' + newMid);
+            } catch (e) {}
+            activeMatchPollId = newMid || null;
             lastRenderedRecentEventsSig = '';
-            resetResultUI();
             ensureIntroButtonsEnabled();
             var st = { match_id: data.match_id, remaining_sec: data.remaining_sec, game_state: data.game_state };
             if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
@@ -2729,22 +2839,27 @@
             updateStatus(st, { fromStart: true });
             applyEntitlementFromResponse(data);
             if (restart) {
-              clearGameLogPanelAndState();
               appendLog(getInitialSystemLogLine(), false);
             } else if (data.events && data.events.length) {
               applyEvents(data.events);
             } else {
               appendLog(getInitialSystemLogLine(), false);
             }
-            startStatePolling();
+            startStatePolling(newMid);
           })
           .catch(function(err) {
+            if (startGen !== appRequestGeneration) return;
             try {
               console.log('[miniapp] normalized error message=' + String((err && err.message) || 'catch'));
             } catch (e) {}
             appendLog('Connection failed. Start: node telegram/bot/bot.js', true);
           })
           .finally(function() {
+            if (startGen !== appRequestGeneration) {
+              startRequestInFlight = false;
+              setRestartButtonsDisabled(false);
+              return;
+            }
             startRequestInFlight = false;
             setRestartButtonsDisabled(false);
             forceInvalidateUserActionLock();
@@ -3087,6 +3202,31 @@
         });
       })();
 
+      (function miniappBootClearStaleState() {
+        try {
+          console.log('[miniapp] clearing stale match state');
+        } catch (e) {}
+        bumpAppRequestGeneration();
+        stopStatePolling();
+        lastKnownMatchId = null;
+        activeMatchPollId = null;
+        lastRenderedRecentEventsSig = '';
+        lastEntitlementSnapshot = null;
+        clearBlockedState();
+        clearGameLogPanelAndState();
+        try {
+          var bi;
+          for (bi = localStorage.length - 1; bi >= 0; bi--) {
+            var k = localStorage.key(bi);
+            if (k && /^tartarus_(match|session|transcript)/i.test(k)) {
+              try {
+                localStorage.removeItem(k);
+              } catch (e) {}
+            }
+          }
+        } catch (e) {}
+      })();
+
       renderIntroScreen();
 
       introLangKo.addEventListener('click', function() {
@@ -3106,8 +3246,6 @@
         if (gameScreen) gameScreen.classList.add('visible');
         renderGameLabels();
         startGameBriefingScroll();
-        hideEntitlementStartBanner();
-        hideEntitlementPromptHint();
         doStart(false);
       });
 
@@ -3462,19 +3600,11 @@
         var allowRestart =
           isGameOver || (gameScreen && gameScreen.classList.contains('start-blocked'));
         if (!allowRestart) return;
-        forceInvalidateUserActionLock();
         try {
           console.log('[miniapp] state_poll_reset_on_restart=true');
         } catch (e) {}
-        stopStatePolling();
-        clearGameLogPanelAndState();
-        previousGameOver = false;
-        previousOutcome = null;
-        resetResultUI();
         restartSection.classList.remove('visible');
         startGameBriefingScroll();
-        hideEntitlementStartBanner();
-        hideEntitlementPromptHint();
         doStart(true);
       }
 
