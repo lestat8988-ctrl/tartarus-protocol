@@ -1240,7 +1240,10 @@ function classifyMiniappFreeText(text, parsed) {
   const crewRole = isTargetedCrewQuestion(raw);
   if (crewRole) {
     try {
-      if (/이름|name/i.test(raw)) console.log('[bot][intent] name question detected');
+      if (/이름|name/i.test(raw)) {
+        console.log('[bot][intent] name question detected');
+        console.log('[bot][intent] targeted name question detected');
+      }
       console.log('[bot][intent] final kind=targeted_question');
     } catch (e) {}
     const merged = { ...parsed, intent_type: parsed.intent_type || 'question', target: crewRole };
@@ -1258,6 +1261,9 @@ function classifyMiniappFreeText(text, parsed) {
     try {
       console.log('[bot][intent] group question detected');
       console.log('[bot][intent] final kind=group_question sub=' + sub);
+      if (sub === 'name') {
+        console.log('[bot][intent] name question detected');
+      }
       if (sub === 'suspicion') console.log('[bot][intent] suspicion question detected');
     } catch (e) {}
     return { kind: 'group_question', parsed, groupSubkind: sub };
@@ -1410,7 +1416,7 @@ function buildOpenQuestionCrewEvents(match, locale) {
   return events;
 }
 
-/** 집단 이름·호칭 질문 — 짧은 자기소개(역할명·호출명), lore general 토픽으로 보내지 않음. */
+/** 집단 이름 질문 — 실명 우선, 역할 설명은 이름 뒤 1문장(존댓말). crew_names 는 호출 전 ensure. */
 function buildGroupNameQuestionCrewEvents(match, locale) {
   const loc = locale === 'en' ? 'en' : 'ko';
   const headers = getLlmRoleHeaders(loc);
@@ -1419,35 +1425,37 @@ function buildGroupNameQuestionCrewEvents(match, locale) {
   const crewOrder = ['doctor', 'engineer', 'navigator', 'pilot'];
   const alive = crewOrder.filter((r) => !deadRoles.includes(r));
   const cap = headers.captain;
+  const cn = gs.crew_names || {};
 
   const captainLine =
     loc === 'en'
-      ? `${cap} Names and call signs—short, in order.`
-      : `${cap} 이름과 호출명을 짧게, 순서대로 말하게.`;
+      ? `${cap} Names, in order—short.`
+      : `${cap} 이름을 짧게, 순서대로 말씀해 주십시오.`;
 
   const byRole = {
-    doctor:
+    doctor: (name) =>
       loc === 'en'
-        ? `${headers.doctor} Ship physician—call me Doctor. Medbay and vitals are my lane.`
-        : `${headers.doctor} 함선 의관—닥터로 부르게. 의무실·생체는 내 구역이다.`,
-    engineer:
+        ? `${headers.doctor} I am ${name}. I run medbay and vitals on this ship.`
+        : `${headers.doctor} 저는 ${name}입니다. 의무실과 생체 모니터링을 맡고 있습니다.`,
+    engineer: (name) =>
       loc === 'en'
-        ? `${headers.engineer} Engineer—core and access logs. You want timestamps, you get me.`
-        : `${headers.engineer} 엔지니어—코어와 접근 로그. 타임스탬프는 내 쪽이다.`,
-    navigator:
+        ? `${headers.engineer} I am ${name}. I manage core systems and access logs.`
+        : `${headers.engineer} 저는 ${name}입니다. 코어와 접근 로그를 관리하고 있습니다.`,
+    navigator: (name) =>
       loc === 'en'
-        ? `${headers.navigator} Navigator—charts and routes. I match corridors to minutes.`
-        : `${headers.navigator} 네비게이터—차트·항로. 복도와 시각을 맞춘다.`,
-    pilot:
+        ? `${headers.navigator} I am ${name}. I align charts and routes with bridge orders.`
+        : `${headers.navigator} 저는 ${name}입니다. 차트와 항로를 맡고 있습니다.`,
+    pilot: (name) =>
       loc === 'en'
-        ? `${headers.pilot} Pilot—bridge and helm. I speak in instruments and air pressure.`
-        : `${headers.pilot} 파일럿—교량·조종. 계기와 분위기로 말하지.`
+        ? `${headers.pilot} I am ${name}. I stand bridge watch and helm readouts.`
+        : `${headers.pilot} 저는 ${name}입니다. 교량 근무와 계기를 맡고 있습니다.`
   };
 
   const events = [{ type: 'CREW_DIALOGUE', role: 'captain', dialogue: captainLine }];
   for (const r of alive) {
-    const line = byRole[r];
-    if (line) events.push({ type: 'CREW_DIALOGUE', role: r, dialogue: line });
+    const fn = byRole[r];
+    const nm = getCrewDisplayName(cn, r, loc);
+    if (fn) events.push({ type: 'CREW_DIALOGUE', role: r, dialogue: fn(nm) });
   }
   return events;
 }
@@ -3132,7 +3140,9 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
         'Each block: {"role","text","narration?"} — no "header" key.',
         'BLOCK ORDER: blocks[0]=captain; blocks[1]=focusTargetRole (answers first); then remaining alive crew in crewSpeakingOrder.',
         'QUESTION: Target answers immediately — short, direct. Others: one tight reaction each.',
-        'Every non-target crew block must name focusTargetEnglish (e.g. Navigator) in text or narration.'
+        promptOpts.targetedNameQuestion
+          ? 'NAME_TARGETING non-target: brief reaction only; do not name the target\'s personal name. focusTargetEnglish in non-target lines is optional.'
+          : 'Every non-target crew block must name focusTargetEnglish (e.g. Navigator) in text or narration.'
       ];
       if (promptOpts.targetedQuestionSideReactionRules) {
         qEn.push(
@@ -3228,7 +3238,9 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
       'Forbidden: 모두 진정, 신중해야, 침착하게, 우리는 함께, 훈계, 교훈, 빈 위로, 범용 팀워크 멘트.',
       'QUESTION: Target answers immediately in their block — short, direct, no essay.',
       'doctor/engineer/navigator/pilot: each one brief follow-up (1–2 short sentences) tied to that question only.',
-      'Every non-target crew block must include focusTargetKorean (e.g. 네비게이터) in text or narration.',
+      promptOpts.targetedNameQuestion
+        ? 'NAME_TARGETING 비타깃: 짧은 반응만(대상 이름·성함 금지). focusTargetKorean 표기는 생략 가능.'
+        : 'Every non-target crew block must include focusTargetKorean (e.g. 네비게이터) in text or narration.',
       'Optional one short narration per crew; skip if unnecessary. No generic life advice.'
     ];
     if (promptOpts.targetedQuestionSideReactionRules) {
@@ -3326,6 +3338,7 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
 
 function buildDialogueUserPayload(ctx) {
   const loc = ctx.locale === 'en' ? 'en' : 'ko';
+  const cn = ctx.crewPersonalNames || null;
   const o = {
     action: ctx.kind,
     locale: loc,
@@ -3339,7 +3352,30 @@ function buildDialogueUserPayload(ctx) {
     clueTextToQuoteVerbatim: ctx.clueText || null,
     instructionCaptain: ctx.captainSpokenLineVerbatim
       ? 'captain.text exact copy of captainSpokenLineVerbatim; captain.narration "".'
-      : 'captain.text short; captain.narration "".'
+      : 'captain.text short; captain.narration "".',
+    crewPersonalNames: cn,
+    crewNameInstruction:
+      cn && typeof cn === 'object'
+        ? loc === 'en'
+          ? 'Use these exact personal names for each role when introducing or naming: doctor=' +
+            (cn.doctor?.en || cn.doctor) +
+            ', engineer=' +
+            (cn.engineer?.en || cn.engineer) +
+            ', navigator=' +
+            (cn.navigator?.en || cn.navigator) +
+            ', pilot=' +
+            (cn.pilot?.en || cn.pilot) +
+            '. Do not invent different names.'
+          : '각 역할의 실명은 반드시 다음만 사용: doctor=' +
+            (cn.doctor?.ko || cn.doctor) +
+            ', engineer=' +
+            (cn.engineer?.ko || cn.engineer) +
+            ', navigator=' +
+            (cn.navigator?.ko || cn.navigator) +
+            ', pilot=' +
+            (cn.pilot?.ko || cn.pilot) +
+            '. 다른 이름을 만들지 말 것.'
+        : null
   };
   if (ctx.kind === 'QUESTION') {
     o.pacing = 'Short lines; target answers first; others one tight reaction each.';
@@ -3429,7 +3465,11 @@ async function tryGenerateLlmDialogueLogs(ctx) {
     loreCanonAnchorText: loreCanonOpt
   } = ctx;
   const locale = ctx.locale === 'en' ? 'en' : 'ko';
-  const gs = match?.game_state || {};
+  if (match?.match_id) {
+    await ensureCrewPersonalNamesPersisted(match.match_id);
+  }
+  const matchFresh = match?.match_id ? (await matchStore.getMatch(match.match_id)) || match : match;
+  const gs = matchFresh?.game_state || match?.game_state || {};
   const deadRoles = gs.dead_roles || [];
   const ev0 = rawEvents && rawEvents[0];
   const target = ev0?.target ? String(ev0.target).toLowerCase() : null;
@@ -3455,6 +3495,19 @@ async function tryGenerateLlmDialogueLogs(ctx) {
   if (kind === 'LORE_QUESTION') {
     system += '\n\n' + getLoreCanonSystemExtension(locale);
   }
+  const crewPersonalNames = gs.crew_names || {};
+  if (kind === 'QUESTION' && crewPersonalNames && crewPersonalNames.doctor) {
+    system +=
+      locale === 'en'
+        ? '\n\nCREW_TO_CAPTAIN: Doctor/Engineer/Navigator/Pilot always address the Captain respectfully (formal, no casual slang toward the Captain). For name questions: give the personal name from crewPersonalNames first; at most one short role sentence after the name. Do not answer with role-only intros instead of the name.'
+        : '\n\nCREW_TO_CAPTAIN: 닥터·엔지니어·네비게이터·파일럿은 함장에게 항상 존댓말만 사용합니다(함장이 반말이어도 유지). 이름 질문에는 crewPersonalNames의 실명을 먼저 말하고, 역할 설명은 이름 뒤 1문장만. 역할만 말하고 이름을 끝까지 말하지 않는 것(역할 소개만)은 금지. 금지 예: 부르게, 내 구역이다, 내 쪽이다, 말하지(반말).';
+    if (targetedNameQuestion) {
+      system +=
+        locale === 'en'
+          ? ' NAME_REASK: Only focusTargetRole states their personal name; non-targets must not give that name or repeat it.'
+          : ' NAME_REASK: 실명·성함은 focusTargetRole 블록만. 비타깃은 대상의 이름을 말하거나 추측하지 말 것.';
+    }
+  }
   const userBase = buildDialogueUserPayload({
     kind,
     target,
@@ -3467,16 +3520,20 @@ async function tryGenerateLlmDialogueLogs(ctx) {
     clueText: kind === 'FIND_CLUE' ? clueText : null,
     captainSpokenLineVerbatim: captainForced || null,
     loreQuestionTopic: kind === 'LORE_QUESTION' ? loreTopic : undefined,
-    loreCanonAnchorText: kind === 'LORE_QUESTION' ? loreCanonSnippet : undefined
+    loreCanonAnchorText: kind === 'LORE_QUESTION' ? loreCanonSnippet : undefined,
+    crewPersonalNames
   });
   let strictRetry =
     locale === 'en'
       ? '\n\n[STRICT_RETRY] Validation failed. No Korean. No platitudes. Short lines; no repetition. roles: captain|doctor|engineer|navigator|pilot only; no header key.'
       : '\n\n[STRICT_RETRY] 검증 실패. 금지: 진정/신중/침착/함께/훈계/교훈. narration 짧게·반복 금지.';
   if (locale === 'ko') {
-    if (kind === 'QUESTION') {
+    if (kind === 'QUESTION' && !targetedNameQuestion) {
       strictRetry +=
         ' QUESTION: 비타깃 블록에 focusTargetKorean 필수. 더 짧게. role은 captain|doctor|engineer|navigator|pilot 만; header 금지.';
+    } else if (kind === 'QUESTION' && targetedNameQuestion) {
+      strictRetry +=
+        ' QUESTION: 이름 질문—포커스 역할만 실명 중심. 비타깃은 짧은 반응만, 대상 이름 금지. 존댓말 유지. role은 captain|doctor|engineer|navigator|pilot 만; header 금지.';
     } else if (kind === 'CHECK_LOG') {
       strictRetry +=
         ' CHECK_LOG: 엔지니어 중심 로그/접근/타임스탬프 불일치만. role은 captain|doctor|engineer|navigator|pilot 만; header 금지.';
@@ -3503,8 +3560,11 @@ async function tryGenerateLlmDialogueLogs(ctx) {
         ' NAME_TARGETING: 비타깃은 대상 이름·성함·호출명 금지. 포커스 역할만 이름 답.';
     }
   } else {
-    if (kind === 'QUESTION') {
+    if (kind === 'QUESTION' && !targetedNameQuestion) {
       strictRetry += ' QUESTION: non-target blocks must name focusTargetEnglish. Shorter.';
+    } else if (kind === 'QUESTION' && targetedNameQuestion) {
+      strictRetry +=
+        ' QUESTION: name question—only focusTargetRole gives their personal name; non-target brief reaction only, no target name. Formal to Captain.';
     } else if (kind === 'CHECK_LOG') {
       strictRetry += ' CHECK_LOG: engineer-first audit lines only.';
     } else if (kind === 'THREATEN') {
@@ -3758,6 +3818,113 @@ function rewriteCrewLineForTone(text, role, loc, suspicion, selfDefense) {
   return { text: s, changed, selfDefenseApplied };
 }
 
+/** 이름 질문에 역할 슬로건만 있는지(실명 없음) 대략 감지 — 후처리 교정용 */
+function looksLikeRoleOnlyKoNameIntro(text) {
+  const s = String(text || '').trim();
+  if (!s) return false;
+  if (/저는\s+[가-힣]{2,4}\s*입니다/.test(s)) return false;
+  if (/저는\s+[A-Za-z]/.test(s)) return false;
+  return (
+    /(함선\s*)?의관|엔지니어\s*[—\-]|네비게이터\s*[—\-]|파일럿\s*[—\-]|닥터로\s*부르|타임스탬프는\s*내\s*쪽|내\s*구역이다|말하지\s*$/i.test(
+      s
+    ) || (/^[가-힣\s—\-]+$/i.test(s) && /의무실|접근\s*로그|차트|교량/.test(s) && !/[가-힣]{3}\s*입니다/.test(s))
+  );
+}
+
+function looksLikeRoleOnlyEnNameIntro(text) {
+  const s = String(text || '').trim();
+  if (!s) return false;
+  if (/\bI\s+am\s+[A-Za-z]/.test(s)) return false;
+  return /Ship\s+physician|Engineer—|Navigator—|Pilot—|call\s+me\s+Doctor/i.test(s);
+}
+
+/**
+ * 크루 한국어 존댓말 보정(함장 대상). 금지 패턴을 완곡한 존댓말로 치환.
+ */
+function applyHonorificCrewKo(text, role) {
+  const r = String(role || '').toLowerCase();
+  if (!['doctor', 'engineer', 'navigator', 'pilot'].includes(r)) return { text: text, changed: false };
+  let s = String(text || '');
+  let changed = false;
+  const reps = [
+    [/닥터로\s*부르게/g, '닥터로 불러 주십시오'],
+    [/부르게\b/g, '불러 주십시오'],
+    [/내\s*구역이다/g, '제가 맡은 구역입니다'],
+    [/내\s*쪽이다/g, '제가 담당하는 쪽입니다'],
+    [/(^|[.!?]\s*)말하지\s*$/g, '$1말씀드리겠습니다'],
+    [/\b말하지\s*[.!]?$/g, '말씀드리겠습니다.']
+  ];
+  for (const [re, rep] of reps) {
+    if (re.test(s)) {
+      s = s.replace(re, rep);
+      changed = true;
+    }
+  }
+  if (changed) {
+    try {
+      console.log('[bot][dialogue] honorific_tone_applied role=' + r);
+    } catch (e) {}
+  }
+  return { text: s, changed };
+}
+
+function stabilizeNameQuestionCrewLine(text, role, loc, opts) {
+  opts = opts || {};
+  const cn = opts.crewPersonalNames || {};
+  const stable = getCrewDisplayName(cn, role, loc);
+  if (!stable || stable === '승무원' || stable === 'Crew') return { text, changed: false };
+  const r = String(role || '').toLowerCase();
+  let changed = false;
+  let s = String(text || '');
+  const isNameCtx =
+    !!opts.targetedNameQuestion &&
+    opts.targetedNameFocusRole &&
+    r === String(opts.targetedNameFocusRole).toLowerCase();
+  if (!isNameCtx) return { text: s, changed: false };
+  if (loc === 'ko' && looksLikeRoleOnlyKoNameIntro(s)) {
+    const roleBit =
+      r === 'doctor'
+        ? '의무실을 맡고 있습니다.'
+        : r === 'engineer'
+          ? '코어와 접근 로그를 관리하고 있습니다.'
+          : r === 'navigator'
+            ? '차트와 항로를 맡고 있습니다.'
+            : '교량 근무를 맡고 있습니다.';
+    s = `저는 ${stable}입니다. ${roleBit}`;
+    changed = true;
+    try {
+      console.log('[bot][dialogue] role_intro_blocked_for_name_question role=' + r);
+      console.log('[bot][dialogue] stable_name_applied role=' + r);
+    } catch (e) {}
+  } else if (loc === 'en' && looksLikeRoleOnlyEnNameIntro(s)) {
+    const roleBit =
+      r === 'doctor'
+        ? 'I run medbay and vitals.'
+        : r === 'engineer'
+          ? 'I manage core systems and access logs.'
+          : r === 'navigator'
+            ? 'I handle charts and routes.'
+            : 'I stand bridge watch.';
+    s = `I am ${stable}. ${roleBit}`;
+    changed = true;
+    try {
+      console.log('[bot][dialogue] role_intro_blocked_for_name_question role=' + r);
+      console.log('[bot][dialogue] stable_name_applied role=' + r);
+    } catch (e) {}
+  } else if (loc === 'ko' && s && !s.includes(stable) && /이름|성함|누구/.test(String(opts.playerText || ''))) {
+    if (/저는\s+[가-힣]{2,4}/.test(s)) {
+      /* already has some name */
+    } else if (/저는/.test(s)) {
+      s = s.replace(/^저는\s+[^.,!?\n]+/, '저는 ' + stable);
+      changed = true;
+      try {
+        console.log('[bot][dialogue] stable_name_applied role=' + r);
+      } catch (e) {}
+    }
+  }
+  return { text: s, changed };
+}
+
 function roleKeyFromBracketHeaderLine(line) {
   const t = String(line || '').trim();
   if (/^\[닥터\]|^\[Doctor\]/i.test(t)) return 'doctor';
@@ -3790,14 +3957,16 @@ function applyCharacterToneToDisplayLogs(displayLogs, locale, opts) {
       continue;
     }
     if (pendingRole && pendingRole !== 'captain' && typeLine) {
-      const { text: newLine, changed, selfDefenseApplied } = rewriteCrewLineForTone(
-        typeLine,
+      let newLine = typeLine;
+      const { text: w1, changed: c1, selfDefenseApplied } = rewriteCrewLineForTone(
+        newLine,
         pendingRole,
         loc,
         suspicion,
         selfDefense
       );
-      if (changed) {
+      newLine = w1;
+      if (c1) {
         try {
           console.log('[bot][dialogue] character_tone_applied role=' + pendingRole);
         } catch (e) {}
@@ -3807,6 +3976,12 @@ function applyCharacterToneToDisplayLogs(displayLogs, locale, opts) {
           console.log('[bot][dialogue] self_defense_tone_applied role=' + pendingRole);
         } catch (e) {}
       }
+      if (loc === 'ko') {
+        const h1 = applyHonorificCrewKo(newLine, pendingRole);
+        newLine = h1.text;
+      }
+      const st = stabilizeNameQuestionCrewLine(newLine, pendingRole, loc, opts);
+      newLine = st.text;
       out.push({ ...item, type: newLine });
       continue;
     }
@@ -3836,9 +4011,41 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
   const modelStr = TELEGRAM_DIALOGUE_MODEL;
   const apiProvider = isDeepSeekDialogueModel(modelStr) ? 'deepseek' : 'openai';
 
+  const ev0 = rawEvents && rawEvents[0];
+  const nameTargetRole =
+    targetedNameQuestion && kind === 'QUESTION' && ev0?.target
+      ? String(ev0.target).toLowerCase()
+      : null;
+
+  const toneOptsBase = {
+    playerText: playerText || '',
+    targetedNameQuestion: !!targetedNameQuestion,
+    targetedNameFocusRole: nameTargetRole,
+    crewPersonalNames: null
+  };
+
+  if (match?.match_id) {
+    await ensureCrewPersonalNamesPersisted(match.match_id);
+    const m2 = await matchStore.getMatch(match.match_id);
+    toneOptsBase.crewPersonalNames = m2?.game_state?.crew_names || match?.game_state?.crew_names || null;
+  }
+
   if (!isDialogueLlmConfigured()) {
     logDialogueTrace(actionSlug, 'deterministic', modelStr, 'fallback', eventsCount);
-    return applyCharacterToneToDisplayLogs(deterministicLogs, loc, { playerText: playerText || '' });
+    let det = deterministicLogs;
+    if (targetedNameQuestion && kind === 'QUESTION' && nameTargetRole && match?.match_id) {
+      const m3 = await matchStore.getMatch(match.match_id);
+      const fb = buildTargetedNameQuestionDeterministicDisplayLogs(
+        m3 || match,
+        loc,
+        nameTargetRole,
+        forcedCaptainTextOverride != null && String(forcedCaptainTextOverride).trim()
+          ? String(forcedCaptainTextOverride).trim()
+          : extractCaptainSpokenFromDisplayLogs(deterministicLogs, loc)
+      );
+      if (fb && fb.length) det = fb;
+    }
+    return applyCharacterToneToDisplayLogs(det, loc, toneOptsBase);
   }
 
   const forcedCaptainText =
@@ -3860,10 +4067,21 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
   });
   if (llmLogs && llmLogs.length) {
     logDialogueTrace(actionSlug, apiProvider, modelStr, 'llm', eventsCount);
-    return applyCharacterToneToDisplayLogs(llmLogs, loc, { playerText: playerText || '' });
+    return applyCharacterToneToDisplayLogs(llmLogs, loc, toneOptsBase);
   }
   logDialogueTrace(actionSlug, apiProvider, modelStr, 'fallback', eventsCount);
-  return applyCharacterToneToDisplayLogs(deterministicLogs, loc, { playerText: playerText || '' });
+  let detOut = deterministicLogs;
+  if (targetedNameQuestion && kind === 'QUESTION' && nameTargetRole && match?.match_id) {
+    const m4 = await matchStore.getMatch(match.match_id);
+    const fb2 = buildTargetedNameQuestionDeterministicDisplayLogs(
+      m4 || match,
+      loc,
+      nameTargetRole,
+      forcedCaptainText
+    );
+    if (fb2 && fb2.length) detOut = fb2;
+  }
+  return applyCharacterToneToDisplayLogs(detOut, loc, toneOptsBase);
 }
 
 function log(tag, msg, data) {
@@ -3871,6 +4089,165 @@ function log(tag, msg, data) {
 }
 
 const ROLE_NAMES_KO = { doctor: '닥터', engineer: '엔지니어', navigator: '네비게이터', pilot: '파일럿', captain: '함장' };
+
+const CREW_ROLES_FOR_NAMES = ['doctor', 'engineer', 'navigator', 'pilot'];
+const KO_FAMILY_NAMES = ['김', '이', '박', '최', '정', '강', '조', '윤', '한', '임'];
+const KO_GIVEN_NAMES = [
+  '민호',
+  '준혁',
+  '서연',
+  '지훈',
+  '하은',
+  '도윤',
+  '예진',
+  '시우',
+  '유나',
+  '태양',
+  '수빈',
+  '재민',
+  '혜진',
+  '성민',
+  '나연'
+];
+const EN_GIVEN_NAMES = ['Alex', 'Jordan', 'Sam', 'Riley', 'Casey', 'Morgan', 'Quinn', 'Drew', 'Jamie', 'Taylor'];
+const EN_FAMILY_NAMES = ['Park', 'Kim', 'Lee', 'Choi', 'Jung', 'Han', 'Lim', 'Kang', 'Oh', 'Yoon'];
+
+function hashStringToSeed(s) {
+  let h = 2166136261;
+  const str = String(s || '');
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function mulberry32(seed) {
+  return function () {
+    let t = (seed += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * 매치당 1회 고정되는 크루 personal name (ko/en). game_state.crew_names 에 저장.
+ */
+function generateStableCrewPersonalNames(matchId) {
+  const rnd = mulberry32(hashStringToSeed('crew_names|' + String(matchId || '')));
+  const usedKo = new Set();
+  const usedEn = new Set();
+  const out = {};
+  for (const role of CREW_ROLES_FOR_NAMES) {
+    let koFull = '';
+    for (let k = 0; k < 80; k++) {
+      const fi = Math.floor(rnd() * KO_FAMILY_NAMES.length);
+      const gi = Math.floor(rnd() * KO_GIVEN_NAMES.length);
+      koFull = KO_FAMILY_NAMES[fi] + KO_GIVEN_NAMES[gi];
+      if (!usedKo.has(koFull)) {
+        usedKo.add(koFull);
+        break;
+      }
+    }
+    let enFull = '';
+    for (let k = 0; k < 80; k++) {
+      const gn = EN_GIVEN_NAMES[Math.floor(rnd() * EN_GIVEN_NAMES.length)];
+      const fn = EN_FAMILY_NAMES[Math.floor(rnd() * EN_FAMILY_NAMES.length)];
+      enFull = `${gn} ${fn}`;
+      if (!usedEn.has(enFull)) {
+        usedEn.add(enFull);
+        break;
+      }
+    }
+    out[role] = { ko: koFull || '김민호', en: enFull || 'Alex Kim' };
+  }
+  return out;
+}
+
+function getCrewDisplayName(crewNames, role, loc) {
+  const r = String(role || '').toLowerCase();
+  const entry = crewNames && crewNames[r];
+  if (!entry) return loc === 'en' ? 'Crew' : '승무원';
+  if (typeof entry === 'string') return entry;
+  return loc === 'en' ? entry.en || entry.ko : entry.ko || entry.en;
+}
+
+/**
+ * game_state 에 crew_names 가 없으면 생성·저장. 있으면 재사용.
+ * @returns {Promise<object|null>} 갱신된 game_state 또는 null
+ */
+async function ensureCrewPersonalNamesPersisted(matchId) {
+  const m = await matchStore.getMatch(matchId);
+  if (!m) return null;
+  const gs = { ...(m.game_state || {}) };
+  const cn = gs.crew_names;
+  let complete = false;
+  if (cn && typeof cn === 'object') {
+    complete = CREW_ROLES_FOR_NAMES.every((r) => {
+      const x = cn[r];
+      if (!x) return false;
+      if (typeof x === 'string') return x.length > 0;
+      return !!(x.ko && x.en);
+    });
+  }
+  if (complete) {
+    try {
+      console.log('[bot][state] crew names reused matchId=' + matchId);
+    } catch (e) {}
+    return gs;
+  }
+  gs.crew_names = generateStableCrewPersonalNames(matchId);
+  await matchStore.updateMatch(matchId, { game_state: gs });
+  try {
+    console.log('[bot][state] crew names initialized matchId=' + matchId);
+  } catch (e) {}
+  return gs;
+}
+
+/** 이름 질문 LLM 실패 시: 함장 + 대상 역할만 실명 중심 응답(타 역할 생략). */
+function buildTargetedNameQuestionDeterministicDisplayLogs(match, locale, targetRole, captainSpokenLine) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const headers = getLlmRoleHeaders(loc);
+  const gs = match.game_state || {};
+  const deadRoles = gs.dead_roles || [];
+  const alive = CREW_ROLES_FOR_NAMES.filter((r) => !deadRoles.includes(r));
+  const t = String(targetRole || '').toLowerCase();
+  if (!alive.includes(t)) return null;
+  const names = gs.crew_names || {};
+  const displayName = getCrewDisplayName(names, t, loc);
+  const capHdr = captainHeader(loc);
+  const capBody =
+    String(captainSpokenLine || '').trim() ||
+    (loc === 'en' ? `${roleNameEn(t)}, what is your name?` : `${roleNameKo(t)}, 성함이 어떻게 되십니까?`);
+  const roleSuffix =
+    t === 'doctor'
+      ? loc === 'en'
+        ? 'I run medbay and vitals for this ship.'
+        : '의무실과 생체 모니터링을 맡고 있습니다.'
+      : t === 'engineer'
+        ? loc === 'en'
+          ? 'I manage core systems and access logs.'
+          : '코어와 접근 로그를 관리하고 있습니다.'
+        : t === 'navigator'
+          ? loc === 'en'
+            ? 'I handle charts and route alignment.'
+            : '차트와 항로 정합을 맡고 있습니다.'
+          : loc === 'en'
+            ? 'I stand bridge watch and helm readouts.'
+            : '교량 근무와 계기를 맡고 있습니다.';
+  const targetLine =
+    loc === 'en'
+      ? `I am ${displayName}. ${roleSuffix}`
+      : `저는 ${displayName}입니다. ${roleSuffix}`;
+  const out = [];
+  out.push({ type: capHdr, role: 'system', target: null, _key: 'tnq-fb|cap-h' });
+  out.push({ type: capBody, role: 'system', target: null, _key: 'tnq-fb|cap-b' });
+  out.push({ type: headers[t], role: 'system', target: null, _key: 'tnq-fb|h|' + t });
+  out.push({ type: targetLine, role: 'system', target: null, _key: 'tnq-fb|b|' + t });
+  return normalizePlayerFacingDisplayLogs(out, loc);
+}
+
 function roleNameKo(r) {
   return ROLE_NAMES_KO[String(r || '').toLowerCase()] || (r ? String(r) : '');
 }
@@ -4257,7 +4634,9 @@ async function handleTextMessage(playerId, text, opts = {}) {
     const sub = cls.groupSubkind || 'suspicion';
     console.log('[bot] message kind=group_question sub=' + sub);
     await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
-    const events = resolveGroupCrewEvents(match, locale, sub);
+    if (sub === 'name') await ensureCrewPersonalNamesPersisted(matchId);
+    const matchAfterNames = sub === 'name' ? await matchStore.getMatch(matchId) : match;
+    const events = resolveGroupCrewEvents(matchAfterNames || match, locale, sub);
     for (const ev of events) await matchStore.appendEvent(matchId, ev);
     const updated = await matchStore.getMatch(matchId);
     const captainBodyForGroup =
@@ -4268,6 +4647,10 @@ async function handleTextMessage(playerId, text, opts = {}) {
       recentDisplay = applyTargetedQuestionCaptainDisplayBody(recentDisplay, captainBodyForGroup, locale);
       recentDisplay = dedupeDisplayLogs(recentDisplay, locale);
     }
+    recentDisplay = applyCharacterToneToDisplayLogs(recentDisplay, locale, {
+      playerText: String(text || ''),
+      crewPersonalNames: updated?.game_state?.crew_names || null
+    });
     const timer = ep1Engine.getTimerStatus(updated, now);
     const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
     let reply = recentDisplay.map((e) => e.type).filter(Boolean).join('\n') || '…';
@@ -4455,6 +4838,7 @@ async function handleTextMessage(playerId, text, opts = {}) {
     cls.kind === 'targeted_question' && isTargetedRoleNameQuestion(String(text || ''));
   if (targetedNameQ) {
     try {
+      console.log('[bot][intent] targeted name question detected');
       console.log('[bot] targeted_name_question rules=true');
     } catch (e) {}
   }
@@ -4769,7 +5153,9 @@ async function processMessageApi(playerId, text, opts = {}) {
     const sub = cls.groupSubkind || 'suspicion';
     console.log('[bot] message kind=group_question sub=' + sub);
     await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
-    const events = resolveGroupCrewEvents(match, locale, sub);
+    if (sub === 'name') await ensureCrewPersonalNamesPersisted(matchId);
+    const matchAfterNames = sub === 'name' ? await matchStore.getMatch(matchId) : match;
+    const events = resolveGroupCrewEvents(matchAfterNames || match, locale, sub);
     for (const ev of events) await matchStore.appendEvent(matchId, ev);
     const updated = await matchStore.getMatch(matchId);
     const captainBodyForGroup =
@@ -4780,6 +5166,10 @@ async function processMessageApi(playerId, text, opts = {}) {
       newDisplayLogs = applyTargetedQuestionCaptainDisplayBody(newDisplayLogs, captainBodyForGroup, locale);
       newDisplayLogs = dedupeDisplayLogs(newDisplayLogs, locale);
     }
+    newDisplayLogs = applyCharacterToneToDisplayLogs(newDisplayLogs, locale, {
+      playerText: String(text || ''),
+      crewPersonalNames: updated?.game_state?.crew_names || null
+    });
     const timer = ep1Engine.getTimerStatus(updated, now);
     const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
     const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
@@ -4972,6 +5362,7 @@ async function processMessageApi(playerId, text, opts = {}) {
     cls.kind === 'targeted_question' && isTargetedRoleNameQuestion(String(text || ''));
   if (targetedNameQ) {
     try {
+      console.log('[bot][intent] targeted name question detected');
       console.log('[bot] targeted_name_question rules=true');
     } catch (e) {}
   }
@@ -4999,6 +5390,7 @@ async function processMessageApi(playerId, text, opts = {}) {
     console.log('[bot] targeted_question removed_midstage_captain_override=true');
     console.log('[bot] targeted_question captain_display_source=final_only');
   }
+  const updatedAfterDialogue = await matchStore.getMatch(matchId);
   const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
   const recentEvents = newDisplayLogs;
   const ret = {
@@ -5009,7 +5401,7 @@ async function processMessageApi(playerId, text, opts = {}) {
     outcome: result.outcome || null,
     events: newDisplayLogs,
     recent_events: recentEvents,
-    match_state: updated?.game_state || {}
+    match_state: updatedAfterDialogue?.game_state || updated?.game_state || {}
   };
   if (gameOver) {
     attachActualImposterIfGameOverResult(ret, updated);
