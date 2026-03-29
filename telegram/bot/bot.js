@@ -3220,19 +3220,35 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
 
     if (kind === 'QUESTION') {
       if (promptOpts.targetedQuestionSingleSpeaker) {
+        const sdBoost = !!(promptOpts.isSelfDefenseQuestion || promptOpts.isTargetedAccusation);
         const qEnS = [
           ...jsonContractEn,
           'ROLE FIELD: captain|doctor|engineer|navigator|pilot only.',
           'Each block: {"role","text","narration?"} — no "header" key.',
           'SINGLE_SPEAKER: Output exactly two blocks: blocks[0]=captain; blocks[1]=focusTargetRole ONLY.',
-          'Do NOT output doctor, engineer, navigator, or pilot except focusTargetRole. Non-target crew lines are FORBIDDEN.',
-          promptOpts.isSelfDefenseQuestion
-            ? 'SELF_DEFENSE: focusTargetRole must deny misunderstanding, give alibi with log/medbay/vitals/corridor evidence, and why their role matters now. 2–4 sentences. FORBIDDEN: empty I-know-the-situation / doing-my-best-as-a-doctor lines without evidence.'
-            : 'focusTargetRole answers the captain\'s question directly — 2–4 sentences. No other crew.',
-          promptOpts.targetedNameQuestion
-            ? 'NAME_ONLY: only focusTargetRole states their personal name from crewPersonalNames when asked.'
-            : 'No echo of captain.text in the target line; answer the substance.'
+          'Do NOT output doctor, engineer, navigator, or pilot except focusTargetRole. Non-target crew lines are FORBIDDEN.'
         ];
+        if (sdBoost) {
+          qEnS.push(
+            'SELF_DEFENSE (MANDATORY when focusTargetRole is accused or must justify trust): follow this structure in focusTargetRole.text — 2 to 4 sentences total.',
+            'OPENING SENTENCE (HARD RULE): Sentence 1 MUST be denial, pushback, or injustice — NOT introduction. Never open with name, callsign, job title, or HR-style duty blurb.',
+            'FORBIDDEN first-sentence patterns: "My name is …", "I am [Name]", "As a doctor/engineer/navigator/pilot I …", "I am responsible for …", "I treat patients …", "I manage …".',
+            'ALLOWED first-sentence patterns (examples only): "That is a misunderstanding, Captain." / "You are reading this wrong." / "I refuse that framing."',
+            'If NAME is required (name question): put personal name from crewPersonalNames in sentence 2 or 3 only — NEVER sentence 1.',
+            'Doctor (focusTargetRole=doctor): order (1) denial (2) alibi with where you were (3) medical evidence: medbay records, biometrics, stress log, vitals, corridor/medbay access, casualty state (4) desperation — who runs triage/vitals if you remove me now.',
+            'FORBIDDEN in doctor self-defense: "As a doctor I …", "I examine patients …", "my role is to treat …", "doing my best", "I know the situation well" without logs.',
+            'Engineer: (1) denial (2) access logs / timestamps (3) checksum / audit trail (4) desperation — logs do not lie.',
+            'Navigator: (1) denial (2) route / chart / time window (3) navigation record evidence (4) desperation.',
+            'Pilot: (1) denial (2) bridge instruments / pressure / vibration (3) helm or bridge log evidence (4) desperation.',
+            'Tone: survival pressure, not brochure copy. Concrete ship nouns only.'
+          );
+        } else {
+          qEnS.push(
+            promptOpts.targetedNameQuestion
+              ? 'NAME_ONLY: only focusTargetRole states their personal name from crewPersonalNames when asked.'
+              : 'focusTargetRole answers the captain\'s question directly — 2–4 sentences. No other crew.'
+          );
+        }
         qEnS.push('Respond JSON only.');
         return qEnS.join('\n');
       }
@@ -3330,6 +3346,7 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
 
   if (kind === 'QUESTION') {
     if (promptOpts.targetedQuestionSingleSpeaker) {
+      const sdBoost = !!(promptOpts.isSelfDefenseQuestion || promptOpts.isTargetedAccusation);
       const qKoS = [
         'USSC Tartarus E1. Korean spoken lines. Output JSON only: {"blocks":[...]} — no markdown.',
         'ROLE FIELD (required): each block.role MUST be exactly one of: captain, doctor, engineer, navigator, pilot — lowercase English only.',
@@ -3339,14 +3356,29 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
         '닥터·엔지니어·네비게이터·파일럿 중 focusTargetRole 이외 역할은 출력 금지. 비타깃 크루 대사·내레이션·평가 멘트 전부 금지.',
         'Never decide rules, deaths, clue facts, timers, or impostor.',
         'captain.text = captainSpokenLineVerbatim exactly when user JSON provides it; captain.narration always "".',
-        'Forbidden: 모두 진정, 신중해야, 침착하게, 우리는 함께, 훈계, 교훈, 빈 위로, 범용 팀워크 멘트.',
-        promptOpts.isSelfDefenseQuestion
-          ? '자기변호(SELF_DEFENSE): focusTargetRole만 2–4문장. 순서: (1) 부인·억울함 (2) 의무실·기록·동선 등 근거 (3) 역할상 지금 필요한 이유 (4) 필요 시 타인 지적. 금지: "저는 상황을 잘 알고 있습니다", "의사로서 최선을 다하고 있습니다", "그럴 리가 없습니다", "저는 증거가 없습니다" 같은 빈말만.'
-          : 'focusTargetRole만 함장 질문에 직접 답함. 2–4문장.',
-        promptOpts.targetedNameQuestion
-          ? '이름 질문: focusTargetRole만 crewPersonalNames의 실명을 말함. 다른 역할 블록 없음.'
-          : '대상의 말을 반복·요약하는 비타깃 멘트 금지(비타깃 블록 자체가 없어야 함).'
+        'Forbidden: 모두 진정, 신중해야, 침착하게, 우리는 함께, 훈계, 교훈, 빈 위로, 범용 팀워크 멘트.'
       ];
+      if (sdBoost) {
+        qKoS.push(
+          '자기변호(SELF_DEFENSE, MANDATORY): 함장이 무죄·신뢰·반박을 요구하거나 지목이 강할 때 focusTargetRole.text는 반드시 아래 구조. 총 2–4문장.',
+          '첫 문장(절대 규칙): 반드시 부인·반박·억울함으로 시작. 이름 실명·호출명·자기소개·직무 소개로 시작 금지.',
+          '금지 첫문장 예: "조나연입니다", "저는 의사로서", "환자 상태를 점검하고", "치료하는 역할을 맡고", "OO입니다", "저는 닥터로서"',
+          '허용 첫문장 예: "그건 오해입니다", "함장님, 저를 오해하십니다", "그렇게 보셨다면 잘못 보신 겁니다"',
+          '닥터(focusTargetRole=doctor) 필수 순서: (1) 부인/반박 (2) 알리바이(그 시각 어디) (3) 의료 근거: 의무실 기록·생체 모니터·스트레스 로그·바이탈·복도/의무실 출입·부상자 상태 (4) 절박함: 지금 저를 제거하면 누가 생체 기록·부상자를 맡는가.',
+          '닥터 자기변호 금지: "저는 의사로서", "환자의 상태를 점검하고", "치료하는 역할", "최선을 다하고", "상황을 잘 알고", HR·소개문·설명문 톤.',
+          '엔지니어: (1) 부인 (2) 접근 로그·타임스탬프 (3) 체크섬·감사로그 (4) 절박함 — 숫자가 거짓말하지 않는다.',
+          '네비게이터: (1) 부인 (2) 동선·차트·시간대 (3) 항해 기록 근거 (4) 절박함.',
+          '파일럿: (1) 부인 (2) 교량·계기·압력·진동 (3) 브리지·조종 로그 근거 (4) 절박함.',
+          '이름 질문이어도 첫 문장은 부인만. 실명은 둘째·셋째 문장에서 crewPersonalNames만. 첫 문장에 이름 금지.',
+          '톤: 생존 압박·긴장. 소개서가 아니라 방어다.'
+        );
+      } else {
+        qKoS.push(
+          promptOpts.targetedNameQuestion
+            ? '이름 질문: focusTargetRole만 crewPersonalNames의 실명을 말함. 다른 역할 블록 없음.'
+            : 'focusTargetRole만 함장 질문에 직접 답함. 2–4문장. 대상의 말을 반복·요약하는 비타깃 멘트 금지(비타깃 블록 없음).'
+        );
+      }
       qKoS.push('Respond JSON only.');
       return qKoS.join('\n');
     }
@@ -3618,26 +3650,50 @@ async function tryGenerateLlmDialogueLogs(ctx) {
         : getLoreTopicSnippet(loreTopic, locale)
       : '';
 
+  const isTargetedAccusation = !!ctx.isTargetedAccusation;
+  const sdPromptBoost =
+    kind === 'QUESTION' &&
+    targetedQuestionSingleSpeaker &&
+    target &&
+    (isSelfDefenseQuestion || isTargetedAccusation);
+  if (sdPromptBoost) {
+    try {
+      console.log('[bot][dialogue] self_defense_prompt_boost_applied role=' + target);
+      console.log('[bot][dialogue] self_defense_intro_opening_blocked role=' + target);
+    } catch (e) {}
+  }
   let system = buildDialogueSystemPrompt(kind, locale, {
     targetedQuestionSideReactionRules,
     targetedNameQuestion: !!targetedNameQuestion,
     targetedQuestionSingleSpeaker,
-    isSelfDefenseQuestion
+    isSelfDefenseQuestion,
+    isTargetedAccusation
   });
   if (kind === 'LORE_QUESTION') {
     system += '\n\n' + getLoreCanonSystemExtension(locale);
   }
   const crewPersonalNames = gs.crew_names || {};
   if (kind === 'QUESTION' && crewPersonalNames && crewPersonalNames.doctor) {
-    system +=
-      locale === 'en'
-        ? '\n\nCREW_TO_CAPTAIN: Doctor/Engineer/Navigator/Pilot always address the Captain respectfully (formal, no casual slang toward the Captain). For name questions: give the personal name from crewPersonalNames first; at most one short role sentence after the name. Do not answer with role-only intros instead of the name.'
-        : '\n\nCREW_TO_CAPTAIN: 닥터·엔지니어·네비게이터·파일럿은 함장에게 항상 존댓말만 사용합니다(함장이 반말이어도 유지). 이름 질문에는 crewPersonalNames의 실명을 먼저 말하고, 역할 설명은 이름 뒤 1문장만. 역할만 말하고 이름을 끝까지 말하지 않는 것(역할 소개만)은 금지. 금지 예: 부르게, 내 구역이다, 내 쪽이다, 말하지(반말).';
-    if (targetedNameQuestion) {
+    const sdNameOverride =
+      targetedQuestionSingleSpeaker &&
+      targetedNameQuestion &&
+      (isSelfDefenseQuestion || isTargetedAccusation);
+    if (sdNameOverride) {
       system +=
         locale === 'en'
-          ? ' NAME_REASK: Only focusTargetRole states their personal name; non-targets must not give that name or repeat it.'
-          : ' NAME_REASK: 실명·성함은 focusTargetRole 블록만. 비타깃은 대상의 이름을 말하거나 추측하지 말 것.';
+          ? '\n\nCREW_TO_CAPTAIN: Formal address to Captain. SELF_DEFENSE name rule overrides default name-first: sentence 1 = denial only; personal name from crewPersonalNames in sentence 2 or 3, never sentence 1.'
+          : '\n\nCREW_TO_CAPTAIN: 함장에게 존댓말. 자기변호+이름 질문일 때는 기본 "이름 먼저" 규칙보다 우선: 첫 문장은 부인·반박만, 실명은 둘째·셋째 문장에서 crewPersonalNames만.';
+    } else {
+      system +=
+        locale === 'en'
+          ? '\n\nCREW_TO_CAPTAIN: Doctor/Engineer/Navigator/Pilot always address the Captain respectfully (formal, no casual slang toward the Captain). For name questions: give the personal name from crewPersonalNames first; at most one short role sentence after the name. Do not answer with role-only intros instead of the name.'
+          : '\n\nCREW_TO_CAPTAIN: 닥터·엔지니어·네비게이터·파일럿은 함장에게 항상 존댓말만 사용합니다(함장이 반말이어도 유지). 이름 질문에는 crewPersonalNames의 실명을 먼저 말하고, 역할 설명은 이름 뒤 1문장만. 역할만 말하고 이름을 끝까지 말하지 않는 것(역할 소개만)은 금지. 금지 예: 부르게, 내 구역이다, 내 쪽이다, 말하지(반말).';
+      if (targetedNameQuestion) {
+        system +=
+          locale === 'en'
+            ? ' NAME_REASK: Only focusTargetRole states their personal name; non-targets must not give that name or repeat it.'
+            : ' NAME_REASK: 실명·성함은 focusTargetRole 블록만. 비타깃은 대상의 이름을 말하거나 추측하지 말 것.';
+      }
     }
   }
   const userBase = buildDialogueUserPayload({
@@ -4647,7 +4703,8 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
   loreQuestionTopic,
   loreCanonAnchorText,
   targetedQuestionSingleSpeaker,
-  isSelfDefenseQuestion
+  isSelfDefenseQuestion,
+  isTargetedAccusation
 }) {
   const loc = locale === 'en' ? 'en' : 'ko';
   const kind = getDialogueLlmKind(rawEvents);
@@ -4725,6 +4782,7 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
     targetedNameQuestion: !!targetedNameQuestion,
     targetedQuestionSingleSpeaker: tqSingle,
     isSelfDefenseQuestion: !!isSelfDefenseQuestion,
+    isTargetedAccusation: !!isTargetedAccusation,
     locale: loc,
     loreQuestionTopic,
     loreCanonAnchorText
@@ -5558,7 +5616,8 @@ async function handleTextMessage(playerId, text, opts = {}) {
       targetedQuestionSideReactionRules: false,
       targetedNameQuestion: targetedNameQ,
       targetedQuestionSingleSpeaker: cls.kind === 'targeted_question',
-      isSelfDefenseQuestion: !!cls.isSelfDefenseQuestion
+      isSelfDefenseQuestion: !!cls.isSelfDefenseQuestion,
+      isTargetedAccusation: !!(cls.isTargetedAccusation || parsed.isTargetedAccusation)
     }),
     locale
   );
@@ -6116,7 +6175,8 @@ async function processMessageApi(playerId, text, opts = {}) {
       targetedQuestionSideReactionRules: false,
       targetedNameQuestion: targetedNameQ,
       targetedQuestionSingleSpeaker: cls.kind === 'targeted_question',
-      isSelfDefenseQuestion: !!cls.isSelfDefenseQuestion
+      isSelfDefenseQuestion: !!cls.isSelfDefenseQuestion,
+      isTargetedAccusation: !!(cls.isTargetedAccusation || parsed.isTargetedAccusation)
     }),
     locale
   );
