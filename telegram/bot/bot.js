@@ -582,7 +582,10 @@ async function dbPersistAfterMessageResult(playerId, locale, inputText, result) 
     let messageKind = 'unknown';
     let consumesFreePrompt = false;
     try {
-      const parsed = intentParser.parse(String(inputText || ''));
+      const parsed = applyQuestionLikeIntentGuard(
+        String(inputText || ''),
+        intentParser.parse(String(inputText || ''))
+      );
       const cls = classifyMiniappFreeText(String(inputText || ''), parsed);
       messageKind = getIntentLogKindForPayload(cls, parsed);
       consumesFreePrompt = shouldConsumeFreePromptForMessageKind(cls, parsed, inputText);
@@ -948,7 +951,8 @@ function isLoreQuestion(raw) {
 
 function looksLikeOpenQuestion(lower, raw) {
   const t = String(lower || '');
-  if (/\?/.test(String(raw || ''))) return true;
+  const rawStr = String(raw || '');
+  if (/[?？]/.test(rawStr)) return true;
   if (
     /(범인|믿어|믿을|이상한데|이상해|어떻게\s*봐|뭔가\s*이상|who\s*(is\s*)?the\s*impost|impostor|traitor|trust)/i.test(
       t
@@ -956,7 +960,69 @@ function looksLikeOpenQuestion(lower, raw) {
   ) {
     return true;
   }
+  if (isGroupQuestionLike(rawStr)) return true;
+  if (isQuestionLikeCaptainText(rawStr)) return true;
   return false;
+}
+
+/**
+ * ep1Engine이 unknown→OBSERVE로 매핑하기 전에 차단: 질문형 자유입력은 question으로 승격.
+ */
+function isQuestionLikeCaptainText(raw) {
+  const t = String(raw || '').trim();
+  if (!t) return false;
+  if (/[?？]/.test(t)) return true;
+  if (
+    /(무엇|뭐|뭔|누구|누가|이름|정체|어디|언제|왜|어떻게|있었지|했지|봤지|기억하나|말해봐|설명해봐|알려|말해|가장\s*수상|수상하지|누가\s*범)/i.test(
+      t
+    ) &&
+    /(인가|나요|습니까|을까|를까|지요|죠|니까|까\?|을까요|나\?|죠\?)/i.test(t)
+  ) {
+    return true;
+  }
+  if (
+    /(자네들|다들|모두|승무원들)/.test(t) &&
+    /(무엇|뭐|뭔|누구|누가|이름|어디|언제|왜|어떻게|그때|수상|범인|알리바이|동선)/i.test(t)
+  ) {
+    return true;
+  }
+  if (
+    /(who|what|when|where|why|how|name|identity|remember|explain)/i.test(t) &&
+    /[?？]/.test(t)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function isGroupQuestionLike(raw) {
+  const t = String(raw || '').trim();
+  if (!t) return false;
+  if (!/(자네들|다들|모두|승무원들)/.test(t)) return false;
+  return /(무엇|뭐|뭔|누구|누가|이름|어디|언제|왜|어떻게|그때|수상|범인|알리바이|동선|가장)/i.test(
+    t
+  );
+}
+
+/**
+ * intentParser 결과를 보정 — 질문형이면 intent_type=question (unknown/observe/check_log 오분류 방지).
+ */
+function applyQuestionLikeIntentGuard(text, parsed) {
+  const raw = String(text || '').trim();
+  const p = parsed && typeof parsed === 'object' ? { ...parsed } : { target: null, intent_type: 'unknown', tone: 'neutral' };
+  if (!isQuestionLikeCaptainText(raw)) return p;
+
+  const prev = String(p.intent_type || 'unknown').toLowerCase();
+  try {
+    console.log('[bot][intent] question-like text detected');
+    if (isGroupQuestionLike(raw)) console.log('[bot][intent] group question detected');
+    if (prev === 'observe' || prev === 'unknown' || prev === 'check_log') {
+      console.log('[bot][intent] action fallback blocked for question-like text');
+    }
+  } catch (e) {}
+
+  p.intent_type = 'question';
+  return p;
 }
 
 /** 동선·알리바이 질문만 있고 의견/범인 키워드가 없으면 targeted_question 쪽으로 둔다. */
@@ -3232,6 +3298,144 @@ async function tryGenerateLlmDialogueLogs(ctx) {
   return null;
 }
 
+function suspicionHeavyInPlayerText(playerText) {
+  return /(의심|범인|거짓|처형|쏘지\s*말|총을|누가\s*범|임포|traitor|accuse|execute|shoot)/i.test(
+    String(playerText || '')
+  );
+}
+
+/** LLM/결정적 크루 대사에서 제네릭 문구를 역할 톤으로 치환(숨은 진실·범인 새 사실 없음). */
+function rewriteCrewLineForTone(text, role, loc, suspicion) {
+  let s = String(text || '');
+  let changed = false;
+  const r = String(role || '').toLowerCase();
+  if (loc === 'ko') {
+    const byRole = {
+      doctor: [
+        [/흥미롭군요\.?/g, '생체·바이탈 기록을 더 대조해야 합니다.'],
+        [/그\s*사실을\s*알고\s*있었어요\.?/g, '생체 로그에 흔적은 있었습니다.'],
+        [/그\s*부분을\s*확인해야겠네요\.?/g, '바이탈·감염 지표를 더 봐야 합니다.']
+      ],
+      engineer: [
+        [/흥미롭군요\.?/g, '접근 로그·타임스탬프를 더 맞춰봐야 합니다.'],
+        [/그\s*사실을\s*알고\s*있었어요\.?/g, '시스템 로그엔 흔적이 있습니다.'],
+        [/그\s*부분을\s*확인해야겠네요\.?/g, '코어·감사 로그를 더 까야 합니다.']
+      ],
+      navigator: [
+        [/흥미롭군요\.?/g, '항로·차트와 동선을 같은 분에 겹쳐봐야 합니다.'],
+        [/그\s*사실을\s*알고\s*있었어요\.?/g, '항해 기록엔 그 구간이 남아 있습니다.'],
+        [/그\s*부분을\s*확인해야겠네요\.?/g, '경로·알리바이를 더 좁혀야 합니다.']
+      ],
+      pilot: [
+        [/흥미롭군요\.?/g, '교량 쪽 공기·압력 느낌이 싸합니다.'],
+        [/그\s*사실을\s*알고\s*있었어요\.?/g, '그때 현장 감각은 기억합니다.'],
+        [/그\s*부분을\s*확인해야겠네요\.?/g, '계기·분위기를 더 짚어봐야 합니다.']
+      ]
+    };
+    const list = byRole[r] || [];
+    for (const [re, rep] of list) {
+      if (re.test(s)) {
+        s = s.replace(re, rep);
+        changed = true;
+      }
+    }
+    if (suspicion && r !== 'captain' && /^(그렇군요|알겠습니다|네\.|좋습니다)/.test(s.trim())) {
+      s =
+        (r === 'doctor'
+          ? '그건 오해입니다. 바이탈·기록으로 말하겠습니다. '
+          : r === 'engineer'
+            ? '그건 오해입니다. 로그·타임스탬프로 말하겠습니다. '
+            : r === 'navigator'
+              ? '그건 오해입니다. 항로·동선으로 말하겠습니다. '
+              : '그건 오해입니다. 현장 감각으로 말하겠습니다. ') + s;
+      changed = true;
+    }
+  } else {
+    const byRoleEn = {
+      doctor: [
+        [/That'?s interesting\.?/gi, 'Vitals and biometrics need another look.'],
+        [/I already knew that\.?/gi, 'The biometrics log already showed traces of that.'],
+        [/I (should|need to) check that\.?/gi, 'I need to cross-check vitals and infection markers.']
+      ],
+      engineer: [
+        [/That'?s interesting\.?/gi, 'Access logs and timestamps need another pass.'],
+        [/I already knew that\.?/gi, 'The system audit trail already flags that window.'],
+        [/I (should|need to) check that\.?/gi, 'I need to align core logs and access records.']
+      ],
+      navigator: [
+        [/That'?s interesting\.?/gi, 'Route and chart slices need to line up for that minute.'],
+        [/I already knew that\.?/gi, 'The chart already shows the mismatch.'],
+        [/I (should|need to) check that\.?/gi, 'I need to tighten route versus alibi.']
+      ],
+      pilot: [
+        [/That'?s interesting\.?/gi, 'The bridge air and pressure felt wrong there.'],
+        [/I already knew that\.?/gi, 'I remember how the room felt on the bridge.'],
+        [/I (should|need to) check that\.?/gi, 'I need to replay instruments and gut read together.']
+      ]
+    };
+    const list = byRoleEn[r];
+    if (list) {
+      for (const [re, rep] of list) {
+        if (re.test(s)) {
+          s = s.replace(re, rep);
+          changed = true;
+        }
+      }
+    }
+  }
+  return { text: s, changed };
+}
+
+function roleKeyFromBracketHeaderLine(line) {
+  const t = String(line || '').trim();
+  if (/^\[닥터\]|^\[Doctor\]/i.test(t)) return 'doctor';
+  if (/^\[엔지니어\]|^\[Engineer\]/i.test(t)) return 'engineer';
+  if (/^\[네비게이터\]|^\[Navigator\]/i.test(t)) return 'navigator';
+  if (/^\[파일럿\]|^\[Pilot\]/i.test(t)) return 'pilot';
+  if (/^\[함장\]|^\[Captain\]/i.test(t)) return 'captain';
+  return null;
+}
+
+function applyCharacterToneToDisplayLogs(displayLogs, locale, opts) {
+  opts = opts || {};
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const suspicion = suspicionHeavyInPlayerText(opts.playerText || '');
+  if (!displayLogs || !displayLogs.length) return displayLogs;
+  const out = [];
+  let pendingRole = null;
+  for (const item of displayLogs) {
+    const typeLine = String(item.type || '').trim();
+    const rk = roleKeyFromBracketHeaderLine(typeLine);
+    if (rk) {
+      pendingRole = rk;
+      out.push(item);
+      continue;
+    }
+    if (/^\[/.test(typeLine)) {
+      pendingRole = null;
+      out.push(item);
+      continue;
+    }
+    if (pendingRole && pendingRole !== 'captain' && typeLine) {
+      const { text: newLine, changed } = rewriteCrewLineForTone(
+        typeLine,
+        pendingRole,
+        loc,
+        suspicion
+      );
+      if (changed) {
+        try {
+          console.log('[bot][dialogue] character_tone_applied role=' + pendingRole);
+        } catch (e) {}
+      }
+      out.push({ ...item, type: newLine });
+      continue;
+    }
+    out.push(item);
+  }
+  return out;
+}
+
 async function maybeDialogueLogsFromLlmOrDeterministic({
   rawEvents,
   deterministicLogs,
@@ -3254,7 +3458,7 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
 
   if (!isDialogueLlmConfigured()) {
     logDialogueTrace(actionSlug, 'deterministic', modelStr, 'fallback', eventsCount);
-    return deterministicLogs;
+    return applyCharacterToneToDisplayLogs(deterministicLogs, loc, { playerText: playerText || '' });
   }
 
   const forcedCaptainText =
@@ -3275,10 +3479,10 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
   });
   if (llmLogs && llmLogs.length) {
     logDialogueTrace(actionSlug, apiProvider, modelStr, 'llm', eventsCount);
-    return llmLogs;
+    return applyCharacterToneToDisplayLogs(llmLogs, loc, { playerText: playerText || '' });
   }
   logDialogueTrace(actionSlug, apiProvider, modelStr, 'fallback', eventsCount);
-  return deterministicLogs;
+  return applyCharacterToneToDisplayLogs(deterministicLogs, loc, { playerText: playerText || '' });
 }
 
 function log(tag, msg, data) {
@@ -3599,7 +3803,7 @@ async function handleTextMessage(playerId, text, opts = {}) {
   const match = await matchStore.getMatch(matchId);
   if (!match) return 'Match not found. Send /start to begin.';
 
-  const parsed = intentParser.parse(text);
+  const parsed = applyQuestionLikeIntentGuard(text, intentParser.parse(text));
   const cls = classifyMiniappFreeText(text, parsed);
   const now = opts.now;
 
@@ -4019,7 +4223,7 @@ async function processMessageApi(playerId, text, opts = {}) {
   const match = await matchStore.getMatch(matchId);
   if (!match) return { ok: false, error: 'Match not found' };
 
-  const parsed = intentParser.parse(text);
+  const parsed = applyQuestionLikeIntentGuard(text, intentParser.parse(text));
   const cls = classifyMiniappFreeText(text, parsed);
   const now = opts.now;
 
