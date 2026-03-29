@@ -3322,7 +3322,8 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
         'ROLE FIELD: captain|doctor|engineer|navigator|pilot only.',
         'BLOCK ORDER: blocks[0]=captain; blocks[1]=engineer; then doctor, navigator, pilot (omit dead).',
         'CHECK_LOG: Engineer leads with logs/access/timestamp mismatch/gap/unauthorized-query — audit-narrow.',
-        'doctor: biometrics/stress-log only as auxiliary. navigator: route/alibi auxiliary.',
+        'doctor: medbay records, biometrics monitor, stress log, vitals, patient status—concrete nouns only; NEVER crewPersonalNames or possessive name+noun ("Name\'s biometrics").',
+        'navigator: route/alibi auxiliary.',
         'pilot: bridge instrumentation — gauge lag vs baseline, pressure band drift, helm vibration, helm response delay, display timestamp skew vs audit trail, metal/mechanical transients. FORBIDDEN: "I feel off", "odd vibe", "something feels wrong", "unstable" without bridge nouns.',
         'Stay on audit facts; no unrelated small talk.',
         'Respond JSON only.'
@@ -3336,7 +3337,7 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
         'SINGLE_SPEAKER_THREAT: Output exactly two blocks: blocks[0]=captain; blocks[1]=focusTargetRole ONLY.',
         'Do NOT emit doctor, engineer, navigator, or pilot except focusTargetRole. No non-target crew lines — server handles silence.',
         'THREATEN: Captain is threatening focusTargetRole at gunpoint or equivalent. focusTargetRole.text = 2–4 sentences: (1) immediate tension / pushback (2) alibi or concrete ship evidence (3) warning against hasty judgment OR why the role still matters.',
-        'focusTargetRole role-specific anchors: doctor — medbay, patients, vitals, biometrics; engineer — logs, access, machine room, security systems; navigator — chart, time window, route judgment; pilot — bridge, gauges, pressure, vibration, helm.',
+        'focusTargetRole role-specific anchors: doctor — medbay records, biometrics, stress log, vitals, patient state (no abstract-only lines); engineer — logs, access, machine room, security systems; navigator — chart, time window, route judgment; pilot — bridge, gauges, pressure, vibration, helm.',
         'FORBIDDEN in focusTargetRole.text: any personal name from crewPersonalNames; third-person narration about anyone ("X\'s voice", "Y\'s eyes", "they watch"); stage directions; ONLY first-person spoken lines as the threatened crew member.',
         'narration must be empty string for every block.',
         'Never echo or paraphrase captain.text as the threatened crew line.',
@@ -3365,7 +3366,9 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
       'At most one short optional narration per crew; no duplicate stock narration.'
     ];
     if (kind === 'FIND_CLUE') {
-      tailEn.push('FIND_CLUE: crew reactions only; never put clue body in JSON (server adds [System]).');
+      tailEn.push(
+        'FIND_CLUE: crew reactions only; never put clue body in JSON (server adds [System]). No crewPersonalNames or possessive name+noun in crew lines.'
+      );
     } else {
       tailEn.push('SUSPECT: every non-target crew block names focusTargetEnglish in text or narration.');
     }
@@ -3493,7 +3496,8 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
       'captain.text = captainSpokenLineVerbatim exactly when user JSON provides it; captain.narration always "".',
       'Forbidden: 모두 진정, 신중해야, 침착하게, 우리는 함께, 훈계, 교훈, 빈 위로, 범용 팀워크 멘트.',
       'CHECK_LOG: Engineer block (second) opens with logs/access trail/timestamp mismatch/gap/unauthorized-query trace — audit-narrow, no sermon.',
-      'doctor: only auxiliary biometrics/stress-log spike observation. navigator: route/alibi auxiliary only.',
+      '닥터: 의무실 기록·생체 모니터·스트레스 로그·바이탈·환자 상태—구체 명사만. crewPersonalNames 실명·「OO의 생체 데이터」형 금지.',
+      'navigator: route/alibi auxiliary only.',
       'pilot: 브리지 계기 응답 지연·압력 밴드·조종대 진동·표시계 타임스탬프와 감사 로그 불일치·금속·기계음 등 구체적으로. 금지: "기분이 좋지 않습니다", "이상한 기운", "뭔가 잘못된 것 같은 느낌", "불안정해 보입니다"만으로 끝내기.',
       'Stay on: log gaps, access records, timestamp skew, privilege/query anomalies. No unrelated small talk or widening the mystery.',
       'Respond JSON only.'
@@ -3508,7 +3512,7 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
       'Each block shape ONLY: {"role":"captain|doctor|engineer|navigator|pilot","text":"...","narration":"..."} — narration optional. Do NOT include a "header" key; the client adds [함장] etc.',
       '단일 위협 응답: 블록은 정확히 둘 — blocks[0]=captain; blocks[1]=focusTargetRole 만. 닥터·엔지니어·네비게이터·파일럿 중 focusTargetRole 이외 역할 출력 금지(비타깃 침묵).',
       'THREATEN: 함장이 focusTargetRole을 겨누거나 위협하는 상황. focusTargetRole.text는 2–4문장: (1) 즉각 긴장·반박 (2) 알리바이 또는 함선 근거 (3) 성급한 판단 경고 또는 역할상 필요성.',
-      'focusTargetRole 역할별: 닥터—의무실·환자·바이탈·생체; 엔지니어—로그·접근·기계실·보안; 네비게이터—차트·시간대·경로 판단; 파일럿—브리지·계기·압력·진동.',
+      'focusTargetRole 역할별: 닥터—의무실 기록·생체 모니터·스트레스 로그·바이탈·환자 상태(추상만으로 끝내지 말 것); 엔지니어—로그·접근·기계실·보안; 네비게이터—차트·시간대·경로 판단; 파일럿—브리지·계기·압력·진동.',
       '금지: 「한시우는 …」「조재민은 …」처럼 타인 이름으로 시작하는 제3자 소설체; 「…은 움츠러들며」「…의 눈빛이」「…를 지켜보고」 등 무대 지문. 반드시 위협받은 역할 본인의 1인칭 대사만.',
       'crewPersonalNames 실명 출력 금지. narration은 모든 블록 "".',
       'focusTargetRole는 함장 위협 문장을 복창·인용하지 마라.',
@@ -3543,7 +3547,9 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
     'At most one short optional narration per crew; no duplicate stock narration.'
   ];
   if (kind === 'FIND_CLUE') {
-    tail.push('FIND_CLUE: crew reactions only; never put clue body in JSON (server adds [시스템]).');
+    tail.push(
+      'FIND_CLUE: crew reactions only; never put clue body in JSON (server adds [시스템]). 크루 대사에 실명·crewPersonalNames·「OO의 기록」형 소유격 금지.'
+    );
   } else {
     tail.push('SUSPECT: every non-target crew block names focusTargetKorean in text or narration.');
   }
@@ -3630,8 +3636,8 @@ function buildDialogueUserPayload(ctx) {
   if (ctx.threatTakePistolNoNames) {
     o.crewNameInstruction =
       loc === 'en'
-        ? 'THREATEN/TAKE_PISTOL: Do NOT output any personal name or crewPersonalNames value in any block. Role titles only (Doctor, Engineer, Navigator, Pilot). narration must be empty string for every block.'
-        : 'THREATEN/TAKE_PISTOL: 모든 블록에서 실명·crewPersonalNames 문자열 출력 금지. 역할 호칭만. 모든 블록 narration은 빈 문자열.';
+        ? 'CHECK_LOG / TAKE_PISTOL / THREATEN / FIND_CLUE: Do NOT output any personal name or crewPersonalNames value in any block. No possessive name+noun ("Name\'s biometrics")—use biometrics, records, vitals, patient status. Role titles only (Doctor, Engineer, Navigator, Pilot). For THREATEN/TAKE_PISTOL: narration must be empty string for every block.'
+        : 'CHECK_LOG / TAKE_PISTOL / THREATEN / FIND_CLUE: 모든 블록에서 실명·crewPersonalNames 출력 금지. "OO의 생체 데이터" 형태 금지—생체 데이터·기록·바이탈·환자 상태 등으로만. 역할 호칭만. THREATEN/TAKE_PISTOL는 모든 블록 narration 빈 문자열.';
   }
   if (ctx.clueText != null) {
     o.note =
@@ -3805,7 +3811,11 @@ async function tryGenerateLlmDialogueLogs(ctx) {
     targetedQuestionSingleSpeaker,
     selfDefenseSuppressPersonalNames: sdPromptBoost && !targetedNameQuestion,
     generalTargetedQuestionNoName: generalTargetedQuestionNoName,
-    threatTakePistolNoNames: kind === 'THREATEN' || kind === 'TAKE_PISTOL'
+    threatTakePistolNoNames:
+      kind === 'THREATEN' ||
+      kind === 'TAKE_PISTOL' ||
+      kind === 'CHECK_LOG' ||
+      kind === 'FIND_CLUE'
   });
   let strictRetry =
     locale === 'en'
@@ -4104,6 +4114,199 @@ function looksLikeThirdPersonEnglishThreatLine(s) {
   if (/^(?:He|She|They)\s+/i.test(t)) return true;
   if (/\b[A-Z][a-z]+\s+[A-Z][a-z]+\s+(?:is|was|looks|sends|watches|shrinks|tenses|turns)\b/.test(t)) return true;
   return false;
+}
+
+function escapeRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function actionLogSlugForKind(kind) {
+  const m = {
+    CHECK_LOG: 'check_log',
+    TAKE_PISTOL: 'take_pistol',
+    THREATEN: 'threat',
+    FIND_CLUE: 'clue_collect'
+  };
+  return m[kind] || String(kind || '').toLowerCase();
+}
+
+function maybeDoctorActionSpecificityBoost(s, loc, kind, actionSlug) {
+  if (kind !== 'CHECK_LOG' && kind !== 'THREATEN') return { text: s, changed: false };
+  const t = String(s || '').trim();
+  if (!t) return { text: t, changed: false };
+  if (loc === 'ko') {
+    if (
+      /의무실은\s*필수적입니다\s*$|의무실은\s*필수입니다\s*$|^의무실만\s+필수/.test(t) ||
+      (t.length < 38 && /^의무실은\s*필수/.test(t))
+    ) {
+      try {
+        console.log(
+          '[bot][dialogue] doctor_action_specificity_boost_applied action=' + actionSlug + ' role=doctor'
+        );
+      } catch (e) {}
+      return {
+        text:
+          t + ' 의무실 기록·스트레스 로그·바이탈을 보면 지금 성급한 판단은 위험합니다.',
+        changed: true
+      };
+    }
+  } else if (/^Medbay\s+is\s+essential/i.test(t) && t.length < 45) {
+    try {
+      console.log(
+        '[bot][dialogue] doctor_action_specificity_boost_applied action=' + actionSlug + ' role=doctor'
+      );
+    } catch (e) {}
+    return {
+      text: t + ' Medbay records and stress logs show vitals volatility—hasty judgment is risky.',
+      changed: true
+    };
+  }
+  return { text: s, changed: false };
+}
+
+function rewriteActionResponseNoPersonalNamesLine(text, role, loc, crewPersonalNames, kind) {
+  const actionSlug = actionLogSlugForKind(kind);
+  const r = String(role || '').toLowerCase();
+  let s = String(text || '').trim();
+  if (!s) return { text: s, changed: false, detected: false };
+  const orig = s;
+  const tokens = collectCrewPersonalNameTokens(crewPersonalNames || {});
+  let detected = false;
+
+  for (const tok of tokens) {
+    if (tok && tok.length >= 2 && s.includes(tok)) {
+      detected = true;
+      s = s.split(tok).join('');
+    }
+  }
+  s = s
+    .replace(/\s+/g, ' ')
+    .replace(/^\s*의\s+/g, '')
+    .replace(/,\s*,/g, ',')
+    .replace(/^\s*,\s*/, '')
+    .replace(/\s*,\s*$/g, '')
+    .trim();
+
+  if (loc === 'ko') {
+    for (const tok of tokens) {
+      if (!tok) continue;
+      const poss = new RegExp(
+        escapeRegExp(tok) +
+          '의\\s+(생체 데이터|기록|상태|목소리|눈빛|표정|생체 모니터|스트레스 로그|바이탈|환자|환자 상태)',
+        'g'
+      );
+      const beforePoss = s;
+      s = s.replace(poss, '$1');
+      if (s !== beforePoss) detected = true;
+    }
+    s = s.replace(
+      /[가-힣A-Za-z]{2,20}의\s+(생체 데이터|기록|상태|목소리|눈빛|표정|스트레스 로그|바이탈|생체 모니터)/g,
+      (full, noun) => {
+        detected = true;
+        return noun;
+      }
+    );
+    s = s.replace(/[가-힣]{2,12}의\s*(목소리|눈빛|표정|손|숨|어깨)/g, () => {
+      detected = true;
+      return '';
+    });
+    for (const tok of tokens) {
+      if (!tok) continue;
+      const lead = new RegExp('^' + escapeRegExp(tok) + '[은는이가]\\s+');
+      const beforeLead = s;
+      s = s.replace(lead, '').trim();
+      if (s !== beforeLead) detected = true;
+    }
+    s = s.replace(/저는\s+[가-힣A-Za-z]{2,20}(?:입니다|이며)\s*/g, () => {
+      detected = true;
+      return '';
+    });
+    s = s.replace(/\s+/g, ' ').trim();
+  } else {
+    s = s.replace(
+      /\b[A-Z][a-z]+\s+[A-Z][a-z]+'s\s+(biometrics|records|state|voice|gaze|expression|vitals|stress log)\b/gi,
+      (full, noun) => {
+        detected = true;
+        return noun;
+      }
+    );
+    s = s.replace(/^[A-Z][a-z]+\s+[A-Z][a-z]+\s+(is|was)\s+/i, () => {
+      detected = true;
+      return '';
+    });
+    s = s.replace(/\s+/g, ' ').trim();
+  }
+
+  if ((kind === 'CHECK_LOG' || kind === 'THREATEN') && r === 'doctor') {
+    const boost = maybeDoctorActionSpecificityBoost(s, loc, kind, actionSlug);
+    if (boost.changed) s = boost.text;
+  }
+
+  if (detected) {
+    try {
+      console.log('[bot][dialogue] action_name_reference_detected action=' + actionSlug + ' role=' + r);
+    } catch (e) {}
+  }
+  if (s !== orig) {
+    try {
+      console.log(
+        '[bot][dialogue] action_response_rewritten_without_name action=' + actionSlug + ' role=' + r
+      );
+    } catch (e) {}
+  }
+  return { text: s, changed: s !== orig, detected };
+}
+
+/**
+ * CHECK_LOG / TAKE_PISTOL / THREATEN / FIND_CLUE: 최종 표시에서 실명·소유격 이름 구문 제거.
+ */
+function sanitizeActionResponseNoPersonalNames(displayLogs, locale, opts) {
+  opts = opts || {};
+  const kind = opts.dialogueLlmKind;
+  if (kind !== 'CHECK_LOG' && kind !== 'TAKE_PISTOL' && kind !== 'THREATEN' && kind !== 'FIND_CLUE') {
+    return displayLogs;
+  }
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const crewPersonalNames = opts.crewPersonalNames || null;
+  const logs = Array.isArray(displayLogs) ? displayLogs.slice() : [];
+  const headers = getLlmRoleHeaders(loc);
+  const hToRole = {
+    [headers.doctor]: 'doctor',
+    [headers.engineer]: 'engineer',
+    [headers.navigator]: 'navigator',
+    [headers.pilot]: 'pilot',
+    [captainHeader(loc)]: 'captain'
+  };
+  let pendingRole = null;
+  let awaitingCrewBody = false;
+  let awaitingCaptainBody = false;
+  for (let i = 0; i < logs.length; i++) {
+    const typ = String(logs[i]?.type || '').trim();
+    const rk = hToRole[typ];
+    if (rk) {
+      pendingRole = rk;
+      awaitingCrewBody = rk !== 'captain';
+      awaitingCaptainBody = rk === 'captain';
+      continue;
+    }
+    if (awaitingCaptainBody && typ && !typ.startsWith('[') && !rk) {
+      const rw = rewriteActionResponseNoPersonalNamesLine(typ, 'captain', loc, crewPersonalNames, kind);
+      logs[i] = { ...logs[i], type: rw.text };
+      awaitingCaptainBody = false;
+      continue;
+    }
+    if (awaitingCrewBody && pendingRole && pendingRole !== 'captain' && typ && !typ.startsWith('[')) {
+      const rw = rewriteActionResponseNoPersonalNamesLine(typ, pendingRole, loc, crewPersonalNames, kind);
+      logs[i] = { ...logs[i], type: rw.text };
+      awaitingCrewBody = false;
+      continue;
+    }
+    if (typ.startsWith('[') && !rk) {
+      awaitingCrewBody = false;
+      awaitingCaptainBody = false;
+    }
+  }
+  return logs;
 }
 
 /**
@@ -5570,14 +5773,22 @@ function applyCharacterToneToDisplayLogs(displayLogs, locale, opts) {
     }
     out.push(item);
   }
+  let outFinal = out;
   if (opts.dialogueLlmKind === 'THREATEN' || opts.dialogueLlmKind === 'TAKE_PISTOL') {
-    return sanitizeThreatTakePistolDisplayLogs(out, loc, {
+    outFinal = sanitizeThreatTakePistolDisplayLogs(outFinal, loc, {
       dialogueLlmKind: opts.dialogueLlmKind,
       threatTargetRole: opts.threatTargetRole || null,
       crewPersonalNames: opts.crewPersonalNames || null
     });
   }
-  return out;
+  const ak = opts.dialogueLlmKind;
+  if (ak === 'CHECK_LOG' || ak === 'TAKE_PISTOL' || ak === 'THREATEN' || ak === 'FIND_CLUE') {
+    outFinal = sanitizeActionResponseNoPersonalNames(outFinal, loc, {
+      dialogueLlmKind: ak,
+      crewPersonalNames: opts.crewPersonalNames || null
+    });
+  }
+  return outFinal;
 }
 
 async function maybeDialogueLogsFromLlmOrDeterministic({
