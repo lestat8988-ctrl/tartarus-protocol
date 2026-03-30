@@ -625,7 +625,7 @@ async function dbPersistAfterMessageResult(playerId, locale, inputText, result) 
   if (blk || okFalse) {
     try {
       console.log(
-        '[bot][db] message_result persist skipped blocked=' + String(blk) + ' ok=' + String(result?.ok)
+        '[bot][db] message_result persist skipped blocked=' + String(blk) + ' ok=' + (okFalse ? 'false' : String(result?.ok))
       );
     } catch (e) {}
     return;
@@ -1918,11 +1918,35 @@ function isKnownCanonLoreTerm(term) {
 
 /**
  * lore 질문에서 묻는 핵심 명사/구 추출 (실패 시 null).
+ * 한국어: 복합 명사구(예: 오르페우스 게이트, 칼릭스 프로토콜) 전체를 유지 — 마지막 토큰만 캡처하지 않음.
  */
 function extractPrimaryLoreTerm(raw, locale) {
   const t = String(raw || '').trim();
   if (!t) return null;
   const loc = locale === 'en' ? 'en' : 'ko';
+
+  if (loc === 'ko' || /[가-힣]/.test(t)) {
+    const koCompound = t.match(
+      /^(.+?)(?:은|는|이|가|을|를)\s*(?:무엇|뭐|뭔(?:지|가)?|정체|의미)\S*\s*[?？]?\s*$/i
+    );
+    if (koCompound && koCompound[1]) {
+      let w = normalizeLoreTermToken(koCompound[1].replace(/\s+/g, ' ').trim());
+      w = w.slice(0, 120);
+      if (w.length >= 2 && !isInvalidLoreCandidateTerm(w)) {
+        return w.split(/\s+/).slice(0, 8).join(' ');
+      }
+    }
+    const koQuoted = t.match(
+      /^["'「『]([가-힣A-Za-z0-9\s\-]{2,100})["'」』]\s*(?:은|는|이|가|을|를)\s*(?:무엇|뭐|뭔|정체|의미)\S*\s*[?？]?\s*$/i
+    );
+    if (koQuoted && koQuoted[1]) {
+      let w = normalizeLoreTermToken(koQuoted[1].replace(/\s+/g, ' ').trim());
+      w = w.slice(0, 120);
+      if (w.length >= 2 && !isInvalidLoreCandidateTerm(w)) {
+        return w.split(/\s+/).slice(0, 8).join(' ');
+      }
+    }
+  }
 
   let m = t.match(
     /(?:^|[\s,.])([가-힣]{2,}|[A-Za-z][A-Za-z0-9\-]{1,40})\s*(?:가|이|은|는|을|를)?\s*(?:무엇|뭐|뭔(?:지|가)?|정체|의미)(?:이|인가|이야|야|요)?\s*[?？]?\s*$/i
@@ -1982,6 +2006,10 @@ function shouldSkipUnknownLoreBlockForTerm(term) {
  */
 function evaluateLoreUnknownTermGate(clsKind, raw, locale) {
   const t = String(raw || '').trim();
+  try {
+    const rawEsc = t.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r?\n/g, ' ').slice(0, 280);
+    console.log('[bot][lore] raw text="' + rawEsc + '"');
+  } catch (e) {}
   if (!shouldApplyUnknownLoreGuard(clsKind)) {
     try {
       console.log('[bot][lore] skip_unknown_gate reason=non_lore_kind');
@@ -2004,30 +2032,29 @@ function evaluateLoreUnknownTermGate(clsKind, raw, locale) {
   const extracted = extractPrimaryLoreTerm(t, locale);
   if (!extracted) {
     try {
-      console.log('[bot][lore] extracted term=(none)');
+      console.log('[bot][lore] extracted term="(none)"');
     } catch (e) {}
     return { block: false };
   }
   if (isInvalidLoreCandidateTerm(extracted)) {
     try {
-      console.log('[bot][lore] skip_unknown_gate reason=invalid_term term=' + extracted);
+      console.log('[bot][lore] skip_unknown_gate reason=invalid_term extracted term="' + extracted + '"');
     } catch (e) {}
     return { block: false };
   }
   try {
-    console.log('[bot][lore] extracted term=' + extracted);
+    console.log('[bot][lore] extracted term="' + extracted + '"');
   } catch (e) {}
   const alias = maybeNormalizeLoreAlias(extracted);
   if (alias) {
     try {
-      console.log('[bot][lore] alias normalized from=' + extracted + ' to=' + alias.canonical);
-      console.log('[bot][lore] canon term recognized=' + alias.canonical);
+      console.log('[bot][lore] canonical term="' + String(alias.canonical) + '"');
     } catch (e) {}
     return { block: false };
   }
   if (isKnownCanonLoreTerm(extracted)) {
     try {
-      console.log('[bot][lore] canon term recognized=' + extracted);
+      console.log('[bot][lore] canonical term="' + extracted + '"');
     } catch (e) {}
     return { block: false };
   }
@@ -2046,7 +2073,7 @@ function evaluateLoreUnknownTermGate(clsKind, raw, locale) {
 
 function buildUnknownLoreTermSystemLine(locale, displayTerm) {
   const sys = systemHeader(locale);
-  const term = String(displayTerm || '?').slice(0, 80);
+  const term = String(displayTerm || '?').slice(0, 120);
   if (locale === 'en') {
     return `${sys} The term '${term}' is not recognized in the current canon records. Please clarify whether you mean AXIS, HADES, or Project HORIZON.`;
   }
@@ -6775,7 +6802,7 @@ async function handleTextMessage(playerId, text, opts = {}) {
     try {
       const uAfterTg = pr.entitlement?.daily_free_prompt_used ?? '?';
       console.log('[bot][entitlement] prompt final decision allow');
-      console.log('[bot][message] lore response emitted on used=' + uAfterTg);
+      console.log('[bot][message] lore response emitted blocked=false ok=true used=' + String(uAfterTg));
     } catch (e) {}
   }
 
