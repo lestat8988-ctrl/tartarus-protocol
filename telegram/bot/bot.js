@@ -292,19 +292,25 @@ async function consumeFreePromptIfAllowed(userKey, opts = {}) {
     }
   }
   const limits = getEntitlementLimits(ent);
-  const used = ent.daily_free_prompt_used ?? 0;
-  if (used >= limits.daily_free_prompt_limit) {
+  const usedN = Number(ent.daily_free_prompt_used ?? 0);
+  const limN = limits.daily_free_prompt_limit;
+  const usedSafe = Number.isFinite(usedN) ? usedN : 0;
+  try {
+    console.log('[bot][entitlement] prompt precheck used=' + usedSafe + ' limit=' + limN);
+  } catch (e) {}
+  /** 허용: used < limit (예: limit 5면 used 0~4에서 5번째까지 소모). used === limit 이면 이번 요청 차단. */
+  if (!(usedSafe < limN)) {
     console.log(
       '[bot][entitlement] prompt blocked user_key=' +
         k +
         ' used=' +
-        used +
+        usedSafe +
         ' limit=' +
-        limits.daily_free_prompt_limit
+        limN
     );
     return { allowed: false, entitlement: ent, block_reason: 'daily_free_prompt_limit_reached' };
   }
-  const nextUsed = used + 1;
+  const nextUsed = usedSafe + 1;
   try {
     await upsertUserEntitlement(k, {
       daily_ticket_used: ent.daily_ticket_used,
@@ -313,12 +319,12 @@ async function consumeFreePromptIfAllowed(userKey, opts = {}) {
       daily_free_prompt_reset_at: ent.daily_free_prompt_reset_at
     });
     console.log(
-      '[bot][entitlement] prompt consume ok user_key=' +
-        k +
-        ' used=' +
+      '[bot][entitlement] prompt consume ok used=' +
         nextUsed +
         ' limit=' +
-        limits.daily_free_prompt_limit
+        limN +
+        ' user_key=' +
+        k
     );
     return { allowed: true, entitlement: { ...ent, daily_free_prompt_used: nextUsed } };
   } catch (e) {
@@ -336,6 +342,15 @@ function shouldConsumeFreePromptForMessageKind(cls, parsed, text) {
   void text;
   if (!cls || !cls.kind) return false;
   return cls.kind === 'lore_question';
+}
+
+/** consumeFreePromptIfAllowed 성공 직후 — 동일 요청에서 entitlement 재차단·ok 누락으로 DB persist 누락 방지 */
+function attachFreePromptConsumedMetadata(result, didConsume) {
+  if (!result || !didConsume) return result;
+  result.free_prompt_consumed_this_request = true;
+  result.blocked = false;
+  if (result.ok === undefined) result.ok = true;
+  return result;
 }
 
 /** match_events / 로그용 짧은 kind 문자열 */
@@ -373,6 +388,7 @@ function logIntentPromptDecision(cls, parsed, consumesFreePrompt) {
 }
 
 async function enrichResultWithEntitlement(result, playerId) {
+  /** free_prompt_consumed_this_request 성공 응답은 ok/blocked를 덮어쓰지 않음 */
   if (!result || result.blocked || result.ok === false) return result;
   try {
     const pl = await playerStore.getPlayer(playerId);
@@ -580,8 +596,21 @@ async function dbPersistAfterStartState(playerId, locale, out) {
 
 async function dbPersistAfterMessageResult(playerId, locale, inputText, result) {
   try {
-    if (!result?.ok) return;
-    if (result.blocked) return;
+    if (result?.blocked) {
+      try {
+        console.log('[bot][db] message persist skipped blocked=true');
+      } catch (e) {}
+      return;
+    }
+    if (result?.ok === false) {
+      try {
+        console.log(
+          '[bot][db] message persist skipped ok=false free_prompt_consumed=' +
+            String(!!result?.free_prompt_consumed_this_request)
+        );
+      } catch (e) {}
+      return;
+    }
     const player = await playerStore.getPlayer(playerId);
     const matchId = player?.match_id;
     if (!matchId) return;
@@ -602,6 +631,10 @@ async function dbPersistAfterMessageResult(playerId, locale, inputText, result) 
         console.warn('[bot][intent] dbPersist message intent parse warn ' + String(e?.message || e));
       } catch (e2) {}
     }
+    const persistKind = consumesFreePrompt ? 'lore_question' : messageKind;
+    try {
+      console.log('[bot][db] message persist scheduled kind=' + persistKind + ' blocked=false');
+    } catch (e) {}
     const gs = result.match_state || {};
     await upsertMatchState({
       match_id: matchId,
@@ -6680,10 +6713,21 @@ async function handleTextMessage(playerId, text, opts = {}) {
     const userKey = resolveUserKey(playerId, matchId);
     const pr = await consumeFreePromptIfAllowed(userKey, { locale });
     if (!pr.allowed) {
+      const limT = pr.entitlement ? getEntitlementLimits(pr.entitlement).daily_free_prompt_limit : '?';
+      const uT = pr.entitlement != null ? pr.entitlement.daily_free_prompt_used ?? '?' : '?';
+      try {
+        console.log('[bot][message] lore request blocked before response used=' + uT + ' limit=' + limT);
+        console.log('[bot][entitlement] prompt final decision block');
+      } catch (e) {}
       return locale === 'en'
         ? 'You have used all daily free-text prompts for today. Button actions are still available.'
         : '오늘의 자유입력 횟수를 모두 사용했습니다. 버튼 액션은 계속 사용할 수 있습니다.';
     }
+    try {
+      const uAfterTg = pr.entitlement?.daily_free_prompt_used ?? '?';
+      console.log('[bot][entitlement] prompt final decision allow');
+      console.log('[bot][message] lore response emitted on used=' + uAfterTg);
+    } catch (e) {}
   }
 
   if (cls.kind === 'role_opinion_question') {
@@ -7227,10 +7271,17 @@ async function processMessageApi(playerId, text, opts = {}) {
 
   const consumesFreePromptApi = shouldConsumeFreePromptForMessageKind(cls, parsed, text);
   logIntentPromptDecision(cls, parsed, consumesFreePromptApi);
+  let freePromptConsumedThisApi = false;
   if (consumesFreePromptApi) {
     const userKey = resolveUserKey(playerId, matchId);
     const pr = await consumeFreePromptIfAllowed(userKey, { locale });
     if (!pr.allowed) {
+      const limB = pr.entitlement ? getEntitlementLimits(pr.entitlement).daily_free_prompt_limit : '?';
+      const uB = pr.entitlement != null ? pr.entitlement.daily_free_prompt_used ?? '?' : '?';
+      try {
+        console.log('[bot][message] lore request blocked before response used=' + uB + ' limit=' + limB);
+        console.log('[bot][entitlement] prompt final decision block');
+      } catch (e) {}
       const timer = ep1Engine.getTimerStatus(match, now);
       const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
       return buildEntitlementBlockedResponse(locale, 'daily_free_prompt_limit_reached', pr.entitlement, {
@@ -7242,6 +7293,12 @@ async function processMessageApi(playerId, text, opts = {}) {
         match_state: { ...match.game_state }
       });
     }
+    freePromptConsumedThisApi = true;
+    try {
+      const uAfter = pr.entitlement?.daily_free_prompt_used ?? '?';
+      console.log('[bot][entitlement] prompt final decision allow');
+      console.log('[bot][message] lore response emitted on used=' + uAfter);
+    } catch (e) {}
   }
 
   if (cls.kind === 'role_opinion_question') {
@@ -7378,16 +7435,19 @@ async function processMessageApi(playerId, text, opts = {}) {
       const timerUnk = ep1Engine.getTimerStatus(updatedUnk, now);
       const remUnk = Math.max(0, Math.floor(timerUnk.remaining_sec ?? 0));
       const summaryTextUnk = summaryFromDisplayLogs(newDisplayLogsUnk, locale);
-      return {
-        ok: true,
-        summary: summaryTextUnk,
-        remaining_sec: remUnk,
-        game_over: false,
-        outcome: null,
-        events: newDisplayLogsUnk,
-        recent_events: newDisplayLogsUnk,
-        match_state: updatedUnk?.game_state || {}
-      };
+      return attachFreePromptConsumedMetadata(
+        {
+          ok: true,
+          summary: summaryTextUnk,
+          remaining_sec: remUnk,
+          game_over: false,
+          outcome: null,
+          events: newDisplayLogsUnk,
+          recent_events: newDisplayLogsUnk,
+          match_state: updatedUnk?.game_state || {}
+        },
+        freePromptConsumedThisApi
+      );
     }
     await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
     const matchForLlm = await matchStore.getMatch(matchId);
@@ -7435,16 +7495,19 @@ async function processMessageApi(playerId, text, opts = {}) {
     const timer = ep1Engine.getTimerStatus(updated, now);
     const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
     const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
-    return {
-      ok: true,
-      summary: summaryText,
-      remaining_sec: rem,
-      game_over: false,
-      outcome: null,
-      events: newDisplayLogs,
-      recent_events: newDisplayLogs,
-      match_state: updated?.game_state || {}
-    };
+    return attachFreePromptConsumedMetadata(
+      {
+        ok: true,
+        summary: summaryText,
+        remaining_sec: rem,
+        game_over: false,
+        outcome: null,
+        events: newDisplayLogs,
+        recent_events: newDisplayLogs,
+        match_state: updated?.game_state || {}
+      },
+      freePromptConsumedThisApi
+    );
   }
 
   if (cls.kind === 'brief_question') {
