@@ -610,6 +610,106 @@ async function appendMatchEvent({ match_id, user_key, event_type, payload }) {
   }
 }
 
+/** 동일 match 종료 이벤트 DB 중복 append 방지(프로세스 내). match_sessions upsert는 매번 idempotent. */
+const matchIdShutdownEventDbLogged = new Set();
+
+/**
+ * 타이머 만료·게임 종료 시 match_sessions + match_events(Supabase) 반드시 반영.
+ * @param {string} detail.source - 'timeout' | 'game_over_kill'
+ */
+async function persistMatchShutdownToDb(matchId, detail) {
+  const mid = String(matchId || '').trim();
+  if (!mid || !detail?.gameOver) return;
+  const source = detail.source || 'unknown';
+  const outcomeStr =
+    detail.outcome != null && String(detail.outcome).trim() !== ''
+      ? String(detail.outcome)
+      : source === 'timeout'
+        ? 'TIMEOUT'
+        : '';
+
+  if (source === 'timeout') {
+    try {
+      console.log('[bot][timeout] detected match_id=' + mid);
+      console.log('[bot][timeout] persisting match_sessions game_over=true remaining_sec=0');
+    } catch (e) {}
+  }
+
+  const prev = dbMatchSessionsMemory.get(mid) || {};
+  const userKey = prev.user_key || resolveUserKey(null, mid);
+  const locale = prev.locale === 'en' ? 'en' : 'ko';
+
+  await upsertMatchState({
+    match_id: mid,
+    user_key: userKey,
+    locale,
+    phase: 'game_over',
+    remaining_sec: 0,
+    game_over: true,
+    started_at: prev.started_at
+  });
+
+  const skipAppend = matchIdShutdownEventDbLogged.has(mid);
+  if (skipAppend) {
+    if (source === 'timeout') {
+      try {
+        console.log('[bot][timeout] persist done (duplicate skip event)');
+      } catch (e) {}
+    }
+    return;
+  }
+
+  const payload = {
+    outcome: outcomeStr || (source === 'timeout' ? 'TIMEOUT' : null),
+    game_over: true,
+    remaining_sec: 0,
+    source
+  };
+  const eventType = source === 'timeout' ? 'timeout' : 'game_over';
+
+  if (source === 'timeout') {
+    try {
+      console.log('[bot][timeout] appending timeout event match_id=' + mid);
+    } catch (e) {}
+  }
+
+  await appendMatchEvent({
+    match_id: mid,
+    user_key: userKey,
+    event_type: eventType,
+    payload
+  });
+  matchIdShutdownEventDbLogged.add(mid);
+  if (source === 'timeout') {
+    try {
+      console.log('[bot][timeout] persist done');
+    } catch (e) {}
+  }
+}
+
+/**
+ * 엔진 match에 이미 game_over가 있는데 DB만 비어 있을 때 보정(재시작 직전 등).
+ */
+async function ensureGameOverPersistedToDb(matchId, match) {
+  const gs = match?.game_state;
+  if (!gs?.game_over) return;
+  const evs = match?.events || [];
+  const hasTimeout = evs.some((e) => e && e.type === 'TIMEOUT');
+  if (hasTimeout) {
+    await persistMatchShutdownToDb(matchId, {
+      source: 'timeout',
+      outcome: gs.outcome || 'TIMEOUT',
+      gameOver: true
+    });
+  } else if (gs.outcome) {
+    await persistMatchShutdownToDb(matchId, {
+      source: 'game_over_kill',
+      outcome: gs.outcome,
+      gameOver: true
+    });
+  }
+}
+
 async function dbPersistAfterStartState(playerId, locale, out) {
   try {
     const matchId = out?.match_id;
@@ -6875,6 +6975,18 @@ async function handleStart(playerId, opts = {}) {
   if (opts.restart) {
     const pClear = await playerStore.getPlayer(playerId);
     if (pClear?.match_id) {
+      const oldMid = pClear.match_id;
+      try {
+        console.log('[bot][restart] waiting previous timeout persist match_id=' + oldMid);
+      } catch (e) {}
+      await applyMatchClockTick(oldMid);
+      const mRestart = await matchStore.getMatch(oldMid);
+      if (mRestart?.game_state?.game_over) {
+        await ensureGameOverPersistedToDb(oldMid, mRestart);
+      }
+      try {
+        console.log('[bot][restart] previous timed-out match persisted before fresh start');
+      } catch (e) {}
       await playerStore.setPlayer(playerId, {
         match_id: null,
         role: pClear.role || 'captain',
@@ -7388,12 +7500,24 @@ async function getStartStateApi(playerId, opts = {}) {
   } catch (e) {}
 
   if (opts.restart) {
-    const player = await playerStore.getPlayer(playerId);
-    if (player?.match_id) {
+    const playerRestart = await playerStore.getPlayer(playerId);
+    if (playerRestart?.match_id) {
+      const oldMid = playerRestart.match_id;
+      try {
+        console.log('[bot][restart] waiting previous timeout persist match_id=' + oldMid);
+      } catch (e) {}
+      await applyMatchClockTick(oldMid);
+      const mRestart = await matchStore.getMatch(oldMid);
+      if (mRestart?.game_state?.game_over) {
+        await ensureGameOverPersistedToDb(oldMid, mRestart);
+      }
+      try {
+        console.log('[bot][restart] previous timed-out match persisted before fresh start');
+      } catch (e) {}
       await playerStore.setPlayer(playerId, {
         match_id: null,
-        role: player.role || 'captain',
-        joined_at: player.joined_at || new Date().toISOString()
+        role: playerRestart.role || 'captain',
+        joined_at: playerRestart.joined_at || new Date().toISOString()
       });
     }
   }
@@ -8210,6 +8334,11 @@ async function applyMatchClockTick(matchId) {
         game_state: nextGs,
         turn: (match.turn || 1) + 1
       });
+      await persistMatchShutdownToDb(matchId, {
+        source: 'timeout',
+        outcome: String(result.outcome != null ? result.outcome : 'TIMEOUT'),
+        gameOver: true
+      });
       break;
     }
 
@@ -8245,7 +8374,14 @@ async function applyMatchClockTick(matchId) {
       game_state: nextGs,
       turn: (match.turn || 1) + 1
     });
-    if (outcome) break;
+    if (outcome) {
+      await persistMatchShutdownToDb(matchId, {
+        source: 'game_over_kill',
+        outcome: String(outcome),
+        gameOver: true
+      });
+      break;
+    }
   }
   return deltaRaw;
 }
