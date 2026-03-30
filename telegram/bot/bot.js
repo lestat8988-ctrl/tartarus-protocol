@@ -1014,7 +1014,28 @@ function matchStateQuerySubtype(lower) {
 }
 
 /**
- * 세계관·설명 질문 — 정규 키워드 또는 무엇인가+캐논/미확인 고유명사 게이트. 이름·집단·의심 심문은 제외.
+ * 한·영 정의형 질문(세계관 설명 요청) — 짧은 추궁/상황 질문과 구분.
+ * 물음표 없이 끝나는 IME 입력도 허용(무엇인가/무엇이지 등 종결).
+ */
+function matchesDefinitionalAskPattern(raw) {
+  const t = String(raw || '').trim();
+  if (!t) return false;
+  const hasQm = /[?？]/.test(t);
+  const koTail =
+    /(?:무엇인가|무엇이지|무엇인지|뭔가요|뭔지|뭐지|뭐야|뜻은|뜻이|뜻을|정체가|정체는|정체이|의미는|의미가|무엇인가요|무엇입니까)\s*[?？]?\s*$/i.test(t) ||
+    /(?:이란|라는)\s*무엇/i.test(t) ||
+    /(?:이|가|는|은|을|를)\s*란\s*[?？]/i.test(t);
+  const koAny =
+    /(무엇인가|무엇이지|무엇인지|뭔지|뭐지|뭐야|뜻|정체|의미|무엇입니까|무엇인가요)/i.test(t);
+  const en = /\bwhat\s+(?:is|are)\b/i.test(t) || /\bwhat(?:'s|s)\s+\w/i.test(t);
+  if (en && hasQm) return true;
+  if (koAny && (hasQm || koTail)) return true;
+  return false;
+}
+
+/**
+ * 세계관·설명 질문 — 정규 키워드 또는 정의형+주제. 이름·집단·의심 심문은 제외.
+ * 정의형에서 추출 용어가 이미 canon/alias로 등록돼 있어도 lore(회귀 방지: !isKnownCanonLoreTerm 제거).
  */
 function isLoreQuestion(raw) {
   const t = String(raw || '').trim();
@@ -1030,15 +1051,16 @@ function isLoreQuestion(raw) {
   if (/(이\s*배|함선|ship).*(무슨\s*일|무슨일|있었|happened)/i.test(t)) return true;
   if (containsLoreCanonSubject(raw)) return true;
   if (isGameplayAntiLoreQuestion(t)) return false;
-  if (/(무엇인가|뭐지|뭐야|뭔지|정체|what\s+is|what\s+are)/i.test(t) && /[?？]/.test(t)) {
+  if (matchesDefinitionalAskPattern(raw)) {
     if (
       /수상|범인|이상한|뭘\s*더|확인해야|의심|who\s*(is\s*)?suspicious|suspicious|verify\s*next/i.test(t)
     ) {
       return false;
     }
+    if (isGameplayCrewQuestionPattern(t)) return false;
     if (detectCrewRoleForGameplayQuestion(raw) && !isGameplayCrewQuestionPattern(raw)) return true;
     const ex = extractPrimaryLoreTerm(t, 'ko');
-    if (ex && !isGameplayAntiLoreQuestion(t) && !isKnownCanonLoreTerm(ex)) {
+    if (ex && !isGameplayAntiLoreQuestion(t)) {
       return true;
     }
     return false;
@@ -1252,6 +1274,9 @@ function containsLoreCanonSubject(raw) {
   if (/(이\s*배|함선|ship).*(무슨\s*일|무슨일|있었|happened)/i.test(t)) return true;
   if (/missing\s+experimental|실험선|실종된\s*함|실험\s*함/i.test(t)) return true;
   if (/awakened|기상한|깨어난|기상\s*인원/i.test(t)) return true;
+  if (/칼릭스|calix/i.test(t) && /프로토콜|protocol/i.test(t)) return true;
+  if (/네오\s*아크|neo\s*arc|neoarc/i.test(t)) return true;
+  if (/오르페우스|orpheus/i.test(t) && /게이트|gate/i.test(t)) return true;
   return false;
 }
 
@@ -1330,11 +1355,15 @@ function classifyMiniappMessageKind(text, parsed) {
 
 /**
  * miniapp 자유입력 분류 — check_log → role_opinion → targeted → state_query → mapped → group → suspicion → lore → brief/mapped
- * lore_question은 gameplay·집단 심문보다 뒤에 판정.
+ * lore_question은 gameplay·집단 심문보다 뒤에 판정. intent=question/unknown에서도 정의형 lore가 brief로 새지 않게 가드.
  */
 function classifyMiniappFreeText(text, parsed) {
   const raw = String(text || '').trim();
   const lower = raw.toLowerCase();
+  try {
+    const esc = raw.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r?\n/g, ' ').slice(0, 280);
+    console.log('[bot][classify] raw text="' + esc + '"');
+  } catch (e) {}
   const mappedActionIntents = new Set(['accuse_hint', 'threaten', 'threat', 'observe']);
   let intent = String(parsed.intent_type || 'unknown').toLowerCase();
   const pinnedThreatIntent = intent === 'threaten' || intent === 'threat';
@@ -1413,6 +1442,11 @@ function classifyMiniappFreeText(text, parsed) {
   }
 
   if (isLoreQuestion(raw)) {
+    try {
+      console.log('[bot][classify] detected lore_question by pattern');
+      console.log('[bot][classify] final message_kind=lore_question');
+      console.log('[bot][route] lore pipeline selected');
+    } catch (e) {}
     return { kind: 'lore_question', parsed: effParsed };
   }
 
@@ -1441,11 +1475,21 @@ function classifyMiniappFreeText(text, parsed) {
         isTargetedAccusation: selfDefQ
       };
     }
+    try {
+      console.log('[bot][classify] final message_kind=brief_question');
+      console.log('[bot][route] brief pipeline selected');
+    } catch (e) {}
     return { kind: 'brief_question', parsed: effParsed };
   }
 
   if (intent === 'unknown') {
-    if (looksLikeOpenQuestion(lower, raw)) return { kind: 'brief_question', parsed: effParsed };
+    if (looksLikeOpenQuestion(lower, raw)) {
+      try {
+        console.log('[bot][classify] final message_kind=brief_question');
+        console.log('[bot][route] brief pipeline selected');
+      } catch (e) {}
+      return { kind: 'brief_question', parsed: effParsed };
+    }
     return { kind: 'mapped', parsed: effParsed };
   }
 
