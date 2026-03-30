@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -1035,6 +1035,11 @@
       var timerDisplayIntervalId = null;
       /** visibility·즉시 fetch 등 /api/state 명시 요청의 stale 가드 */
       var latestStateFetchGen = 0;
+      /** 타이머 만료 로컬 처리·복귀 시 스냅샷 */
+      var lastGameStateSnapshot = null;
+      /** applyGameOverUI 적용된 매치 — 같은 매치에서 비터미널 응답으로 UI 되돌림 방지 */
+      var terminalUiMatchId = null;
+      var lastTerminalReason = '';
 
       var screen = 'intro';
       var storedLang;
@@ -1417,6 +1422,8 @@
           statusCrewPending: '크루 반응 진행 중...',
           statusInputLocked: '입력 잠김 — 크루 반응 대기',
           gameOverPlaceholder: '게임 종료됨',
+          statusGameEnded: '게임 종료',
+          statusTimeUp: '시간 초과',
           send: '전송',
           restart: '다시 시작',
           resultTitleWin: '임무 성공',
@@ -1481,6 +1488,8 @@
           statusCrewPending: 'Crew responding...',
           statusInputLocked: 'Input locked — crew responding',
           gameOverPlaceholder: 'Game Over',
+          statusGameEnded: 'Game ended',
+          statusTimeUp: 'Time expired',
           send: 'SEND',
           restart: 'RESTART',
           resultTitleWin: 'MISSION ACCOMPLISHED',
@@ -1610,9 +1619,10 @@
         if (!captainPhaseStatusEl) return;
         var L = getL();
         if (isGameOver) {
-          captainPhaseStatusEl.textContent = '';
-          captainPhaseStatusEl.classList.add('captain-phase-hidden');
-          captainPhaseStatusEl.classList.remove('captain-phase-idle', 'captain-phase-pending');
+          captainPhaseStatusEl.classList.remove('captain-phase-hidden', 'captain-phase-idle', 'captain-phase-pending');
+          captainPhaseStatusEl.textContent = isTimeoutTerminalReason(lastTerminalReason)
+            ? L.statusTimeUp || ''
+            : L.statusGameEnded || '';
           return;
         }
         captainPhaseStatusEl.classList.remove('captain-phase-hidden');
@@ -1798,7 +1808,7 @@
         document.addEventListener('visibilitychange', function() {
           var vis = document.visibilityState === 'visible';
           try {
-            console.log('[miniapp][timer] visibility changed visible=' + vis);
+            console.log('[timer] visibility changed, visible=', !document.hidden);
           } catch (e) {}
           if (document.visibilityState === 'hidden') {
             clearStatePollTimer();
@@ -1890,7 +1900,7 @@
           .then(function(data) {
             if (pollOwnerGen !== appRequestGeneration) {
               try {
-                console.log('[miniapp][state] stale response ignored');
+                console.log('[timer] stale response ignored');
               } catch (e) {}
               return;
             }
@@ -1915,6 +1925,7 @@
               game_state: gs
             };
             if (data.deadline_at != null) st.deadline_at = data.deadline_at;
+            if (data.remaining_ms != null) st.remaining_ms = data.remaining_ms;
             if (data.actual_imposter != null) st.actual_imposter = data.actual_imposter;
             if (data.is_timeout) st.is_timeout = data.is_timeout;
             /* 배경 폴링: userActionPending·잠금 시퀀스에 관여하지 않음 */
@@ -1930,7 +1941,7 @@
                 'state'
               );
             }
-            if (gs.game_over) {
+            if (isTerminalState(st) || gs.game_over) {
               stopStatePolling();
               chainStopped = true;
             }
@@ -2032,6 +2043,9 @@
         stopTimerDisplay();
         serverDeadlineMs = null;
         deadlineBoundMatchId = null;
+        lastGameStateSnapshot = null;
+        terminalUiMatchId = null;
+        lastTerminalReason = '';
         lastKnownMatchId = null;
         activeMatchPollId = null;
         clearGameLogPanelAndState();
@@ -2139,6 +2153,57 @@
       }
 
       /**
+       * 종료(타임아웃·결과 확정 등) 상태 — 타이머/폴링/복귀 경로에서 공통 사용.
+       */
+      function isTerminalState(state) {
+        if (!state || typeof state !== 'object') return false;
+        var gs = state.game_state || {};
+        if (state.remaining_ms != null && state.remaining_ms !== '') {
+          var rms = Number(state.remaining_ms);
+          if (!isNaN(rms) && rms <= 0) return true;
+        }
+        if (state.remaining_sec != null && state.remaining_sec !== '') {
+          var rs = Number(state.remaining_sec);
+          if (!isNaN(rs) && rs <= 0) return true;
+        }
+        var ph = gs.phase;
+        if (ph === 'ended' || ph === 'game_over') return true;
+        if (gs.game_over === true) return true;
+        if (gs.outcome != null && gs.outcome !== '') return true;
+        if (gs.winner_side != null && gs.winner_side !== '') return true;
+        if (gs.loser_side != null && gs.loser_side !== '') return true;
+        return false;
+      }
+
+      function deriveTerminalReason(state) {
+        var gs = state.game_state || {};
+        if (state.remaining_ms != null && state.remaining_ms !== '') {
+          var rms = Number(state.remaining_ms);
+          if (!isNaN(rms) && rms <= 0) return 'remaining_ms<=0';
+        }
+        if (state.remaining_sec != null && state.remaining_sec !== '') {
+          var rs = Number(state.remaining_sec);
+          if (!isNaN(rs) && rs <= 0) return 'remaining_sec<=0';
+        }
+        if (gs.phase === 'ended' || gs.phase === 'game_over') return 'phase=' + gs.phase;
+        if (gs.game_over === true) return 'game_over';
+        if (gs.outcome != null && gs.outcome !== '') return 'outcome:' + String(gs.outcome);
+        if (gs.winner_side != null && gs.winner_side !== '') return 'winner_side';
+        if (gs.loser_side != null && gs.loser_side !== '') return 'loser_side';
+        return 'terminal';
+      }
+
+      function isTimeoutTerminalReason(reason) {
+        var r = reason || '';
+        return (
+          r === 'remaining_sec<=0' ||
+          r === 'remaining_ms<=0' ||
+          r === 'local_timer_zero' ||
+          r.indexOf('timeout') >= 0
+        );
+      }
+
+      /**
        * /state·/start·message 응답에서 절대시각 우선, 없으면 remaining_sec로 수신 시각 기준 deadline 계산.
        */
       function extractDeadlineMsFromPayload(data) {
@@ -2148,9 +2213,15 @@
           var t = Date.parse(String(abs));
           if (!isNaN(t)) return t;
         }
+        if (data.remaining_ms != null && data.remaining_ms !== '') {
+          var rms = Number(data.remaining_ms);
+          if (!isNaN(rms) && rms <= 0) return null;
+          if (!isNaN(rms) && rms > 0) return Date.now() + rms;
+        }
         if (data.remaining_sec != null && data.remaining_sec !== '') {
           var rs = Number(data.remaining_sec);
-          if (!isNaN(rs) && rs >= 0) return Date.now() + rs * 1000;
+          if (!isNaN(rs) && rs <= 0) return null;
+          if (!isNaN(rs) && rs > 0) return Date.now() + rs * 1000;
         }
         return null;
       }
@@ -2178,6 +2249,27 @@
         }
         if (serverDeadlineMs == null) return;
         var rem = Math.max(0, Math.floor((serverDeadlineMs - Date.now()) / 1000));
+        if (rem <= 0) {
+          if (statusTime) statusTime.textContent = formatTime(0);
+          if (hudCountdown) hudCountdown.textContent = getL().countdown + ' : ' + formatTime(0);
+          var snap = lastGameStateSnapshot || {};
+          var gsSnap = snap.game_state || {};
+          var synthetic = {
+            match_id: snap.match_id != null ? snap.match_id : lastKnownMatchId || activeMatchPollId,
+            remaining_sec: 0,
+            remaining_ms: 0,
+            location: snap.location,
+            is_timeout: snap.is_timeout !== undefined ? snap.is_timeout : true,
+            game_state: Object.assign({}, gsSnap, { game_over: true }),
+            deadline_at: snap.deadline_at
+          };
+          if (!synthetic.match_id && activeMatchPollId) synthetic.match_id = activeMatchPollId;
+          if (synthetic.match_id && !isGameOver) {
+            applyGameOverUI('local_timer_zero', synthetic, { forApiMessage: true });
+          }
+          stopTimerDisplay();
+          return;
+        }
         if (statusTime) statusTime.textContent = formatTime(rem);
         if (hudCountdown) hudCountdown.textContent = getL().countdown + ' : ' + formatTime(rem);
       }
@@ -2192,6 +2284,15 @@
        */
       function rebindDeadlineFromServerState(state) {
         if (!state) return;
+        if (isTerminalState(state)) {
+          try {
+            console.log('[timer] deadline skipped because terminal state');
+          } catch (e) {}
+          stopTimerDisplay();
+          serverDeadlineMs = null;
+          deadlineBoundMatchId = null;
+          return;
+        }
         var mid =
           state.match_id != null
             ? String(state.match_id)
@@ -2201,15 +2302,8 @@
         if (!mid) return;
         if (activeMatchPollId && String(activeMatchPollId) !== mid) {
           try {
-            console.log('[miniapp][state] stale response ignored');
+            console.log('[timer] stale response ignored');
           } catch (e) {}
-          return;
-        }
-        var gs = state.game_state || {};
-        if (gs.game_over) {
-          stopTimerDisplay();
-          serverDeadlineMs = null;
-          deadlineBoundMatchId = null;
           return;
         }
         var prevMid = deadlineBoundMatchId;
@@ -2257,13 +2351,13 @@
           .then(function(data) {
             if (reqId !== latestStateFetchGen) {
               try {
-                console.log('[miniapp][state] stale response ignored');
+                console.log('[timer] stale response ignored');
               } catch (e) {}
               return;
             }
             if (fetchGen !== appRequestGeneration) {
               try {
-                console.log('[miniapp][state] stale response ignored');
+                console.log('[timer] stale response ignored');
               } catch (e) {}
               return;
             }
@@ -2271,7 +2365,7 @@
             if (!data.match_id) return;
             if (activeMatchPollId && String(data.match_id) !== String(activeMatchPollId)) {
               try {
-                console.log('[miniapp][state] stale response ignored');
+                console.log('[timer] stale response ignored');
               } catch (e) {}
               return;
             }
@@ -2284,6 +2378,17 @@
             if (data.actual_imposter != null) st.actual_imposter = data.actual_imposter;
             if (data.is_timeout) st.is_timeout = data.is_timeout;
             if (data.deadline_at != null) st.deadline_at = data.deadline_at;
+            if (data.remaining_ms != null) st.remaining_ms = data.remaining_ms;
+            if (String(reason || '') === 'visibility') {
+              try {
+                console.log(
+                  '[timer] state restored, remaining_ms=',
+                  data.remaining_ms,
+                  'remaining_sec=',
+                  data.remaining_sec
+                );
+              } catch (e) {}
+            }
             updateStatus(st, { forApiMessage: true, fromPoll: true });
             applyEntitlementFromResponse(data);
             if (data.recent_events && data.recent_events.length) {
@@ -2296,7 +2401,7 @@
                 String(reason || 'immediate')
               );
             }
-            if (gs.game_over) stopStatePolling();
+            if (isTerminalState(st) || gs.game_over) stopStatePolling();
           })
           .catch(function() {});
       }
@@ -2807,13 +2912,144 @@
         if (resultModal) resultModal.classList.remove('visible');
       }
 
+      /**
+       * terminal 상태 공통 UI — 입력·액션 비활성, 상단·타이머·결과 동기화.
+       */
+      function applyGameOverUI(reason, state, opts) {
+        opts = opts || {};
+        if (!state) return;
+        try {
+          console.log('[timer] terminal detected, reason=', reason);
+        } catch (e) {}
+        lastTerminalReason = reason || '';
+        var gs = state.game_state || {};
+        forceInvalidateUserActionLock();
+        lastDeadRoles = gs.dead_roles || [];
+        var prevWasGameOver = previousGameOver;
+
+        if (state.match_id) {
+          var shortM = truncateMatchId(state.match_id);
+          statusMatchId.textContent = shortM;
+          statusMatchId.title = state.match_id;
+          lastKnownMatchId = state.match_id;
+        }
+        terminalUiMatchId = state.match_id != null ? String(state.match_id) : null;
+
+        stopTimerDisplay();
+        serverDeadlineMs = null;
+        deadlineBoundMatchId = null;
+
+        var effGs = Object.assign({}, gs);
+        if (!effGs.game_over) effGs.game_over = true;
+        if (!effGs.outcome) {
+          if (state.is_timeout) effGs.outcome = 'timeout';
+          else if (
+            reason === 'remaining_sec<=0' ||
+            reason === 'remaining_ms<=0' ||
+            reason === 'local_timer_zero'
+          ) {
+            effGs.outcome = 'timeout';
+          }
+        }
+        var effState = Object.assign({}, state, { game_state: effGs });
+
+        if (statusTime) statusTime.textContent = formatTime(0);
+        if (hudCountdown) hudCountdown.textContent = getL().countdown + ' : ' + formatTime(0);
+        statusLocation.textContent = state.location || 'Bridge';
+
+        if (effGs.outcome) {
+          statusThreat.textContent = 'GAME OVER';
+          statusThreat.classList.remove('nominal');
+          statusThreat.classList.add('threat');
+          setGameOverLock(true);
+
+          outcomeBadge.textContent = effGs.outcome.toUpperCase().replace(/_/g, ' ');
+          outcomeBadge.className = 'outcome-badge visible ' + (effGs.outcome || '').replace(/-/g, '_');
+          if (statusOutcomeWrap) {
+            statusOutcomeWrap.style.display = 'block';
+            statusOutcome.textContent = effGs.outcome;
+          }
+
+          var allowResultModal = opts.fromStart === true || opts.forApiMessage === true;
+          if (!prevWasGameOver && allowResultModal) showResultModal(effState);
+        } else {
+          statusThreat.textContent = 'GAME OVER';
+          statusThreat.classList.remove('nominal');
+          statusThreat.classList.add('threat');
+          setGameOverLock(true);
+          outcomeBadge.classList.remove('visible', 'crew_win', 'impostor_win', 'accuse_failed');
+          outcomeBadge.textContent = '';
+          if (statusOutcomeWrap) statusOutcomeWrap.style.display = 'none';
+          if (statusOutcome) statusOutcome.textContent = '--';
+          closeResultModal();
+        }
+
+        previousGameOver = true;
+        previousOutcome = effGs.outcome || null;
+
+        if (effGs.dead_roles && effGs.dead_roles.length > 0) {
+          if (statusDeadWrap) {
+            statusDeadWrap.style.display = 'block';
+            statusDead.textContent = effGs.dead_roles.join(', ');
+            statusDead.classList.add('threat');
+          }
+        } else if (statusDeadWrap) {
+          statusDeadWrap.style.display = 'none';
+          statusDead.classList.remove('threat');
+        }
+
+        lastGameStateSnapshot = {
+          match_id: state.match_id,
+          remaining_sec: 0,
+          remaining_ms: 0,
+          deadline_at: state.deadline_at,
+          location: state.location,
+          game_state: Object.assign({}, effGs),
+          is_timeout: state.is_timeout,
+          actual_imposter: state.actual_imposter
+        };
+
+        applyDeadStateToModalButtons();
+        rebindDeadlineFromServerState(state);
+        try {
+          console.log('[timer] game over UI applied');
+        } catch (e) {}
+      }
+
       function updateStatus(state, opts) {
         opts = opts || {};
         if (!state) return;
-        /* opts.fromPoll === true 인 /api/state 경로는 userActionPending을 켜거나 끄지 않음(게임 오버 시 forceInvalidate만). */
         var gs = state.game_state || {};
+        if (
+          terminalUiMatchId &&
+          state.match_id != null &&
+          String(state.match_id) === String(terminalUiMatchId) &&
+          !isTerminalState(state)
+        ) {
+          try {
+            console.log('[timer] stale response ignored');
+          } catch (e) {}
+          return;
+        }
+
+        lastGameStateSnapshot = {
+          match_id: state.match_id,
+          remaining_sec: state.remaining_sec,
+          remaining_ms: state.remaining_ms,
+          deadline_at: state.deadline_at,
+          location: state.location,
+          game_state: Object.assign({}, gs),
+          is_timeout: state.is_timeout,
+          actual_imposter: state.actual_imposter
+        };
+
+        if (isTerminalState(state)) {
+          applyGameOverUI(deriveTerminalReason(state), state, opts);
+          return;
+        }
+
+        /* opts.fromPoll === true 인 /api/state 경로는 userActionPending을 켜거나 끄지 않음(게임 오버 시 forceInvalidate만). */
         lastDeadRoles = gs.dead_roles || [];
-        var prevWasGameOver = previousGameOver;
 
         if (state.match_id) {
           var short = truncateMatchId(state.match_id);
@@ -2826,42 +3062,15 @@
         statusLocation.textContent = state.location || 'Bridge';
         if (hudCountdown) hudCountdown.textContent = getL().countdown + ' : ' + timeStr;
 
-        if (gs.game_over && gs.outcome) {
-          forceInvalidateUserActionLock();
-          statusThreat.textContent = 'GAME OVER';
-          statusThreat.classList.remove('nominal');
-          statusThreat.classList.add('threat');
-          setGameOverLock(true);
-
-          outcomeBadge.textContent = gs.outcome.toUpperCase().replace(/_/g, ' ');
-          outcomeBadge.className = 'outcome-badge visible ' + (gs.outcome || '').replace(/-/g, '_');
-          if (statusOutcomeWrap) { statusOutcomeWrap.style.display = 'block'; statusOutcome.textContent = gs.outcome; }
-
-          /* /api/start 복원 시(fromStart) 또는 /api/message 응답 시(forApiMessage): game_over 전환만 결과 모달 */
-          var allowResultModal = opts.fromStart === true || opts.forApiMessage === true;
-          if (!prevWasGameOver && allowResultModal) showResultModal(state);
-        } else if (gs.game_over && !gs.outcome) {
-          forceInvalidateUserActionLock();
-          statusThreat.textContent = 'GAME OVER';
-          statusThreat.classList.remove('nominal');
-          statusThreat.classList.add('threat');
-          setGameOverLock(true);
-          outcomeBadge.classList.remove('visible', 'crew_win', 'impostor_win', 'accuse_failed');
-          outcomeBadge.textContent = '';
-          if (statusOutcomeWrap) statusOutcomeWrap.style.display = 'none';
-          if (statusOutcome) statusOutcome.textContent = '--';
-          closeResultModal();
-        } else {
-          statusThreat.textContent = (gs.dead_roles && gs.dead_roles.length > 0) ? 'ELEVATED' : 'NOMINAL';
-          statusThreat.classList.toggle('threat', (gs.dead_roles && gs.dead_roles.length > 0));
-          statusThreat.classList.toggle('nominal', !(gs.dead_roles && gs.dead_roles.length > 0));
-          setGameOverLock(false);
-          outcomeBadge.classList.remove('visible', 'crew_win', 'impostor_win', 'accuse_failed');
-          outcomeBadge.textContent = '';
-          if (statusOutcomeWrap) statusOutcomeWrap.style.display = 'none';
-          if (statusOutcome) statusOutcome.textContent = '--';
-          closeResultModal();
-        }
+        statusThreat.textContent = (gs.dead_roles && gs.dead_roles.length > 0) ? 'ELEVATED' : 'NOMINAL';
+        statusThreat.classList.toggle('threat', (gs.dead_roles && gs.dead_roles.length > 0));
+        statusThreat.classList.toggle('nominal', !(gs.dead_roles && gs.dead_roles.length > 0));
+        setGameOverLock(false);
+        outcomeBadge.classList.remove('visible', 'crew_win', 'impostor_win', 'accuse_failed');
+        outcomeBadge.textContent = '';
+        if (statusOutcomeWrap) statusOutcomeWrap.style.display = 'none';
+        if (statusOutcome) statusOutcome.textContent = '--';
+        closeResultModal();
 
         previousGameOver = !!gs.game_over;
         previousOutcome = gs.outcome || null;
@@ -3393,6 +3602,9 @@
         stopTimerDisplay();
         serverDeadlineMs = null;
         deadlineBoundMatchId = null;
+        lastGameStateSnapshot = null;
+        terminalUiMatchId = null;
+        lastTerminalReason = '';
         lastKnownMatchId = null;
         activeMatchPollId = null;
         lastRenderedRecentEventsSig = '';
