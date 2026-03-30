@@ -445,6 +445,30 @@ function safeRecentEventsPayloadForDb(result) {
 
 async function upsertUserEntitlement(userKey, patch = {}) {
   const key = String(userKey || 'anonymous');
+  const patchKeys = Object.keys(patch || {}).filter((k) => patch[k] !== undefined);
+  const isNoOpPatch = patchKeys.length === 0;
+  if (isNoOpPatch) {
+    logDbBootOnce();
+    const sbNoOp = getSupabaseOptional();
+    if (sbNoOp) {
+      try {
+        console.log('[bot][entitlement] remote row loaded before no-op sync user_key=' + key);
+      } catch (e) {}
+      try {
+        await fetchUserEntitlementRow(key);
+      } catch (e) {
+        console.warn('[bot][entitlement] no-op sync fetch warn user_key=' + key + ' ' + String(e?.message || e));
+      }
+      try {
+        console.log('[bot][entitlement] no-op upsert skipped to avoid stale overwrite user_key=' + key);
+      } catch (e) {}
+    } else {
+      try {
+        console.log('[bot][entitlement] no-op upsert skipped (no Supabase, no write) user_key=' + key);
+      } catch (e) {}
+    }
+    return;
+  }
   try {
     logDbBootOnce();
     try {
@@ -755,14 +779,17 @@ async function dbPersistAfterActionResult(playerId, locale, actionLabel, actionN
   }
 }
 
-async function dbPersistAfterTelegramStart(playerId) {
+async function dbPersistAfterTelegramStart(playerId, opts = {}) {
   try {
+    const locale = opts.locale === 'en' ? 'en' : 'ko';
+    try {
+      console.log('[bot][start] locale resolved=' + locale);
+    } catch (e) {}
     const player = await playerStore.getPlayer(playerId);
     const matchId = player?.match_id;
     if (!matchId) return;
     const match = await matchStore.getMatch(matchId);
     if (!match) return;
-    const locale = 'ko';
     const userKey = resolveUserKey(playerId, matchId);
     await upsertUserEntitlement(userKey, {});
     const gs = match.game_state || {};
@@ -6840,15 +6867,36 @@ function dedupeDisplayLogs(displayLogs, locale) {
  * @returns {Promise<string>}
  */
 async function handleStart(playerId, opts = {}) {
+  const loc = opts.locale === 'en' ? 'en' : 'ko';
+  try {
+    console.log('[bot][start] locale resolved=' + loc);
+  } catch (e) {}
+
+  if (opts.restart) {
+    const pClear = await playerStore.getPlayer(playerId);
+    if (pClear?.match_id) {
+      await playerStore.setPlayer(playerId, {
+        match_id: null,
+        role: pClear.role || 'captain',
+        joined_at: pClear.joined_at || new Date().toISOString()
+      });
+    }
+  }
+
   const player = await playerStore.getPlayer(playerId);
   let matchId = player?.match_id;
-  const loc = opts.locale === 'en' ? 'en' : 'ko';
 
   let needNewMatch = !matchId;
+  let existingMatch = null;
   if (matchId) {
-    const existingMatch = await matchStore.getMatch(matchId);
+    existingMatch = await matchStore.getMatch(matchId);
+    try {
+      console.log('[bot][start] existing match detected id=' + matchId + ' found=' + !!existingMatch);
+    } catch (e) {}
+    if (!existingMatch) needNewMatch = true;
     if (existingMatch?.game_state?.game_over) needNewMatch = true;
   }
+  const oldMatchIdForLog = matchId;
   if (needNewMatch) {
     const userKey = resolveUserKey(playerId, null);
     const ticket = await consumeDailyTicketIfAllowed(userKey, { locale: loc });
@@ -6862,6 +6910,16 @@ async function handleStart(playerId, opts = {}) {
     });
     matchId = match.match_id;
     await playerStore.setPlayer(playerId, { match_id: matchId, role: 'captain' });
+    try {
+      if (oldMatchIdForLog && oldMatchIdForLog !== matchId) {
+        console.log(
+          '[bot][start] stale/game_over match replaced with fresh match id=' + matchId + ' old=' + oldMatchIdForLog
+        );
+      }
+      console.log(
+        '[bot][start] player current match reassigned old=' + (oldMatchIdForLog || 'null') + ' new=' + matchId
+      );
+    } catch (e) {}
   }
   const match = await matchStore.getMatch(matchId);
   const timer = ep1Engine.getTimerStatus ? ep1Engine.getTimerStatus(match, opts.now) : { remaining_sec: 420 };
@@ -7255,7 +7313,7 @@ async function routeMessage(playerId, text, opts = {}) {
   log('ROUTE', 'in', { playerId, text: t.slice(0, 50) });
   if (t === '/start') {
     const r = await handleStart(playerId, opts);
-    await dbPersistAfterTelegramStart(playerId);
+    await dbPersistAfterTelegramStart(playerId, opts);
     return r;
   }
   const reply = await handleTextMessage(playerId, t, opts);
@@ -7324,6 +7382,11 @@ function attachActualImposterIfGameOverResult(ret, match) {
  * @returns {Promise<object>}
  */
 async function getStartStateApi(playerId, opts = {}) {
+  const locale = opts.locale === 'en' ? 'en' : 'ko';
+  try {
+    console.log('[bot][start] locale resolved=' + locale);
+  } catch (e) {}
+
   if (opts.restart) {
     const player = await playerStore.getPlayer(playerId);
     if (player?.match_id) {
@@ -7336,13 +7399,18 @@ async function getStartStateApi(playerId, opts = {}) {
   }
   let player = await playerStore.getPlayer(playerId);
   let matchId = player?.match_id;
-  const locale = opts.locale === 'en' ? 'en' : 'ko';
 
   let needNewMatch = !matchId;
+  let existingMatchPre = null;
   if (matchId) {
-    const existingMatch = await matchStore.getMatch(matchId);
-    if (existingMatch?.game_state?.game_over) needNewMatch = true;
+    existingMatchPre = await matchStore.getMatch(matchId);
+    try {
+      console.log('[bot][start] existing match detected id=' + matchId + ' found=' + !!existingMatchPre);
+    } catch (e) {}
+    if (!existingMatchPre) needNewMatch = true;
+    if (existingMatchPre?.game_state?.game_over) needNewMatch = true;
   }
+  const oldMatchIdApi = matchId;
   if (needNewMatch) {
     const userKey = resolveUserKey(playerId, null);
     const ticket = await consumeDailyTicketIfAllowed(userKey, { locale });
@@ -7358,6 +7426,16 @@ async function getStartStateApi(playerId, opts = {}) {
     const matchNew = await matchStore.getOrCreateMatch('match_' + playerId + '_' + Date.now(), {});
     matchId = matchNew.match_id;
     await playerStore.setPlayer(playerId, { match_id: matchId, role: 'captain' });
+    try {
+      if (oldMatchIdApi && oldMatchIdApi !== matchId) {
+        console.log(
+          '[bot][start] stale/game_over match replaced with fresh match id=' + matchId + ' old=' + oldMatchIdApi
+        );
+      }
+      console.log(
+        '[bot][start] player current match reassigned old=' + (oldMatchIdApi || 'null') + ' new=' + matchId
+      );
+    } catch (e) {}
   }
   const match = await matchStore.getMatch(matchId);
   const timer = ep1Engine.getTimerStatus ? ep1Engine.getTimerStatus(match) : { remaining_sec: 420 };
@@ -8197,8 +8275,10 @@ async function handleWebhook(req, res) {
   const chatId = msg.chat?.id;
   const text = msg.text || '';
   const playerId = String(msg.from?.id || chatId);
+  const lang = String(msg.from?.language_code || '').trim();
+  const routeOpts = { locale: /^en/i.test(lang) ? 'en' : 'ko' };
   try {
-    const reply = await routeMessage(playerId, text);
+    const reply = await routeMessage(playerId, text, routeOpts);
     if (BOT_TOKEN && chatId) {
       res.status(200).json({ ok: true });
     } else {
@@ -8581,8 +8661,10 @@ if (require.main === module) {
       const text = msg.text;
       if (!text || !chatId) return;
       const playerId = String(msg.from?.id ?? chatId);
+      const lang = String(msg.from?.language_code || '').trim();
+      const routeOpts = { locale: /^en/i.test(lang) ? 'en' : 'ko' };
       try {
-        const reply = await routeMessage(playerId, text);
+        const reply = await routeMessage(playerId, text, routeOpts);
         await bot.sendMessage(chatId, reply);
       } catch (err) {
         console.error('[bot] message error:', err.message || err);
