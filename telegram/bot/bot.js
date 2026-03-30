@@ -2135,6 +2135,7 @@ function evaluateLoreUnknownTermGate(clsKind, raw, locale) {
     return { block: false };
   }
   try {
+    console.log('[bot][lore] unknown term fallback');
     console.log('[bot][lore] unknown term fallback term=' + extracted);
     console.log('[bot][intent] unknown lore safe response selected');
   } catch (e) {}
@@ -2148,6 +2149,85 @@ function buildUnknownLoreTermSystemLine(locale, displayTerm) {
     return `${sys} The term '${term}' is not recognized in the current canon records. Please clarify whether you mean AXIS, HADES, or Project HORIZON.`;
   }
   return `${sys} 현재 기록상 '${term}'라는 공식 용어는 확인되지 않습니다. AXIS, HADES, 프로젝트 HORIZON 중 무엇을 뜻하는지 다시 지정해 주세요.`;
+}
+
+/**
+ * lore_question 전용: alias → canonical 토픽 키 + 표시용 용어(추출 우선).
+ */
+function resolveLoreCanonicalTopicForSystem(raw, locale) {
+  const t = String(raw || '').trim();
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const extracted = extractPrimaryLoreTerm(t, loc);
+  const alias = extracted ? maybeNormalizeLoreAlias(extracted) : null;
+  if (alias && alias.canonical) {
+    return {
+      topicKey: alias.canonical,
+      displayTerm: extracted,
+      aliasMatched: alias.matchedAlias
+    };
+  }
+  const topicFromDetect = detectLoreQuestionTopic(t, loc);
+  const displayTerm = extracted || t.slice(0, 120);
+  return { topicKey: topicFromDetect, displayTerm, aliasMatched: null };
+}
+
+/**
+ * lore_question: 단일 [시스템] 설명(등록 canon). 크루 다중 대사·LLM 미사용.
+ */
+function buildLoreSystemOnlyCanonicalLine(locale, topicKey, displayTerm) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const sys = systemHeader(loc);
+  const term = String(displayTerm || '').trim().slice(0, 120) || (loc === 'en' ? 'this term' : '해당 용어');
+  const T = String(topicKey || 'general').toLowerCase();
+  const en = {
+    hades: `Archive: "${term}" denotes HADES—an unauthorized layer sealed inside AXIS, awakened after the Project HORIZON phase shock and bound to one crew signature. Not a medical protocol, routing app, or life-support SKU.`,
+    axis: `Archive: "${term}" denotes AXIS—the official ship AI and system layer. HADES is a hidden unauthorized layer sealed inside AXIS; AXIS cannot be described without that containment relationship.`,
+    horizon: `Archive: "${term}" denotes Project HORIZON—the canonical experiment designation tied to the gravity-drive run; the phase shock is the triggering incident.`,
+    phase_shock: `Archive: "${term}" denotes the phase shock—the Project HORIZON transition shock tied to log gaps, chart drift, and AXIS/HADES handshake anomalies.`,
+    neptune: `Archive: "${term}" denotes the Neptune-orbit deployment frame for this experiment; Tartarus is positioned there for the gravity-drive leg, not arbitrary deep space.`,
+    gravity: `Archive: "${term}" denotes the gravity-drive / warp experiment frame—anomalies tie to drive sync and HORIZON metadata, not generic engine coolant stories.`,
+    awakened: `Archive: "${term}" denotes the forced-awakened crew state after the AXIS emergency, including roster mismatch and nested-identity risk.`,
+    ship: `Archive: "${term}" denotes USSC Tartarus as the missing experimental hull—comms down, partial blackout—stay within that briefing frame.`,
+    nested: `Archive: "${term}" denotes the nested entity (중첩체)—overlapping life signatures on one identity boundary, not a generic disease label.`,
+    general: `Archive: "${term}" is read under Tartarus canon: Neptune-orbit gravity experiment, Project HORIZON, phase shock, AXIS ship AI, HADES sealed layer, awakened crew with one mismatched identity.`
+  };
+  const ko = {
+    hades: `기록: "${term}"는 HADES를 가리킨다. AXIS 내부에 봉인된 비인가 레이어로, 프로젝트 HORIZON phase shock 이후 깨어나 한 승무원 채널에 결속된다. 의료 프로토콜·항법 앱이 아니다.`,
+    axis: `기록: "${term}"는 AXIS를 가리킨다. 공식 함선 AI·시스템 레이어이며, HADES는 그 AXIS 안에 봉인된 비인가 레이어다. AXIS만 단독으로 설명하지 말 것.`,
+    horizon: `기록: "${term}"는 프로젝트 HORIZON을 가리킨다. 중력 드라이브 실험에 붙는 정식 코드명이며, phase shock가 촉발 사건이다.`,
+    phase_shock: `기록: "${term}"는 phase shock(위상 충격)를 가리킨다. HORIZON 전이 충격으로 로그 공백·차트 드리프트·AXIS/HADES 핸드셰이크 이상과 연동된다.`,
+    neptune: `기록: "${term}"는 해왕성 궤도 실험 구간을 가리킨다. Tartarus 배치 맥락이며 임의의 심우주로 바꾸지 말 것.`,
+    gravity: `기록: "${term}"는 중력 드라이브·워프 실험 프레임을 가리킨다. 이상은 드라이브 동기·HORIZON 메타데이터와 묶이며 일반 냉각 클리셰로 대체 금지.`,
+    awakened: `기록: "${term}"는 AXIS 비상 이후 강제 기상 승무원 상태를 가리킨다. 명부 불일치·중첩체 위험이 포함된다.`,
+    ship: `기록: "${term}"는 실험함 Tartarus 본선 설정을 가리킨다. 통신 두절·부분 정전 등 브리핑과 맞출 것.`,
+    nested: `기록: "${term}"는 중첩체를 가리킨다. 한 경계에 겹친 생체 신호·정체를 뜻하며 단순 감염명으로 줄이지 말 것.`,
+    general: `기록: "${term}"는 해왕성 궤도 중력 실험·프로젝트 HORIZON·phase shock·AXIS 함선 AI·HADES 봉인층·기상 승무원 신원 불일치 등 공통 세계관 축 아래에서만 해석한다.`
+  };
+  const body = (loc === 'en' ? en : ko)[T] || (loc === 'en' ? en.general : ko.general);
+  return `${sys} ${body}`;
+}
+
+/**
+ * lore_question system-only 표시 로그(단일 CREW_DIALOGUE system). 크루·함장 다중 행 금지.
+ */
+function buildLoreQuestionSystemOnlyDisplayLogs(locale, text) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const resolved = resolveLoreCanonicalTopicForSystem(String(text || ''), loc);
+  try {
+    const te = String(resolved.displayTerm || '')
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"')
+      .slice(0, 200);
+    console.log('[bot][lore] term="' + te + '"');
+    console.log(
+      '[bot][lore] canonical match=' +
+        resolved.topicKey +
+        (resolved.aliasMatched ? ' alias=' + resolved.aliasMatched : '')
+    );
+  } catch (e) {}
+  const line = buildLoreSystemOnlyCanonicalLine(loc, resolved.topicKey, resolved.displayTerm || '');
+  const rawEv = [{ type: 'CREW_DIALOGUE', role: 'system', dialogue: line }];
+  return dedupeDisplayLogs(toPlayerDisplayLogs(rawEv, { locale: loc }), loc);
 }
 
 function getLoreCanonSystemExtension(locale) {
@@ -6226,6 +6306,14 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
   toneOptsBase.threatTargetRole =
     kind === 'THREATEN' && ev0?.target ? String(ev0.target).toLowerCase() : null;
 
+  if (kind === 'LORE_QUESTION') {
+    try {
+      console.log('[bot][warn] lore_question attempted to enter crew pipeline');
+    } catch (e) {}
+    logDialogueTrace(actionSlug, 'deterministic', modelStr, 'system_only', eventsCount);
+    return buildLoreQuestionSystemOnlyDisplayLogs(locale, playerText || '');
+  }
+
   if (!isDialogueLlmConfigured()) {
     logDialogueTrace(actionSlug, 'deterministic', modelStr, 'fallback', eventsCount);
     if (kind === 'THREATEN' || kind === 'TAKE_PISTOL') {
@@ -6980,6 +7068,9 @@ async function handleTextMessage(playerId, text, opts = {}) {
 
   if (cls.kind === 'lore_question') {
     console.log('[bot] message kind=lore_question');
+    try {
+      console.log('[bot][route] lore pipeline selected');
+    } catch (e) {}
     const gateTg = evaluateLoreUnknownTermGate('lore_question', String(text || ''), locale);
     if (gateTg.block) {
       await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
@@ -6998,45 +7089,7 @@ async function handleTextMessage(playerId, text, opts = {}) {
       return replyUnk;
     }
     await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
-    const matchForLlm = await matchStore.getMatch(matchId);
-    const captainBodyForLore =
-      stripLeadingCaptainBracketFromUserLine(String(text || '').trim(), locale) ||
-      String(text || '').trim();
-    const loreTopic = detectLoreQuestionTopic(String(text || ''), locale);
-    console.log('[bot] lore_question topic=' + loreTopic + ' locale=' + locale);
-    console.log('[bot] lore_question canon_anchor_applied=true');
-    const rawEvents = [{ type: 'LORE_QUESTION' }];
-    const deterministicFallback = buildLoreQuestionDeterministicFallbackEvents(
-      matchForLlm,
-      locale,
-      captainBodyForLore,
-      loreTopic
-    );
-    const deterministicLogs = dedupeDisplayLogs(
-      toPlayerDisplayLogs(deterministicFallback, { locale }),
-      locale
-    );
-    const loreCanonSnippet = getLoreTopicSnippet(loreTopic, locale);
-    let recentDisplay = dedupeDisplayLogs(
-      await maybeDialogueLogsFromLlmOrDeterministic({
-        rawEvents,
-        deterministicLogs,
-        match: matchForLlm,
-        playerText: String(text || '').trim(),
-        clueTextFromEvent: undefined,
-        locale,
-        forcedCaptainTextOverride: captainBodyForLore,
-        targetedQuestionSideReactionRules: false,
-        loreQuestionTopic: loreTopic,
-        loreCanonAnchorText: loreCanonSnippet
-      }),
-      locale
-    );
-    if (captainBodyForLore) {
-      recentDisplay = applyTargetedQuestionCaptainDisplayBody(recentDisplay, captainBodyForLore, locale);
-      recentDisplay = dedupeDisplayLogs(recentDisplay, locale);
-      console.log('[bot] lore_question captain_body_preserved=true');
-    }
+    let recentDisplay = buildLoreQuestionSystemOnlyDisplayLogs(locale, text);
     const toStore = displayLogsToCrewDialogueEvents(recentDisplay, locale);
     for (const ev of toStore) await matchStore.appendEvent(matchId, ev);
     const updated = await matchStore.getMatch(matchId);
@@ -7052,6 +7105,9 @@ async function handleTextMessage(playerId, text, opts = {}) {
   if (cls.kind === 'brief_question') {
     console.log('[bot] message kind=brief_question');
     console.log('[bot] brief_question deterministic=true');
+    try {
+      console.log('[bot][route] crew pipeline selected');
+    } catch (e) {}
     await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
     const events = buildOpenQuestionCrewEvents(match, locale);
     for (const ev of events) await matchStore.appendEvent(matchId, ev);
@@ -7578,18 +7634,50 @@ async function processMessageApi(playerId, text, opts = {}) {
     } catch (e) {}
     console.log('[bot] message kind=lore_question');
     try {
-    const gateApi = evaluateLoreUnknownTermGate('lore_question', String(text || ''), locale);
-    if (gateApi.block) {
+      console.log('[bot][route] lore pipeline selected');
+    } catch (e) {}
+
+    try {
+      const gateApi = evaluateLoreUnknownTermGate('lore_question', String(text || ''), locale);
+      if (gateApi.block) {
+        await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
+        const lineUnk = buildUnknownLoreTermSystemLine(locale, gateApi.term);
+        const rawEvUnk = [{ type: 'CREW_DIALOGUE', role: 'system', dialogue: lineUnk }];
+        const newDisplayLogsUnk = dedupeDisplayLogs(toPlayerDisplayLogs(rawEvUnk, { locale }), locale);
+        const toStoreUnk = displayLogsToCrewDialogueEvents(newDisplayLogsUnk, locale);
+        for (const ev of toStoreUnk) await matchStore.appendEvent(matchId, ev);
+        const updatedUnk = await matchStore.getMatch(matchId);
+        const timerUnk = ep1Engine.getTimerStatus(updatedUnk, now);
+        const remUnk = Math.max(0, Math.floor(timerUnk.remaining_sec ?? 0));
+        const summaryTextUnk = summaryFromDisplayLogs(newDisplayLogsUnk, locale);
+        try {
+          console.log(
+            '[bot][message] lore response emitted blocked=false ok=true used=' +
+              String(loreFreePromptUsedAfterConsume ?? '?')
+          );
+        } catch (e) {}
+        return attachFreePromptConsumedMetadata(
+          {
+            ok: true,
+            summary: summaryTextUnk,
+            remaining_sec: remUnk,
+            game_over: false,
+            outcome: null,
+            events: newDisplayLogsUnk,
+            recent_events: newDisplayLogsUnk,
+            match_state: updatedUnk?.game_state || {}
+          },
+          freePromptConsumedThisApi
+        );
+      }
       await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
-      const lineUnk = buildUnknownLoreTermSystemLine(locale, gateApi.term);
-      const rawEvUnk = [{ type: 'CREW_DIALOGUE', role: 'system', dialogue: lineUnk }];
-      const newDisplayLogsUnk = dedupeDisplayLogs(toPlayerDisplayLogs(rawEvUnk, { locale }), locale);
-      const toStoreUnk = displayLogsToCrewDialogueEvents(newDisplayLogsUnk, locale);
-      for (const ev of toStoreUnk) await matchStore.appendEvent(matchId, ev);
-      const updatedUnk = await matchStore.getMatch(matchId);
-      const timerUnk = ep1Engine.getTimerStatus(updatedUnk, now);
-      const remUnk = Math.max(0, Math.floor(timerUnk.remaining_sec ?? 0));
-      const summaryTextUnk = summaryFromDisplayLogs(newDisplayLogsUnk, locale);
+      const newDisplayLogs = buildLoreQuestionSystemOnlyDisplayLogs(locale, text);
+      const toStore = displayLogsToCrewDialogueEvents(newDisplayLogs, locale);
+      for (const ev of toStore) await matchStore.appendEvent(matchId, ev);
+      const updated = await matchStore.getMatch(matchId);
+      const timer = ep1Engine.getTimerStatus(updated, now);
+      const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
+      const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
       try {
         console.log(
           '[bot][message] lore response emitted blocked=false ok=true used=' +
@@ -7599,82 +7687,16 @@ async function processMessageApi(playerId, text, opts = {}) {
       return attachFreePromptConsumedMetadata(
         {
           ok: true,
-          summary: summaryTextUnk,
-          remaining_sec: remUnk,
+          summary: summaryText,
+          remaining_sec: rem,
           game_over: false,
           outcome: null,
-          events: newDisplayLogsUnk,
-          recent_events: newDisplayLogsUnk,
-          match_state: updatedUnk?.game_state || {}
+          events: newDisplayLogs,
+          recent_events: newDisplayLogs,
+          match_state: updated?.game_state || {}
         },
         freePromptConsumedThisApi
       );
-    }
-    await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
-    const matchForLlm = await matchStore.getMatch(matchId);
-    const captainBodyForLore =
-      stripLeadingCaptainBracketFromUserLine(String(text || '').trim(), locale) ||
-      String(text || '').trim();
-    const loreTopic = detectLoreQuestionTopic(String(text || ''), locale);
-    console.log('[bot] lore_question topic=' + loreTopic + ' locale=' + locale);
-    console.log('[bot] lore_question canon_anchor_applied=true');
-    const rawEvents = [{ type: 'LORE_QUESTION' }];
-    const deterministicFallback = buildLoreQuestionDeterministicFallbackEvents(
-      matchForLlm,
-      locale,
-      captainBodyForLore,
-      loreTopic
-    );
-    const deterministicLogs = dedupeDisplayLogs(
-      toPlayerDisplayLogs(deterministicFallback, { locale }),
-      locale
-    );
-    const loreCanonSnippet = getLoreTopicSnippet(loreTopic, locale);
-    let newDisplayLogs = dedupeDisplayLogs(
-      await maybeDialogueLogsFromLlmOrDeterministic({
-        rawEvents,
-        deterministicLogs,
-        match: matchForLlm,
-        playerText: String(text || '').trim(),
-        clueTextFromEvent: undefined,
-        locale,
-        forcedCaptainTextOverride: captainBodyForLore,
-        targetedQuestionSideReactionRules: false,
-        loreQuestionTopic: loreTopic,
-        loreCanonAnchorText: loreCanonSnippet
-      }),
-      locale
-    );
-    if (captainBodyForLore) {
-      newDisplayLogs = applyTargetedQuestionCaptainDisplayBody(newDisplayLogs, captainBodyForLore, locale);
-      newDisplayLogs = dedupeDisplayLogs(newDisplayLogs, locale);
-      console.log('[bot] lore_question captain_body_preserved=true');
-    }
-    const toStore = displayLogsToCrewDialogueEvents(newDisplayLogs, locale);
-    for (const ev of toStore) await matchStore.appendEvent(matchId, ev);
-    const updated = await matchStore.getMatch(matchId);
-    const timer = ep1Engine.getTimerStatus(updated, now);
-    const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
-    const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
-    try {
-      console.log(
-        '[bot][message] lore response emitted blocked=false ok=true used=' +
-          String(loreFreePromptUsedAfterConsume ?? '?')
-      );
-    } catch (e) {}
-    return attachFreePromptConsumedMetadata(
-      {
-        ok: true,
-        summary: summaryText,
-        remaining_sec: rem,
-        game_over: false,
-        outcome: null,
-        events: newDisplayLogs,
-        recent_events: newDisplayLogs,
-        match_state: updated?.game_state || {}
-      },
-      freePromptConsumedThisApi
-    );
     } catch (err) {
       try {
         console.log('[bot][error] lore pipeline failed err=' + String(err?.message || err));
@@ -7684,8 +7706,8 @@ async function processMessageApi(playerId, text, opts = {}) {
       const remFb = Math.max(0, Math.floor(timerFb.remaining_sec ?? 0));
       const fbSum =
         locale === 'en'
-          ? '[System] Lore response could not be fully generated. The crew remains on standby.'
-          : '[시스템] 로어 응답을 완전히 생성하지 못했습니다. 승무원은 대기 중입니다.';
+          ? '[System] The lore archive line could not be generated.'
+          : '[시스템] 로어 기록 응답을 생성하지 못했습니다.';
       try {
         console.log(
           '[bot][message] lore response emitted blocked=false ok=true used=' +
@@ -7713,6 +7735,9 @@ async function processMessageApi(playerId, text, opts = {}) {
   if (cls.kind === 'brief_question') {
     console.log('[bot] message kind=brief_question');
     console.log('[bot] brief_question deterministic=true');
+    try {
+      console.log('[bot][route] crew pipeline selected');
+    } catch (e) {}
     await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
     const events = buildOpenQuestionCrewEvents(match, locale);
     for (const ev of events) await matchStore.appendEvent(matchId, ev);
