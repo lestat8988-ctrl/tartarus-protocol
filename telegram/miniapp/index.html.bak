@@ -1,0 +1,2615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <!-- ?�택: 공개 bot API base (비우�??�크립트??DEFAULT_PUBLIC_API_BASE ???�용) -->
+  <meta name="telegram-api-base" content="" />
+  <title>Tartarus Protocol - Mini App</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; height: 100%; }
+    :root {
+      --captain-status-color-idle: #2aef2a;
+      --captain-status-color-pending: #5eff5e;
+      --captain-status-font-size: 0.78rem;
+      --captain-status-letter-spacing: 0.04em;
+      --captain-status-min-height: 1.35em;
+
+      /*
+       * Game log + 붕괴 ?�?�머 ????블록�??�정??롤백/?�닝.
+       * --role-* : ?�더/강조, --role-*-body : 본문·?�레?�션·?�속 �??�일 블록).
+       * ?�단 "?�선 붕괴까�?" (#game-screen .subheader)??--role-system �??�일.
+       */
+      --role-captain: #e4e4e4;
+      --role-captain-body: #b0b0b0;
+      --role-captain-border: rgba(228, 228, 228, 0.42);
+      --role-doctor: #e8a882;
+      --role-doctor-body: #c69672;
+      --role-doctor-border: rgba(232, 168, 130, 0.45);
+      --role-engineer: #d8a8d4;
+      --role-engineer-body: #a888ad;
+      --role-engineer-border: rgba(216, 168, 212, 0.45);
+      --role-navigator: #f2a8d8;
+      --role-navigator-body: #ca90b4;
+      --role-navigator-border: rgba(242, 168, 216, 0.42);
+      --role-pilot: #5edcc4;
+      --role-pilot-body: #48b8a4;
+      --role-pilot-border: rgba(94, 220, 196, 0.45);
+      --role-system: #ff5050;
+      --role-system-body: #ff6b6b;
+      --role-system-border: rgba(255, 80, 80, 0.6);
+    }
+    body {
+      background: #0a0a0a;
+      color: #2aef2a;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+    /* 처형 모달 ?�림: ?�래 게임 UI�??�치가 ?��? ?�게 (고스???�릭?�로 ?�송 버튼·?�전 ?�력 ?�전??방�?) */
+    body.execute-modal-open #game-screen,
+    body.threat-modal-open #game-screen,
+    body.question-modal-open #game-screen {
+      pointer-events: none;
+    }
+    #app {
+      min-height: 100vh;
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 12px;
+      padding-bottom: 24px;
+    }
+
+    /* Header (베르?� game-header ?��??? ?�?��? + ?�?�머�? */
+    .header {
+      text-align: center;
+      padding: 6px 0 8px;
+      border-bottom: 1px solid #2aef2a33;
+      margin-bottom: 6px;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: 1px;
+    }
+    .subheader {
+      margin-top: 2px;
+      font-size: 0.7rem;
+      font-weight: 600;
+    }
+    #game-screen .subheader {
+      color: var(--role-system);
+      text-shadow: 0 0 10px rgba(255, 80, 80, 0.45);
+    }
+
+    /* Outcome badge (game over) */
+    .outcome-badge {
+      margin: 8px 0 12px;
+      padding: 10px 14px;
+      text-align: center;
+      font-size: 0.95rem;
+      font-weight: 600;
+      letter-spacing: 1px;
+      border-radius: 4px;
+      display: none;
+    }
+    .outcome-badge.visible { display: block; }
+    .outcome-badge.crew_win { background: #0a3a0a; border: 2px solid #2aef2a; color: #4aff4a; box-shadow: 0 0 12px rgba(42,239,42,0.3); }
+    .outcome-badge.impostor_win { background: #3a0a0a; border: 2px solid #ef2a2a; color: #ff4a4a; box-shadow: 0 0 12px rgba(239,42,42,0.3); }
+    .outcome-badge.accuse_failed { background: #3a1a0a; border: 2px solid #ef8a2a; color: #ffaa4a; box-shadow: 0 0 12px rgba(239,138,42,0.25); }
+
+    /* ?�장 ?�력 / ?�루 ?�답 ?�태 (public index phase-status?� ?�일 ??��, ?�일 ?�래그로�?갱신) */
+    .captain-phase-status {
+      display: block;
+      text-align: center;
+      font-size: var(--captain-status-font-size);
+      letter-spacing: var(--captain-status-letter-spacing);
+      min-height: var(--captain-status-min-height);
+      margin: 4px 0 8px;
+      padding: 6px 8px;
+      border-radius: 4px;
+      border: 1px solid transparent;
+      transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+    }
+    .captain-phase-status.captain-phase-idle {
+      color: var(--captain-status-color-idle);
+      background: #0d1a0d;
+      border-color: #2aef2a33;
+    }
+    .captain-phase-status.captain-phase-pending {
+      color: var(--captain-status-color-pending);
+      background: #0f2210;
+      border-color: #2aef2a55;
+      font-weight: 600;
+    }
+    .captain-phase-status.captain-phase-hidden {
+      display: none;
+    }
+    body.crew-response-pending #game-screen .input-area input {
+      opacity: 0.45;
+    }
+
+    /* Status card ???�레??�??��? (베르?�처럼 로그 중심) */
+    .status-card {
+      display: none;
+    }
+
+    /* Log panel (베르?� #log ?��??? 메인 ?��????�역 ?��?) */
+    .log-panel {
+      min-height: 200px;
+      max-height: 320px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 8px 10px;
+      margin: 6px 0;
+      background: #0d0d0d;
+      border: 1px solid #2aef2a22;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      -webkit-overflow-scrolling: touch;
+    }
+    .log-entry {
+      margin-bottom: 6px;
+      padding-left: 8px;
+      border-left: 2px solid #2aef2a44;
+    }
+    .log-entry.error { border-color: #ef2a2a44; }
+
+    /* Game log only: 블록 기본??= 본문 계열(?�속 줄�? text ?�드�??�어???�일 ?? */
+    #game-screen .log-panel .log-entry[data-role="captain"] { border-left-color: var(--role-captain-border); color: var(--role-captain-body); }
+    #game-screen .log-panel .log-entry[data-role="captain"] .log-role-header { color: var(--role-captain); font-weight: 600; }
+    #game-screen .log-panel .log-entry[data-role="captain"] .log-role-body { color: var(--role-captain-body); }
+    #game-screen .log-panel .log-entry[data-role="doctor"] { border-left-color: var(--role-doctor-border); color: var(--role-doctor-body); }
+    #game-screen .log-panel .log-entry[data-role="doctor"] .log-role-header { color: var(--role-doctor); font-weight: 600; }
+    #game-screen .log-panel .log-entry[data-role="doctor"] .log-role-body { color: var(--role-doctor-body); }
+    #game-screen .log-panel .log-entry[data-role="engineer"] { border-left-color: var(--role-engineer-border); color: var(--role-engineer-body); }
+    #game-screen .log-panel .log-entry[data-role="engineer"] .log-role-header { color: var(--role-engineer); font-weight: 600; }
+    #game-screen .log-panel .log-entry[data-role="engineer"] .log-role-body { color: var(--role-engineer-body); }
+    #game-screen .log-panel .log-entry[data-role="navigator"] { border-left-color: var(--role-navigator-border); color: var(--role-navigator-body); }
+    #game-screen .log-panel .log-entry[data-role="navigator"] .log-role-header { color: var(--role-navigator); font-weight: 600; }
+    #game-screen .log-panel .log-entry[data-role="navigator"] .log-role-body { color: var(--role-navigator-body); }
+    #game-screen .log-panel .log-entry[data-role="pilot"] { border-left-color: var(--role-pilot-border); color: var(--role-pilot-body); }
+    #game-screen .log-panel .log-entry[data-role="pilot"] .log-role-header { color: var(--role-pilot); font-weight: 600; }
+    #game-screen .log-panel .log-entry[data-role="pilot"] .log-role-body { color: var(--role-pilot-body); }
+    #game-screen .log-panel .log-entry[data-role="system"] { border-left-color: var(--role-system-border); color: var(--role-system-body); }
+    #game-screen .log-panel .log-entry[data-role="system"] .log-role-header { color: var(--role-system); font-weight: 600; }
+    #game-screen .log-panel .log-entry[data-role="system"] .log-role-body { color: var(--role-system-body); }
+
+    /* Action buttons (2??배치 ?��?) */
+    .action-panel {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 6px 8px;
+      margin: 6px 0;
+    }
+    .action-btn {
+      padding: 12px;
+      background: #111;
+      border: 1px solid #2aef2a55;
+      border-radius: 4px;
+      color: #2aef2a;
+      font-family: inherit;
+      font-size: 0.85rem;
+      cursor: pointer;
+      text-align: center;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .action-btn:active { background: #1a2a1a; }
+    .action-btn.locked {
+      opacity: 0.4;
+      cursor: not-allowed;
+      pointer-events: none;
+      border-color: #2aef2a22;
+      color: #2aef2a66;
+    }
+    @media (max-width: 360px) {
+      .action-panel { grid-template-columns: 1fr; }
+    }
+
+    /* Input area */
+    .input-area {
+      display: flex;
+      gap: 8px;
+      margin: 6px 0;
+      padding-bottom: 8px;
+    }
+    .input-area input {
+      flex: 1;
+      padding: 14px 12px;
+      background: #111;
+      border: 1px solid #2aef2a55;
+      border-radius: 4px;
+      color: #2aef2a;
+      font-family: inherit;
+      font-size: 0.9rem;
+    }
+    .input-area input::placeholder { color: #2aef2a44; }
+    .input-area button {
+      padding: 14px 18px;
+      background: #1a3a1a;
+      border: 1px solid #2aef2a;
+      border-radius: 4px;
+      color: #2aef2a;
+      font-family: inherit;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .input-area button:active { background: #2a4a2a; }
+    .input-area.disabled input,
+    .input-area.disabled button {
+      opacity: 0.4;
+      cursor: not-allowed;
+      pointer-events: none;
+      border-color: #2aef2a22;
+    }
+    .input-area.disabled input { color: #2aef2a66; }
+    .input-area.disabled input::placeholder { color: #2aef2a44; }
+
+    /* Restart button (game over only) */
+    .restart-section {
+      display: none;
+      margin: 16px 0 24px;
+      padding: 12px 0;
+    }
+    .restart-section.visible { display: block; }
+    .restart-btn {
+      width: 100%;
+      padding: 16px 20px;
+      background: linear-gradient(180deg, #1a4a1a 0%, #0d2a0d 100%);
+      border: 1px solid #2aef2a;
+      border-radius: 6px;
+      color: #2aef2a;
+      font-family: inherit;
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: 1px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .restart-btn:active { background: #2a5a2a; }
+
+    @media (max-width: 480px) {
+      .action-panel { gap: 10px; margin: 14px 0; }
+      .action-btn { padding: 14px; min-height: 48px; }
+      .input-area { gap: 10px; margin: 14px 0; }
+      .restart-section { margin: 18px 0 28px; }
+      .restart-btn { padding: 18px 24px; min-height: 52px; }
+    }
+
+    /* Episode lock section */
+    .episode-section {
+      padding: 8px 10px;
+      margin-top: 8px;
+      background: #0d0d0d;
+      border: 1px solid #2aef2a22;
+      border-radius: 4px;
+    }
+    .episode-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+      font-size: 0.85rem;
+    }
+    .episode-row.locked { color: #666; opacity: 0.8; }
+    .episode-row.available { color: #2aef2a; }
+    .episode-unlock-btn {
+      width: 100%;
+      margin-top: 12px;
+      padding: 14px;
+      background: #1a1a1a;
+      border: 1px dashed #2aef2a55;
+      border-radius: 4px;
+      color: #2aef2a99;
+      font-family: inherit;
+      font-size: 0.9rem;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .episode-unlock-btn:active { background: #222; }
+
+    /* Intro screen (public/index.html #intro-briefing 기�?) */
+    #intro-screen {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      background: #000 url(./assets/tartarus-ship-neptune.png) center center no-repeat;
+      background-size: clamp(320px, 70vw, 900px) auto;
+      background-position: center 45%;
+      padding: 0;
+      overflow: hidden;
+    }
+    #intro-screen::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      z-index: 5;
+      pointer-events: none;
+      background: repeating-linear-gradient(0deg, rgba(0,0,0,0.05) 0px, transparent 1px, transparent 3px);
+    }
+    #intro-screen::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      z-index: 6;
+      pointer-events: none;
+      background:
+        linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.5) 30%, rgba(0,0,0,0.55) 65%, rgba(0,0,0,0.9) 100%),
+        radial-gradient(ellipse 85% 85% at 50% 50%, transparent 45%, rgba(0,0,0,0.4) 100%);
+    }
+    #intro-screen .intro-bottom { position: relative; z-index: 20; }
+    #intro-screen.hidden { display: none; }
+    #intro-scroll-wrapper {
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+      position: relative;
+      z-index: 8;
+    }
+    #intro-scroll-content {
+      position: absolute;
+      left: 50%;
+      top: 0;
+      transform: translateX(-50%) translateY(0);
+      width: 100%;
+      max-width: 440px;
+      padding: 24px 20px 80px;
+      padding-top: max(24px, env(safe-area-inset-top, 0px) + 12px);
+      text-align: center;
+    }
+    #intro-scroll-title {
+      font-size: 18px;
+      letter-spacing: 6px;
+      color: #2aef2a;
+      text-shadow: 0 0 2px rgba(42,239,42,0.5);
+      margin-bottom: 24px;
+    }
+    #intro-scroll-subtitle {
+      font-size: 12px;
+      letter-spacing: 2px;
+      color: rgba(42,239,42,0.9);
+      text-shadow: 0 0 1px rgba(42,239,42,0.4);
+      margin-bottom: 28px;
+      line-height: 1.8;
+    }
+    #intro-scroll-content.scroll-animate {
+      animation: introCreditsScroll 85s linear 5s 1 forwards;
+    }
+    @keyframes introCreditsScroll {
+      0% { transform: translateX(-50%) translateY(0); }
+      100% { transform: translateX(-50%) translateY(-100%); }
+    }
+    .intro-scroll-lines .lore-line { margin-bottom: 10px; color: #2aef2a; }
+    .intro-scroll-lines .lore-spacer { height: 16px; margin-bottom: 16px; }
+    .intro-scroll-lines .lore-alert { font-weight: 600; color: #2aef2a; }
+    .intro-scroll-lines .lore-section-title { font-weight: 600; color: #2aef2a; margin-top: 8px; }
+    .intro-scroll-lines {
+      font-size: 0.9rem;
+      line-height: 1.9;
+      color: #2aef2a;
+    }
+    .intro-bottom {
+      flex-shrink: 0;
+      margin-top: auto;
+      padding: 20px 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      position: relative;
+      z-index: 20;
+      background: linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.85) 25%);
+    }
+    .intro-init-btn {
+      padding: 16px 28px;
+      background: #0d2a0d;
+      border: 2px solid #2aef2a;
+      border-radius: 6px;
+      color: #2aef2a;
+      font-family: inherit;
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: 2px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .intro-init-btn:active { background: #1a3a1a; }
+    .intro-lang-row { display: flex; gap: 12px; }
+    .intro-lang-btn {
+      padding: 8px 16px;
+      background: transparent;
+      border: 1px solid #2aef2a55;
+      border-radius: 4px;
+      color: #2aef2a99;
+      font-family: inherit;
+      font-size: 0.85rem;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .intro-lang-btn.active { border-color: #2aef2a; color: #2aef2a; background: #1a2a1a; }
+    .intro-lang-btn:active { background: #1a2a1a; }
+
+    /* Intro 모바??(public @media max-width: 768px 기�?) */
+    @media (max-width: 768px) {
+      #intro-screen {
+        background-size: contain;
+        background-position: center 35%;
+      }
+      #intro-scroll-content {
+        padding: 16px 16px 80px;
+        padding-top: max(16px, env(safe-area-inset-top, 0px) + 8px);
+      }
+      #intro-scroll-title {
+        font-size: 14px;
+        letter-spacing: 3px;
+        margin-bottom: 16px;
+        text-shadow: 0 0 1px rgba(42,239,42,0.35);
+      }
+      #intro-scroll-subtitle {
+        font-size: 11px;
+        margin-bottom: 20px;
+        text-shadow: 0 0 1px rgba(42,239,42,0.3);
+      }
+      .intro-bottom {
+        padding: 12px 16px max(16px, env(safe-area-inset-bottom, 0px));
+      }
+    }
+
+    /* Game screen (visible after init) */
+    #game-screen { display: none; min-height: 100vh; }
+    #game-screen.visible { display: block; }
+
+    /* 게임 브리???�크�?(베르?�???�로 ?�르??briefing) */
+    .game-briefing-viewport {
+      height: 140px;
+      margin: 6px 0 0;
+      overflow: hidden;
+      background: #0d0d0d;
+      border: 1px solid #2aef2a22;
+      border-radius: 4px;
+      transition: height 0.4s ease, margin 0.4s ease, padding 0.4s ease, opacity 0.3s ease;
+    }
+    .game-briefing-viewport.collapsed {
+      height: 0;
+      margin: 0;
+      padding: 0;
+      border-width: 0;
+      opacity: 0;
+      overflow: hidden;
+    }
+    .game-briefing-scroll {
+      padding: 12px 14px 24px;
+      font-size: 0.78rem;
+      line-height: 1.6;
+      color: #2aef2a99;
+    }
+    .game-briefing-scroll.scroll-animate {
+      animation: gameBriefingScroll 28s linear 1s 1 forwards;
+    }
+    @keyframes gameBriefingScroll {
+      0% { transform: translateY(0); }
+      100% { transform: translateY(-100%); }
+    }
+    .game-briefing-line {
+      margin-bottom: 6px;
+    }
+    .game-briefing-line.briefing-title {
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: #2aef2a;
+      letter-spacing: 1px;
+      margin-top: 10px;
+      margin-bottom: 4px;
+    }
+    .game-briefing-line.briefing-title:first-child { margin-top: 0; }
+
+    /* Execute protocol modal */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 200;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.85);
+      padding: 16px;
+    }
+    .modal-overlay.visible { display: flex; }
+    .modal-box {
+      width: 100%;
+      max-width: 360px;
+      background: #111;
+      border: 1px solid #2aef2a55;
+      border-radius: 8px;
+      padding: 20px;
+    }
+    .modal-title { font-size: 1rem; font-weight: 600; color: #2aef2a; margin-bottom: 8px; text-align: center; }
+    .modal-instruction { font-size: 0.8rem; color: #2aef2a99; margin-bottom: 16px; text-align: center; line-height: 1.4; }
+    .modal-execute-warn { display: none; font-size: 0.78rem; color: #e6a23c; text-align: center; margin: -8px 0 12px; line-height: 1.35; }
+    .modal-execute-warn.visible { display: block; }
+    .modal-targets { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+    .modal-target-btn,
+    .threat-target-btn,
+    .question-target-btn {
+      padding: 14px;
+      background: #1a1a1a;
+      border: 1px solid #2aef2a55;
+      border-radius: 4px;
+      color: #2aef2a;
+      font-family: inherit;
+      font-size: 0.9rem;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .modal-target-btn.selected,
+    .threat-target-btn.selected,
+    .question-target-btn.selected { border-color: #2aef2a; background: #1a3a1a; }
+    .modal-target-btn.dead,
+    .threat-target-btn.dead,
+    .question-target-btn.dead,
+    .modal-target-btn:disabled,
+    .threat-target-btn:disabled,
+    .question-target-btn:disabled {
+      opacity: 0.42;
+      cursor: not-allowed;
+      border-color: #444;
+      color: #666;
+      background: #141414;
+      box-shadow: none;
+    }
+    .modal-target-btn.dead.selected,
+    .threat-target-btn.dead.selected,
+    .question-target-btn.dead.selected { border-color: #444; background: #141414; color: #666; }
+    .modal-target-btn:active:not(:disabled),
+    .threat-target-btn:active:not(:disabled),
+    .question-target-btn:active:not(:disabled) { background: #222; }
+    .modal-actions { display: flex; gap: 10px; }
+    .modal-actions button {
+      flex: 1;
+      padding: 14px;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .modal-cancel { background: #333; border: 1px solid #666; color: #ccc; }
+    .modal-confirm { background: #1a3a1a; border: 1px solid #2aef2a; color: #2aef2a; }
+    #restart-btn:disabled,
+    #result-restart-btn:disabled,
+    #execute-confirm:disabled,
+    #threat-confirm:disabled,
+    #question-confirm:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+    @media (max-width: 480px) {
+      .modal-box { padding: 24px; }
+      .modal-target-btn,
+      .threat-target-btn,
+      .question-target-btn { padding: 16px; min-height: 48px; }
+    }
+
+    /* Result modal (game over) */
+    #result-modal .result-modal-box { border-color: #2aef2a55; }
+    #result-modal.result-win .result-modal-box { border-color: #2aef2a; }
+    #result-modal.result-lose .result-modal-box { border-color: #ef2a2a; }
+    .result-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 12px; text-align: center; }
+    .result-win .result-title { color: #4aff4a; }
+    .result-lose .result-title { color: #ff4a4a; }
+    .result-desc { font-size: 0.88rem; color: #2aef2a99; margin-bottom: 12px; line-height: 1.5; }
+    .result-outcome-row { font-size: 0.85rem; margin-bottom: 10px; }
+    .result-outcome-label { color: #2aef2a99; margin-right: 6px; }
+    .result-imposter { font-size: 0.9rem; margin-bottom: 8px; }
+    .result-dead { font-size: 0.85rem; color: #ef2a2a99; margin-bottom: 16px; line-height: 1.4; }
+    .result-dead-label { color: #2aef2a99; }
+    .result-restart-btn {
+      width: 100%;
+      padding: 14px;
+      background: #1a3a1a;
+      border: 1px solid #2aef2a;
+      border-radius: 4px;
+      color: #2aef2a;
+      font-family: inherit;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <!-- Intro screen -->
+    <div id="intro-screen">
+      <div id="intro-scroll-wrapper">
+        <div id="intro-scroll-content" class="scroll-animate">
+          <div id="intro-scroll-title">TARTARUS PROTOCOL</div>
+          <div id="intro-scroll-subtitle">USS C TARTARUS<br>2198 / NEPTUNE OUTER ORBIT</div>
+          <div class="intro-scroll-lines" id="intro-scroll-lines"></div>
+        </div>
+      </div>
+      <div class="intro-bottom">
+        <button type="button" class="intro-init-btn" id="intro-init-btn">[ SYSTEM INITIALIZE ]</button>
+        <div class="intro-lang-row">
+          <button type="button" class="intro-lang-btn" id="intro-lang-ko" data-lang="ko">?�국??/button>
+          <button type="button" class="intro-lang-btn active" id="intro-lang-en" data-lang="en">ENGLISH</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Game screen -->
+    <div id="game-screen">
+    <header class="header">
+      <h1>Tartarus Protocol</h1>
+      <p class="subheader" id="hud-countdown">TIME UNTIL TOTAL SHIP COLLAPSE : --:--</p>
+    </header>
+
+    <div class="outcome-badge" id="outcome-badge"></div>
+
+    <p id="captain-phase-status" class="captain-phase-status captain-phase-idle" role="status" aria-live="polite"></p>
+
+    <section class="game-briefing-viewport" id="game-briefing-viewport">
+      <div class="game-briefing-scroll" id="game-briefing-scroll">
+        <div class="game-briefing-line briefing-title" id="briefing-boot-title">[SYSTEM INITIALIZE??</div>
+        <div class="game-briefing-line" id="briefing-target-vessel">Target vessel: USSC Tartarus (Prototype)</div>
+        <div class="game-briefing-line" id="briefing-mission">Mission: PROJECT 'HORIZON' - Gravity Drive Test</div>
+        <div class="game-briefing-line" id="briefing-location">Location: Neptune Orbit (Edge of Solar System)</div>
+        <div class="game-briefing-line briefing-title" id="briefing-hades-title">[HADES ALERT]</div>
+        <div class="game-briefing-line" id="briefing-hades-1">The gravity drive awakened the unauthorized layer known as HADES.</div>
+        <div class="game-briefing-line" id="briefing-hades-2">A parasitic overlap entity slipped into the return signal.</div>
+        <div class="game-briefing-line" id="briefing-hades-3">The four crew members are scattered across the ship, each carrying out their own duties.</div>
+        <div class="game-briefing-line" id="briefing-hades-4">Communications are open, but none of them are standing together.</div>
+        <div class="game-briefing-line briefing-title" id="briefing-objectives-title">[PRIMARY OBJECTIVES]</div>
+        <div class="game-briefing-line" id="briefing-obj-1">1. Identify the HOST hidden among the four crew members.</div>
+        <div class="game-briefing-line" id="briefing-obj-2">2. Eliminate the overlap entity before time runs out.</div>
+        <div class="game-briefing-line" id="briefing-obj-3">3. If you fail, it will isolate and kill the crew one by one.</div>
+      </div>
+    </section>
+
+    <section class="status-card">
+      <div class="status-item full-width">
+        <span id="label-match-id">Match ID</span>
+        <div class="status-value match-id" id="status-match-id" title="">--</div>
+      </div>
+      <div class="status-item">
+        <span id="label-remaining">Remaining Time</span>
+        <div class="status-value" id="status-time">--:--</div>
+      </div>
+      <div class="status-item">
+        <span id="label-location">Current Location</span>
+        <div class="status-value" id="status-location">Bridge</div>
+      </div>
+      <div class="status-item">
+        <span id="label-threat">Threat Level</span>
+        <div class="status-value" id="status-threat">NOMINAL</div>
+      </div>
+      <div class="status-item full-width" id="status-outcome-wrap" style="display:none;">
+        <span id="label-outcome">Outcome</span>
+        <div class="status-value" id="status-outcome">--</div>
+      </div>
+      <div class="status-item full-width" id="status-dead-wrap" style="display:none;">
+        <span id="label-dead">Dead Roles</span>
+        <div class="status-value" id="status-dead">--</div>
+      </div>
+    </section>
+
+    <section class="log-panel" id="log-panel">
+      <div class="log-entry" id="log-init">[--] Connecting...</div>
+    </section>
+
+    <section class="action-panel" id="action-panel">
+      <button class="action-btn" data-action="question">?�무???�문</button>
+      <button class="action-btn" data-action="cctv">CCTV 로그 ?�인</button>
+      <button class="action-btn" data-action="engine">?�진???�인</button>
+      <button class="action-btn" data-action="pistol">권총 ?�득</button>
+      <button class="action-btn" data-action="threat">?�협</button>
+      <button class="action-btn" data-action="clue">?�서 ?�집</button>
+      <button class="action-btn" data-action="execute" style="grid-column: 1 / -1;">처형 ?�로?�콜 ?�행</button>
+    </section>
+
+    <section class="input-area" id="input-area">
+      <input type="text" id="free-input" placeholder="?�유 ?�력..." maxlength="200" />
+      <button type="button" id="send-btn">?�송</button>
+    </section>
+
+    <section class="restart-section" id="restart-section">
+      <button type="button" class="restart-btn" id="restart-btn">??매치 ?�작</button>
+    </section>
+
+    <section class="episode-section">
+      <div class="episode-row available">Episode 1: Free / Available</div>
+      <div class="episode-row locked">Episode 2: Locked</div>
+      <div class="episode-row locked">Episode 3: Locked</div>
+      <button class="episode-unlock-btn" id="episode-unlock-btn">Unlock Episode Pass</button>
+    </section>
+    </div><!-- #game-screen -->
+  </div>
+
+  <!-- Result modal (game over) -->
+  <div class="modal-overlay" id="result-modal">
+    <div class="modal-box result-modal-box">
+      <div class="result-title" id="result-title">--</div>
+      <div class="result-desc" id="result-desc">--</div>
+      <div class="result-outcome-row" id="result-outcome-row" style="display:none;"><span class="result-outcome-label" id="result-outcome-label">--</span><span id="result-outcome-value">--</span></div>
+      <div class="result-imposter" id="result-imposter" style="display:none;"></div>
+      <div class="result-dead" id="result-dead" style="display:none;"></div>
+      <button type="button" class="result-restart-btn" id="result-restart-btn">?�시 ?�작</button>
+    </div>
+  </div>
+
+  <!-- Execute protocol modal -->
+  <div class="modal-overlay" id="execute-modal">
+    <div class="modal-box">
+      <div class="modal-title" id="execute-modal-title">처형 ?�???�택</div>
+      <div class="modal-instruction" id="execute-modal-instruction">처형 ?�??1명을 ?�택?�십?�오. ?�환?� 1발뿐?�니??</div>
+      <div class="modal-execute-warn" id="execute-no-target-hint" role="status"></div>
+      <div class="modal-targets">
+        <button type="button" class="modal-target-btn" data-target="doctor" id="target-doctor">?�터</button>
+        <button type="button" class="modal-target-btn" data-target="engineer" id="target-engineer">?��??�어</button>
+        <button type="button" class="modal-target-btn" data-target="navigator" id="target-navigator">?�비게이??/button>
+        <button type="button" class="modal-target-btn" data-target="pilot" id="target-pilot">?�일??/button>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="modal-cancel" id="execute-cancel">취소</button>
+        <button type="button" class="modal-confirm" id="execute-confirm" disabled>?�정</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Threat target modal (비처???�협 ??/api/action threaten) -->
+  <div class="modal-overlay" id="threat-modal">
+    <div class="modal-box">
+      <div class="modal-title" id="threat-modal-title">?�협 ?�???�택</div>
+      <div class="modal-instruction" id="threat-modal-instruction">?�박???�무??1명을 ?�택?�십?�오. 처형???�닙?�다.</div>
+      <div class="modal-execute-warn" id="threat-no-target-hint" role="status"></div>
+      <div class="modal-targets">
+        <button type="button" class="threat-target-btn" data-target="doctor" id="threat-target-doctor">?�터</button>
+        <button type="button" class="threat-target-btn" data-target="engineer" id="threat-target-engineer">?��??�어</button>
+        <button type="button" class="threat-target-btn" data-target="navigator" id="threat-target-navigator">?�비게이??/button>
+        <button type="button" class="threat-target-btn" data-target="pilot" id="threat-target-pilot">?�일??/button>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="modal-cancel" id="threat-cancel">취소</button>
+        <button type="button" class="modal-confirm" id="threat-confirm" disabled>?�정</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Question target modal (?�유 ?�력 ?�문 ???�택???�무?�만 문장???�함) -->
+  <div class="modal-overlay" id="question-modal">
+    <div class="modal-box">
+      <div class="modal-title" id="question-modal-title">?�문 ?�???�택</div>
+      <div class="modal-instruction" id="question-modal-instruction">질문???�무??1명을 ?�택?�십?�오.</div>
+      <div class="modal-execute-warn" id="question-no-target-hint" role="status"></div>
+      <div class="modal-targets">
+        <button type="button" class="question-target-btn" data-target="doctor" id="question-target-doctor">?�터</button>
+        <button type="button" class="question-target-btn" data-target="engineer" id="question-target-engineer">?��??�어</button>
+        <button type="button" class="question-target-btn" data-target="navigator" id="question-target-navigator">?�비게이??/button>
+        <button type="button" class="question-target-btn" data-target="pilot" id="question-target-pilot">?�일??/button>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="modal-cancel" id="question-cancel">취소</button>
+        <button type="button" class="modal-confirm" id="question-confirm" disabled>?�정</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      /**
+       * 공개 tunnel 주소가 바뀌면 ????줄만 ?�정?�면 ??
+       * ?�선?�위: window.TELEGRAM_API_BASE > meta[name=telegram-api-base] > (?�이지가 localhost�? http://localhost:8788 > ???�수
+       */
+      var DEFAULT_PUBLIC_API_BASE = 'https://thirty-bats-wish.loca.lt';
+
+      function trimApiBase(s) {
+        if (s == null || s === '') return '';
+        return String(s).trim().replace(/\/$/, '');
+      }
+
+      function resolveApiBase() {
+        try {
+          if (typeof window !== 'undefined' && window.TELEGRAM_API_BASE) {
+            var wb = trimApiBase(window.TELEGRAM_API_BASE);
+            if (wb) return wb;
+          }
+        } catch (e0) {}
+        try {
+          var meta = document.querySelector('meta[name="telegram-api-base"]');
+          if (meta) {
+            var mc = trimApiBase(meta.getAttribute('content'));
+            if (mc) return mc;
+          }
+        } catch (e1) {}
+        try {
+          var h = location.hostname || '';
+          if (h === 'localhost' || h === '127.0.0.1' || h === '[::1]') {
+            return 'http://localhost:8788';
+          }
+        } catch (e2) {}
+        var fb = trimApiBase(DEFAULT_PUBLIC_API_BASE);
+        return fb || 'http://localhost:8788';
+      }
+
+      var API_BASE = resolveApiBase();
+      try { console.log('[miniapp] apiBase=' + API_BASE); } catch (e) {}
+
+      const PLAYER_KEY = 'tartarus_miniapp_playerId';
+      const LANG_KEY = 'tartarus_miniapp_lang';
+
+      var screen = 'intro';
+      var storedLang;
+      try { storedLang = (localStorage.getItem(LANG_KEY) || '').trim(); } catch (e) { storedLang = ''; }
+      var lang = (storedLang === 'ko' || storedLang === 'en') ? storedLang : 'en';
+
+      function getLangForApi() {
+        return (lang === 'ko' || lang === 'en') ? lang : 'en';
+      }
+      function logMiniappApiLang(endpoint) {
+        try { console.log('[miniapp] sending lang=' + getLangForApi() + ' endpoint=' + endpoint); } catch (e) {}
+      }
+
+      /* public/index.html INTRO_TEXT?�서 그�?�?복사 (lines 배열) */
+      var OPENING_LINES = {
+        ko: [
+          '?�르�?로스 ?�는',
+          '?�왕???�곽?�서',
+          '차세?� 중력 ?�프 ?�험???�행?�던',
+          '?�전???�주 ?�험?�이??',
+          ' ',
+          '?�프 ?�이 ?�중 ?�상 충격??발생?�다.',
+          ' ',
+          'AXIS 비상 ?�로?�콜??발동?�고,',
+          '?�심 ?�무?�만 강제 기상?�다.',
+          ' ',
+          '?�신?� ?�절?�었??',
+          '?��? 구역?� ?�전?�었??',
+          '?��? 구역?� 격리?�었??',
+          ' ',
+          '기상???�원 �?,
+          '??명의 ?�체 ?�원???�치?��? ?�는??',
+          ' ',
+          'AXIS???�상?�었??',
+          '?��?�?AXIS ?��???봉인??비인가 계층,',
+          'HADES??깨어?�다.',
+          ' ',
+          '그것?� ?�의가 ?�니??',
+          '계산??그렇�?결정?�을 뿐이??',
+          ' ',
+          '?�장?� 권총 1발만 가진다.',
+          '중첩체�? 찾아?�라.',
+          ' ',
+          '?�선?� ?�아?�을 것입?�다.<br>?��? �??�리???�을지?? ?�러분이 결정?�세??'
+        ],
+        en: [
+          'The Tartarus',
+          'was a frontline experimental vessel',
+          'conducting next-generation gravity warp trials',
+          'beyond Neptune.',
+          ' ',
+          'During warp transfer,',
+          'a phase shock occurred.',
+          ' ',
+          'AXIS emergency protocol activated.',
+          'Core crew were forcibly awakened.',
+          ' ',
+          'Communications were lost.',
+          'Several sectors went dark.',
+          'Several sectors were sealed.',
+          ' ',
+          'Among the awakened crew,',
+          'one biological identity no longer matches.',
+          ' ',
+          'AXIS was damaged.',
+          'But within AXIS,',
+          'the sealed unauthorized layer HADES awakened.',
+          ' ',
+          'It is not malice.',
+          'It is only a decision made by calculation.',
+          ' ',
+          'The Captain has one bullet.',
+          'Find the overlap.',
+          ' ',
+          'The ship will survive.<br>Who remains aboard is for you to decide.'
+        ]
+      };
+
+      /* Vercel public/locales.js, public/index.html 기�? ?�용 */
+      var GAME_LABELS = {
+        ko: {
+          bootTitle: '[?�스??기동??',
+          targetVessel: '?�???�선: USSC ?�르�?로스(?�로?��???',
+          mission: '?�무: ?�로?�트 \'HORIZON\' - 중력 ?�라?�브 ?�험',
+          briefingLocation: '???�치: ?�왕??궤도(?�양�??�곽)',
+          countdown: '?�선 붕괴까�?',
+          hadesTitle: '[?�데??경보]',
+          hades1: '중력 ?�라?�브가 비인가 계층 \'HADES\'�?깨웠??',
+          hades2: '귀???�호???�체 불명??중첩체�? ?�여 ?�어?�다.',
+          hades3: '?�장???�외??4명의 ?�루???�재 ?�선 �?구역??분산?�어 ?�무�??�행 중이??',
+          hades4: '?�신?� ?�려 ?��?�? ?�구???�로??곁에 ?��? ?�다.',
+          objectivesTitle: '[주요 목표]',
+          obj1: '1. ?�루 4�?�??�간???�내 ?�는 중첩�?HOST)�?찾아??',
+          obj2: '2. ?�간???�나�??�에 중첩체�? 처형?�라.',
+          obj3: '3. ??���?중첩체�? 고립???�루�??�나???�해?�다.',
+          matchId: 'Match ID',
+          remaining: 'Remaining Time',
+          location: '?�재 ?�치',
+          threat: '?�협??,
+          outcome: 'Outcome',
+          deadRoles: 'Dead Roles',
+          question: '?�무???�문',
+          cctv: 'CCTV 로그 ?�인',
+          engine: '?�진???�인',
+          pistol: '권총 ?�득',
+          threatBtn: '?�협',
+          clue: '?�서 ?�집',
+          execute: '[ 처형 ?�로?�콜 ?�행 (ACCUSE) ]',
+          freeInput: '명령 ?�력...',
+          statusCaptainIdle: '?�장 ?�력 ?��?,
+          statusCrewPending: '?�루 반응 진행 �?..',
+          statusInputLocked: '?�력 ?��? ???�루 반응 ?��?,
+          gameOverPlaceholder: '게임 종료??,
+          send: '?�송',
+          restart: '?�시 ?�작',
+          resultTitleWin: '?�무 ?�공',
+          resultTitleLoseAccuse: '미션 ?�패 ???�못??처형',
+          resultTitleLoseImpostor: '미션 ?�패 ???�포?�터 ?�리',
+          resultTitleLoseTimeout: '미션 ?�패 ???�간 종료',
+          resultDescCrewWin: '중첩체�? ?�거?�다. ?�데??계층??봉인?�다. ?�선?� ?�아?�았??',
+          resultDescAccuseFailed: '무고???�무?�을 처형?�다. ?�못???�?�을 지목했?? ?�선 ?�괴??',
+          resultDescImpostorWin: '?�포?�터가 ?�리?�다. 중첩체�? ?�루�?모두 ?�해?�다. ?�선?� ?�데?�의 것이 ?�다.',
+          resultDescTimeout: '?�간?????�다. 중첩체는 ?�까지 발각?��? ?�았?? ?�선?� ?�데?�의 것이 ?�다.',
+          resultOutcomeLabel: '결과',
+          resultImposterPrefix: '?�제 ?�포?�터: ',
+          resultImposterFallback: '(?�인 불�?)',
+          resultDeadLabel: '?�망',
+          resultDeadPrefix: '?�망: ',
+          executeModalTitle: '처형 ?�???�택',
+          executeModalInstruction: '처형 ?�??1명을 ?�택?�십?�오. ?�환?� 1발뿐?�니??',
+          executeNoTargetHint: '처형 ?�?�을 먼�? ?�택?�십?�오. (?�터 / ?��??�어 / ?�비게이??/ ?�일??',
+          threatModalTitle: '?�협 ?�???�택',
+          threatModalInstruction: '?�박???�무??1명을 ?�택?�십?�오. 처형 ?�로?�콜???�닙?�다.',
+          threatNoTargetHint: '?�협 ?�?�을 먼�? ?�택?�십?�오. (?�터 / ?��??�어 / ?�비게이??/ ?�일??',
+          questionModalTitle: '?�문 ?�???�택',
+          questionModalInstruction: '질문???�무??1명을 ?�택?�십?�오.',
+          questionNoTargetHint: '?�문 ?�?�을 먼�? ?�택?�십?�오. (?�터 / ?��??�어 / ?�비게이??/ ?�일??',
+          cancel: '취소',
+          confirm: '?�정',
+          doctor: '?�터',
+          engineer: '?��??�어',
+          navigator: '?�비게이??,
+          pilot: '?�일??
+        },
+        en: {
+          bootTitle: '[SYSTEM INITIALIZE??',
+          targetVessel: 'Target vessel: USSC Tartarus (Prototype)',
+          mission: 'Mission: PROJECT \'HORIZON\' - Gravity Drive Test',
+          briefingLocation: 'Location: Neptune Orbit (Edge of Solar System)',
+          countdown: 'TIME UNTIL TOTAL SHIP COLLAPSE',
+          hadesTitle: '[HADES ALERT]',
+          hades1: 'The gravity drive awakened the unauthorized layer known as HADES.',
+          hades2: 'A parasitic overlap entity slipped into the return signal.',
+          hades3: 'The four crew members are scattered across the ship, each carrying out their own duties.',
+          hades4: 'Communications are open, but none of them are standing together.',
+          objectivesTitle: '[PRIMARY OBJECTIVES]',
+          obj1: '1. Identify the HOST hidden among the four crew members.',
+          obj2: '2. Eliminate the overlap entity before time runs out.',
+          obj3: '3. If you fail, it will isolate and kill the crew one by one.',
+          matchId: 'Match ID',
+          remaining: 'Remaining Time',
+          location: 'Current Location',
+          threat: 'Threat Level',
+          outcome: 'Outcome',
+          deadRoles: 'Dead Roles',
+          question: 'INTERROGATE CREW',
+          cctv: 'CHECK CCTV LOGS',
+          engine: 'CHECK ENGINE ROOM',
+          pistol: 'TAKE PISTOL',
+          threatBtn: 'THREAT',
+          clue: 'FIND CLUE',
+          execute: '[ INITIATE PURGE PROTOCOL (ACCUSE) ]',
+          freeInput: 'Enter command...',
+          statusCaptainIdle: 'Awaiting captain input',
+          statusCrewPending: 'Crew responding...',
+          statusInputLocked: 'Input locked ??crew responding',
+          gameOverPlaceholder: 'Game Over',
+          send: 'SEND',
+          restart: 'RESTART',
+          resultTitleWin: 'MISSION ACCOMPLISHED',
+          resultTitleLoseAccuse: 'MISSION FAILED ??Wrong accusation',
+          resultTitleLoseImpostor: 'MISSION FAILED ??Impostor victory',
+          resultTitleLoseTimeout: 'MISSION FAILED ??Time expired',
+          resultDescCrewWin: 'The parasite has been eliminated. HADES layer sealed. The ship survives.',
+          resultDescAccuseFailed: 'Innocent crew member executed. Wrong target. Ship destroyed.',
+          resultDescImpostorWin: 'Impostor prevailed. The parasite killed all crew. The ship belongs to HADES.',
+          resultDescTimeout: "Time's up. The parasite was never found. The ship belongs to HADES now.",
+          resultOutcomeLabel: 'Outcome',
+          resultImposterPrefix: 'Identified imposter: ',
+          resultImposterFallback: '(unknown)',
+          resultDeadLabel: 'Deceased',
+          resultDeadPrefix: 'Deceased: ',
+          executeModalTitle: 'SELECT TARGET FOR ELIMINATION',
+          executeModalInstruction: 'Choose one target. One bullet only. No second chance.',
+          executeNoTargetHint: 'Select an execution target first. (Doctor / Engineer / Navigator / Pilot)',
+          threatModalTitle: 'SELECT THREAT TARGET',
+          threatModalInstruction: 'Choose one crew member to pressure. This is not execution.',
+          threatNoTargetHint: 'Select a threat target first. (Doctor / Engineer / Navigator / Pilot)',
+          questionModalTitle: 'SELECT INTERROGATION TARGET',
+          questionModalInstruction: 'Choose one crew member to question.',
+          questionNoTargetHint: 'Select a crew member first. (Doctor / Engineer / Navigator / Pilot)',
+          cancel: 'CANCEL',
+          confirm: 'CONFIRM',
+          doctor: 'Doctor',
+          engineer: 'Engineer',
+          navigator: 'Navigator',
+          pilot: 'Pilot'
+        }
+      };
+
+      var VALID_ACCUSE_TARGETS = ['doctor', 'engineer', 'navigator', 'pilot'];
+
+      const introScreen = document.getElementById('intro-screen');
+      const introScrollLines = document.getElementById('intro-scroll-lines');
+      const introScrollContent = document.getElementById('intro-scroll-content');
+      const introInitBtn = document.getElementById('intro-init-btn');
+      const introLangKo = document.getElementById('intro-lang-ko');
+      const introLangEn = document.getElementById('intro-lang-en');
+      const gameScreen = document.getElementById('game-screen');
+      const hudCountdown = document.getElementById('hud-countdown');
+      const briefingBootTitle = document.getElementById('briefing-boot-title');
+      const briefingTargetVessel = document.getElementById('briefing-target-vessel');
+      const briefingMission = document.getElementById('briefing-mission');
+      const briefingLocation = document.getElementById('briefing-location');
+      const briefingHadesTitle = document.getElementById('briefing-hades-title');
+      const briefingHades1 = document.getElementById('briefing-hades-1');
+      const briefingHades2 = document.getElementById('briefing-hades-2');
+      const briefingHades3 = document.getElementById('briefing-hades-3');
+      const briefingHades4 = document.getElementById('briefing-hades-4');
+      const briefingObjectivesTitle = document.getElementById('briefing-objectives-title');
+      const briefingObj1 = document.getElementById('briefing-obj-1');
+      const briefingObj2 = document.getElementById('briefing-obj-2');
+      const briefingObj3 = document.getElementById('briefing-obj-3');
+      const gameBriefingViewport = document.getElementById('game-briefing-viewport');
+      const gameBriefingScroll = document.getElementById('game-briefing-scroll');
+      const statusMatchId = document.getElementById('status-match-id');
+      const statusTime = document.getElementById('status-time');
+      const statusLocation = document.getElementById('status-location');
+      const statusThreat = document.getElementById('status-threat');
+      const statusOutcomeWrap = document.getElementById('status-outcome-wrap');
+      const statusOutcome = document.getElementById('status-outcome');
+      const statusDeadWrap = document.getElementById('status-dead-wrap');
+      const statusDead = document.getElementById('status-dead');
+      const outcomeBadge = document.getElementById('outcome-badge');
+      const logPanel = document.getElementById('log-panel');
+      const logInit = document.getElementById('log-init');
+      const freeInput = document.getElementById('free-input');
+      const sendBtn = document.getElementById('send-btn');
+      const inputArea = document.getElementById('input-area');
+      const actionPanel = document.getElementById('action-panel');
+      const actionBtns = document.querySelectorAll('.action-btn');
+      var pistolActionBtn = actionPanel ? actionPanel.querySelector('.action-btn[data-action="pistol"]') : null;
+      var clueActionBtn = actionPanel ? actionPanel.querySelector('.action-btn[data-action="clue"]') : null;
+      const episodeUnlockBtn = document.getElementById('episode-unlock-btn');
+      const restartSection = document.getElementById('restart-section');
+      const restartBtn = document.getElementById('restart-btn');
+      const resultRestartBtn = document.getElementById('result-restart-btn');
+      const executeConfirmBtn = document.getElementById('execute-confirm');
+      const threatConfirmBtn = document.getElementById('threat-confirm');
+      const questionModal = document.getElementById('question-modal');
+      const questionConfirmBtn = document.getElementById('question-confirm');
+      const captainPhaseStatusEl = document.getElementById('captain-phase-status');
+
+      var isGameOver = false;
+      var previousGameOver = false;
+      var previousOutcome = null;
+      var executeModalUnlockTimer = null;
+      /** ?�속 ?�일 로그 방�? (summary + recent_events ?�중 출력 ?? */
+      var lastAppendedLogNorm = null;
+      var startRequestInFlight = false;
+      var accuseRequestInFlight = false;
+      var takePistolRequestInFlight = false;
+      var collectClueRequestInFlight = false;
+      var threatRequestInFlight = false;
+      var threatModalUnlockTimer = null;
+      var questionModalUnlockTimer = null;
+      var selectedThreatTarget = null;
+      var selectedExecuteTarget = null;
+      var selectedQuestionTarget = null;
+      /** ?�재 매치???�망 ??�� ??updateStatus(game_state.dead_roles)?�서 갱신 */
+      var lastDeadRoles = [];
+      /** [?�장] �??�후 같�? ?�의 ?�루 반응 append ??�??�래�??�크롤하지 ?�음 */
+      var logInActiveTurn = false;
+      /** 직전 [??��]/System:/?�장?��??�더 ?�후 ?�레?�션 줄이 같�? ?�을 ?�어받기 ?�한 ??*/
+      var lastLogBlockRole = null;
+      /**
+       * ?�장??직접 ?�작?????�청(/api/message, /api/action)?�만 true.
+       * /api/state ?�링·백그?�운???�기?�는 ???�래그�? ?��? 켜거???��? ?�음(updateStatus fromPoll ?�용 경로).
+       */
+      var userActionPending = false;
+      /** ?�금???��? ?�청???�퀀?? ??�� ?�착???�답??idle 콜백?� 불일�???무시 */
+      var captainUserActionSeq = 0;
+      var captainUserActionLockSeq = null;
+
+      function refreshCaptainPhaseStatusUi() {
+        if (!captainPhaseStatusEl) return;
+        var L = getL();
+        if (isGameOver) {
+          captainPhaseStatusEl.textContent = '';
+          captainPhaseStatusEl.classList.add('captain-phase-hidden');
+          captainPhaseStatusEl.classList.remove('captain-phase-idle', 'captain-phase-pending');
+          return;
+        }
+        captainPhaseStatusEl.classList.remove('captain-phase-hidden');
+        if (userActionPending) {
+          captainPhaseStatusEl.textContent = L.statusCrewPending || '';
+          captainPhaseStatusEl.classList.remove('captain-phase-idle');
+          captainPhaseStatusEl.classList.add('captain-phase-pending');
+        } else {
+          captainPhaseStatusEl.textContent = L.statusCaptainIdle || '';
+          captainPhaseStatusEl.classList.remove('captain-phase-pending');
+          captainPhaseStatusEl.classList.add('captain-phase-idle');
+        }
+      }
+
+      function applyCaptainInputChrome() {
+        var L = getL();
+        var locked = isGameOver || userActionPending;
+        document.body.classList.toggle('crew-response-pending', !!userActionPending && !isGameOver);
+        if (inputArea) inputArea.classList.toggle('disabled', locked);
+        if (freeInput) {
+          freeInput.disabled = locked;
+          if (isGameOver) freeInput.placeholder = L.gameOverPlaceholder;
+          else if (userActionPending) freeInput.placeholder = L.statusInputLocked || L.statusCrewPending || '';
+          else freeInput.placeholder = L.freeInput;
+        }
+        if (sendBtn) sendBtn.disabled = locked;
+        actionBtns.forEach(function(b) {
+          b.disabled = locked;
+          b.classList.toggle('locked', locked);
+        });
+        if (episodeUnlockBtn) episodeUnlockBtn.disabled = locked;
+      }
+
+      /** rAF 미동???�레그램 WebView ?? ??idle 고착 방�???백업 ?�?�머 ???�용???�션 ?�료 콜백?�만 ?�결 */
+      var captainIdleBackupTimer = null;
+
+      function cancelCaptainIdleBackup() {
+        if (captainIdleBackupTimer != null) {
+          clearTimeout(captainIdleBackupTimer);
+          captainIdleBackupTimer = null;
+        }
+      }
+
+      function setUserActionPending(on) {
+        if (on) cancelCaptainIdleBackup();
+        userActionPending = !!on;
+        if (!on) {
+          cancelCaptainIdleBackup();
+          captainUserActionLockSeq = null;
+        }
+        if (userActionPending) {
+          if (executeModal && executeModal.classList.contains('visible')) closeExecuteModal();
+          if (threatModal && threatModal.classList.contains('visible')) closeThreatModal();
+          if (questionModal && questionModal.classList.contains('visible')) closeQuestionModal();
+          if (freeInput) freeInput.blur();
+        }
+        applyCaptainInputChrome();
+        refreshCaptainPhaseStatusUi();
+        updateThreatConfirmEnabled();
+        updateQuestionConfirmEnabled();
+      }
+
+      /** setPending: ?�직 ?�용?????�청 ?�작 ??*/
+      function beginCaptainUserActionLock() {
+        captainUserActionSeq++;
+        var mySeq = captainUserActionSeq;
+        captainUserActionLockSeq = mySeq;
+        setUserActionPending(true);
+        return mySeq;
+      }
+
+      function tryReleaseUserActionLockForSeq(lockSeq) {
+        if (captainUserActionLockSeq === null || lockSeq !== captainUserActionLockSeq) return;
+        setUserActionPending(false);
+      }
+
+      /**
+       * ?�당 lockSeq ?�용???�청??로그 ?�기 append ?�후 idle (appendLog ?�크�?rAF ?�후).
+       * ?�링·?�른 ?�청?� lockSeq�?바꾸지 ?�으므�??�기???�못 ?�제?��? ?�음.
+       */
+      function scheduleTryReleaseUserActionAfterLogRender(lockSeq) {
+        cancelCaptainIdleBackup();
+        captainIdleBackupTimer = setTimeout(function() {
+          captainIdleBackupTimer = null;
+          tryReleaseUserActionLockForSeq(lockSeq);
+        }, 750);
+
+        var finishIdle = function() {
+          cancelCaptainIdleBackup();
+          tryReleaseUserActionLockForSeq(lockSeq);
+        };
+
+        var afterPaint = function() {
+          try {
+            if (logPanel) void logPanel.offsetHeight;
+          } catch (e) {}
+          setTimeout(finishIdle, 0);
+        };
+
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(function() {
+            requestAnimationFrame(function() {
+              requestAnimationFrame(afterPaint);
+            });
+          });
+        } else {
+          setTimeout(afterPaint, 0);
+        }
+      }
+
+      /** start/restart/game_over: ?��??�?�머·??? 콜백 무효????무조�?idle */
+      function forceInvalidateUserActionLock() {
+        cancelCaptainIdleBackup();
+        captainUserActionSeq++;
+        captainUserActionLockSeq = null;
+        userActionPending = false;
+        applyCaptainInputChrome();
+        refreshCaptainPhaseStatusUi();
+        updateThreatConfirmEnabled();
+        updateQuestionConfirmEnabled();
+      }
+
+      function setRestartButtonsDisabled(disabled) {
+        if (restartBtn) restartBtn.disabled = !!disabled;
+        if (resultRestartBtn) resultRestartBtn.disabled = !!disabled;
+      }
+
+      function setAccuseConfirmDisabled(disabled) {
+        if (executeConfirmBtn) executeConfirmBtn.disabled = !!disabled;
+      }
+
+      var statePollTimer = null;
+      var statePollInFlight = false;
+
+      function stopStatePolling() {
+        if (statePollTimer != null) {
+          clearInterval(statePollTimer);
+          statePollTimer = null;
+        }
+      }
+
+      function pollStateOnce() {
+        if (screen !== 'game') return;
+        if (statePollInFlight) return;
+        statePollInFlight = true;
+        var playerId = getPlayerId();
+        fetch(API_BASE + '/api/state?playerId=' + encodeURIComponent(playerId) + '&lang=' + encodeURIComponent(getLangForApi()))
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (!data.ok) return;
+            if (!data.match_id) {
+              stopStatePolling();
+              return;
+            }
+            var gs = data.game_state || {};
+            var st = {
+              match_id: data.match_id,
+              remaining_sec: data.remaining_sec,
+              game_state: gs
+            };
+            if (data.actual_imposter != null) st.actual_imposter = data.actual_imposter;
+            if (data.is_timeout) st.is_timeout = data.is_timeout;
+            /* 배경 ?�링: userActionPending·?�금 ?�퀀?�에 관?�하지 ?�음 */
+            updateStatus(st, { forApiMessage: true, fromPoll: true });
+            if (data.recent_events && data.recent_events.length) applyEvents(data.recent_events);
+            if (gs.game_over) stopStatePolling();
+          })
+          .catch(function() { /* network noise: ignore */ })
+          .finally(function() { statePollInFlight = false; });
+      }
+
+      function startStatePolling() {
+        stopStatePolling();
+        pollStateOnce();
+        statePollTimer = setInterval(pollStateOnce, 2000);
+      }
+
+      function clearGameLogPanelAndState() {
+        lastAppendedLogNorm = null;
+        logInActiveTurn = false;
+        lastLogBlockRole = null;
+        if (logPanel) logPanel.innerHTML = '';
+      }
+      function resetResultUI() {
+        forceInvalidateUserActionLock();
+        accuseRequestInFlight = false;
+        threatRequestInFlight = false;
+        takePistolRequestInFlight = false;
+        collectClueRequestInFlight = false;
+        previousGameOver = false;
+        previousOutcome = null;
+        if (executeModalUnlockTimer) {
+          clearTimeout(executeModalUnlockTimer);
+          executeModalUnlockTimer = null;
+        }
+        if (threatModalUnlockTimer) {
+          clearTimeout(threatModalUnlockTimer);
+          threatModalUnlockTimer = null;
+        }
+        if (questionModalUnlockTimer) {
+          clearTimeout(questionModalUnlockTimer);
+          questionModalUnlockTimer = null;
+        }
+        document.body.classList.remove('execute-modal-open');
+        document.body.classList.remove('threat-modal-open');
+        document.body.classList.remove('question-modal-open');
+        var execM = document.getElementById('execute-modal');
+        if (execM) execM.classList.remove('visible');
+        var threatM = document.getElementById('threat-modal');
+        if (threatM) threatM.classList.remove('visible');
+        if (questionModal) questionModal.classList.remove('visible');
+        selectedThreatTarget = null;
+        document.querySelectorAll('.threat-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+        if (threatConfirmBtn) threatConfirmBtn.disabled = true;
+        var threatNoTargetHintEl = document.getElementById('threat-no-target-hint');
+        if (threatNoTargetHintEl) threatNoTargetHintEl.classList.remove('visible');
+        selectedQuestionTarget = null;
+        document.querySelectorAll('.question-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+        if (questionConfirmBtn) questionConfirmBtn.disabled = true;
+        var questionNoTargetHintEl = document.getElementById('question-no-target-hint');
+        if (questionNoTargetHintEl) questionNoTargetHintEl.classList.remove('visible');
+        closeResultModal();
+        var resultModal = document.getElementById('result-modal');
+        if (resultModal) resultModal.classList.remove('result-win', 'result-lose');
+        var resultTitle = document.getElementById('result-title');
+        var resultDesc = document.getElementById('result-desc');
+        var resultOutcomeRow = document.getElementById('result-outcome-row');
+        var resultOutcomeValue = document.getElementById('result-outcome-value');
+        var resultImposter = document.getElementById('result-imposter');
+        var resultDead = document.getElementById('result-dead');
+        if (resultTitle) resultTitle.textContent = '--';
+        if (resultDesc) resultDesc.textContent = '--';
+        if (resultOutcomeRow) resultOutcomeRow.style.display = 'none';
+        if (resultOutcomeValue) resultOutcomeValue.textContent = '--';
+        if (resultImposter) { resultImposter.textContent = ''; resultImposter.style.display = 'none'; }
+        if (resultDead) { resultDead.innerHTML = ''; resultDead.style.display = 'none'; }
+        if (outcomeBadge) {
+          outcomeBadge.classList.remove('visible', 'crew_win', 'impostor_win', 'accuse_failed');
+          outcomeBadge.textContent = '';
+        }
+        if (statusOutcomeWrap) statusOutcomeWrap.style.display = 'none';
+        if (statusOutcome) statusOutcome.textContent = '--';
+        selectedExecuteTarget = null;
+        var targets = document.querySelectorAll('.modal-target-btn');
+        if (targets.length) targets.forEach(function(b) { b.classList.remove('selected'); });
+        var execNoTargetHint = document.getElementById('execute-no-target-hint');
+        if (execNoTargetHint) execNoTargetHint.classList.remove('visible');
+        updateExecuteConfirmEnabled();
+        updateThreatConfirmEnabled();
+        updateQuestionConfirmEnabled();
+        applyCaptainInputChrome();
+        refreshCaptainPhaseStatusUi();
+      }
+
+      function getPlayerId() {
+        let id = localStorage.getItem(PLAYER_KEY);
+        if (!id) {
+          id = 'miniapp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+          localStorage.setItem(PLAYER_KEY, id);
+        }
+        return id;
+      }
+
+      function formatTime(sec) {
+        if (sec == null || sec < 0) return '--:--';
+        var m = Math.floor(sec / 60);
+        var s = Math.floor(sec % 60);
+        return m + ':' + String(s).padStart(2, '0');
+      }
+
+      function truncateMatchId(id) {
+        if (!id || id.length <= 20) return id;
+        return id.slice(0, 10) + '...' + id.slice(-8);
+      }
+
+      function isLogNearBottom(el, slackPx) {
+        if (!el) return true;
+        slackPx = slackPx == null ? 80 : slackPx;
+        return el.scrollHeight - el.scrollTop - el.clientHeight <= slackPx;
+      }
+
+      /** ?????�작: [?�장] / [Captain] ???�장 발화 �?�?*/
+      function isCaptainTurnStartLine(s) {
+        return /^\s*\[(?�장|Captain|CAPTAIN|captain)\]/i.test(String(s || '').trim());
+      }
+
+      /** Maps [?�장]/[Captain]/??inner tag to data-role key; null = default CRT green log line */
+      function mapBracketInnerToLogRole(inner) {
+        var key = String(inner || '').trim();
+        var lower = key.toLowerCase();
+        if (key === '?�장' || lower === 'captain') return 'captain';
+        if (key === '?�터' || lower === 'doctor') return 'doctor';
+        if (key === '?��??�어' || lower === 'engineer') return 'engineer';
+        if (key === '?�비게이?? || lower === 'navigator') return 'navigator';
+        if (key === '?�일?? || lower === 'pilot') return 'pilot';
+        if (key === '?�스?? || lower === 'system') return 'system';
+        return null;
+      }
+
+      /**
+       * Parse a single log line for role coloring (game log only).
+       * Bracket headers [??��] or leading "System:" ??data-role + header/body spans.
+       */
+      function parseLogLineForRoleDisplay(raw) {
+        var s = String(raw || '');
+        var trimmed = s.trim();
+        var bm = trimmed.match(/^\[([^\]]+)\]([\s\S]*)$/);
+        if (bm) {
+          var role = mapBracketInnerToLogRole(bm[1]);
+          if (role) {
+            var rest = (bm[2] || '').replace(/^\s+/, '');
+            return {
+              role: role,
+              headerText: '[' + bm[1] + ']',
+              bodyText: rest,
+              structured: true
+            };
+          }
+        }
+        var sm = trimmed.match(/^System\s*:\s*([\s\S]*)$/i);
+        if (sm) {
+          return {
+            role: 'system',
+            headerText: 'System:',
+            bodyText: (sm[1] || '').replace(/^\s+/, ''),
+            structured: true
+          };
+        }
+        return { role: null, headerText: null, bodyText: s, structured: false };
+      }
+
+      /** ?�버 ?�약/?��? ??�??????�어받기 ?�커 ?�제 (기본 ?�색) */
+      function isInternalActedSummaryLine(raw) {
+        return /^(Captain acted\.?|Crew acted\.?|?�장???�동?�다\.?)$/i.test(String(raw || '').trim());
+      }
+
+      function isCaptainNarrationLineKo(raw) {
+        return /^?�장??s/.test(String(raw || '').trim());
+      }
+
+      function scrollLogTurnAnchorIntoView(anchorEl) {
+        if (!logPanel || !anchorEl || !logPanel.contains(anchorEl)) return;
+        var apply = function() {
+          var top = anchorEl.offsetTop;
+          if (typeof logPanel.scrollTo === 'function') {
+            logPanel.scrollTo({ top: top, behavior: 'auto' });
+          } else {
+            logPanel.scrollTop = top;
+          }
+        };
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(apply);
+        } else {
+          setTimeout(apply, 0);
+        }
+      }
+
+      function appendLog(text, isError) {
+        var raw = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
+        if (!raw || raw === '\u200b') return;
+        if (raw === lastAppendedLogNorm) return;
+        lastAppendedLogNorm = raw;
+        if (logInit && logInit.parentNode) logInit.remove();
+        var entry = document.createElement('div');
+        entry.className = 'log-entry' + (isError ? ' error' : '');
+        if (isError) {
+          lastLogBlockRole = null;
+          entry.textContent = raw;
+          if (!logPanel) return;
+          var wasFollowingErr = isLogNearBottom(logPanel);
+          logPanel.appendChild(entry);
+          if (wasFollowingErr) logPanel.scrollTop = logPanel.scrollHeight;
+          return;
+        }
+
+        var parsed = parseLogLineForRoleDisplay(raw);
+        var bracketProbe = raw.match(/^\[([^\]]+)\]/);
+        if (bracketProbe && !mapBracketInnerToLogRole(bracketProbe[1])) {
+          lastLogBlockRole = null;
+          entry.textContent = raw;
+        } else if (isInternalActedSummaryLine(raw)) {
+          lastLogBlockRole = null;
+          entry.textContent = raw;
+        } else if (/^Game over\.?\s/i.test(raw)) {
+          lastLogBlockRole = null;
+          entry.textContent = raw;
+        } else if (parsed.role) {
+          lastLogBlockRole = parsed.role;
+          entry.setAttribute('data-role', parsed.role);
+          var head = document.createElement('span');
+          head.className = 'log-role-header';
+          head.textContent = parsed.headerText;
+          entry.appendChild(head);
+          if (parsed.bodyText) {
+            entry.appendChild(document.createTextNode(' '));
+            var body = document.createElement('span');
+            body.className = 'log-role-body';
+            body.textContent = parsed.bodyText;
+            entry.appendChild(body);
+          }
+        } else if (isCaptainNarrationLineKo(raw)) {
+          lastLogBlockRole = 'captain';
+          entry.setAttribute('data-role', 'captain');
+          entry.textContent = raw;
+        } else if (lastLogBlockRole) {
+          entry.setAttribute('data-role', lastLogBlockRole);
+          entry.textContent = raw;
+        } else {
+          entry.textContent = raw;
+        }
+        if (!logPanel) return;
+        var wasFollowing = isLogNearBottom(logPanel);
+        logPanel.appendChild(entry);
+
+        var isCaptain = isCaptainTurnStartLine(raw) && !isError;
+
+        if (isCaptain) {
+          entry.classList.add('log-turn-anchor');
+          logInActiveTurn = true;
+          if (wasFollowing) {
+            scrollLogTurnAnchorIntoView(entry);
+          }
+        } else if (!logInActiveTurn && wasFollowing) {
+          logPanel.scrollTop = logPanel.scrollHeight;
+        }
+      }
+
+      function getL() { return GAME_LABELS[lang] || GAME_LABELS.en; }
+
+      function normalizeDeadRoleKey(r) {
+        return String(r || '').trim().toLowerCase();
+      }
+      function getDeadRolesSet() {
+        var set = new Set();
+        (lastDeadRoles || []).forEach(function(r) {
+          var k = normalizeDeadRoleKey(r);
+          if (k) set.add(k);
+        });
+        return set;
+      }
+      function isRoleDead(roleKey) {
+        if (!roleKey) return false;
+        return getDeadRolesSet().has(normalizeDeadRoleKey(roleKey));
+      }
+      function getTargetButtonLabel(roleKey, dead) {
+        var L = getL();
+        var base = L[roleKey] || roleKey;
+        if (!dead) return base;
+        var mark = L.resultDeadLabel || '?�망';
+        return base + ' (' + mark + ')';
+      }
+      function updateExecuteConfirmEnabled() {
+        if (!executeConfirmBtn) return;
+        if (accuseRequestInFlight) {
+          executeConfirmBtn.disabled = true;
+          return;
+        }
+        var alive = selectedExecuteTarget && !isRoleDead(selectedExecuteTarget);
+        executeConfirmBtn.disabled = !alive;
+      }
+      function updateThreatConfirmEnabled() {
+        if (!threatConfirmBtn) return;
+        if (threatRequestInFlight) {
+          threatConfirmBtn.disabled = true;
+          return;
+        }
+        var alive = selectedThreatTarget && !isRoleDead(selectedThreatTarget);
+        threatConfirmBtn.disabled = !alive;
+      }
+      function updateQuestionConfirmEnabled() {
+        if (!questionConfirmBtn) return;
+        if (userActionPending) {
+          questionConfirmBtn.disabled = true;
+          return;
+        }
+        var sel = questionModal ? questionModal.querySelector('.question-target-btn.selected') : null;
+        var rid = sel ? String(sel.getAttribute('data-target') || '').toLowerCase() : '';
+        var alive = rid && VALID_ACCUSE_TARGETS.indexOf(rid) >= 0 && !isRoleDead(rid);
+        questionConfirmBtn.disabled = !alive;
+      }
+      function applyDeadStateToModalButtons() {
+        VALID_ACCUSE_TARGETS.forEach(function(r) {
+          var dead = isRoleDead(r);
+          var label = getTargetButtonLabel(r, dead);
+          var execBtn = document.getElementById('target-' + r);
+          var threatBtn = document.getElementById('threat-target-' + r);
+          var qBtn = document.getElementById('question-target-' + r);
+          [execBtn, threatBtn, qBtn].forEach(function(btn) {
+            if (!btn) return;
+            btn.textContent = label;
+            btn.classList.toggle('dead', dead);
+            btn.disabled = dead;
+          });
+        });
+        if (selectedExecuteTarget && isRoleDead(selectedExecuteTarget)) {
+          selectedExecuteTarget = null;
+          document.querySelectorAll('.modal-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+        }
+        if (selectedThreatTarget && isRoleDead(selectedThreatTarget)) {
+          selectedThreatTarget = null;
+          document.querySelectorAll('.threat-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+        }
+        if (selectedQuestionTarget && isRoleDead(selectedQuestionTarget)) {
+          selectedQuestionTarget = null;
+          document.querySelectorAll('.question-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+        }
+        updateExecuteConfirmEnabled();
+        updateThreatConfirmEnabled();
+        updateQuestionConfirmEnabled();
+      }
+
+      function syncLangFromStorage() {
+        var stored;
+        try { stored = (localStorage.getItem(LANG_KEY) || '').trim(); } catch (e) { stored = ''; }
+        lang = (stored === 'ko' || stored === 'en') ? stored : 'en';
+      }
+
+      function restartIntroScrollAnimation() {
+        if (!introScrollContent) return;
+        introScrollContent.classList.remove('scroll-animate');
+        void introScrollContent.offsetWidth;
+        introScrollContent.classList.add('scroll-animate');
+      }
+
+      function setGameOverLock(locked) {
+        isGameOver = !!locked;
+        if (restartSection) restartSection.classList.toggle('visible', locked);
+        applyCaptainInputChrome();
+        refreshCaptainPhaseStatusUi();
+      }
+
+      function ensureIntroButtonsEnabled() {
+        [introInitBtn, introLangKo, introLangEn].forEach(function(btn) {
+          if (!btn) return;
+          btn.disabled = false;
+          btn.removeAttribute('disabled');
+          btn.removeAttribute('aria-disabled');
+          btn.classList.remove('locked', 'disabled');
+        });
+      }
+
+      function renderIntroScreen() {
+        syncLangFromStorage();
+        ensureIntroButtonsEnabled();
+        var lines = OPENING_LINES[lang] || OPENING_LINES.en;
+        if (introScrollLines) {
+          var html = '';
+          for (var i = 0; i < lines.length; i++) {
+            var ln = lines[i];
+            if (ln === ' ') {
+              html += '<div class="lore-line lore-spacer"></div>';
+            } else if (/^\[?�데??경보\]|^\[HADES ALERT\]/.test(ln)) {
+              html += '<div class="lore-line lore-alert">' + ln + '</div>';
+            } else if (/^\[주요 목표\]|^\[PRIMARY OBJECTIVES\]/.test(ln)) {
+              html += '<div class="lore-line lore-section-title">' + ln + '</div>';
+            } else {
+              html += '<div class="lore-line">' + ln + '</div>';
+            }
+          }
+          introScrollLines.innerHTML = html;
+        }
+        if (introInitBtn) introInitBtn.textContent = (lang === 'ko') ? '[ ?�스??기동 ]' : '[ SYSTEM INITIALIZE ]';
+        if (introLangKo) { introLangKo.classList.toggle('active', lang === 'ko'); introLangKo.textContent = '?�국??; }
+        if (introLangEn) { introLangEn.classList.toggle('active', lang === 'en'); introLangEn.textContent = 'ENGLISH'; }
+        restartIntroScrollAnimation();
+      }
+
+      function startGameBriefingScroll() {
+        if (!gameBriefingViewport || !gameBriefingScroll) return;
+        gameBriefingViewport.classList.remove('collapsed');
+        gameBriefingScroll.classList.remove('scroll-animate');
+        void gameBriefingScroll.offsetWidth;
+        gameBriefingScroll.classList.add('scroll-animate');
+        var onEnd = function() {
+          gameBriefingScroll.removeEventListener('animationend', onEnd);
+          if (gameBriefingViewport) gameBriefingViewport.classList.add('collapsed');
+        };
+        gameBriefingScroll.addEventListener('animationend', onEnd);
+      }
+
+      function renderGameLabels() {
+        var L = getL();
+        if (hudCountdown) hudCountdown.textContent = L.countdown + ' : ' + (statusTime && statusTime.textContent ? statusTime.textContent : '--:--');
+        if (briefingBootTitle) briefingBootTitle.textContent = L.bootTitle;
+        if (briefingTargetVessel) briefingTargetVessel.textContent = L.targetVessel;
+        if (briefingMission) briefingMission.textContent = L.mission;
+        if (briefingLocation) briefingLocation.textContent = L.briefingLocation;
+        if (briefingHadesTitle) briefingHadesTitle.textContent = L.hadesTitle;
+        if (briefingHades1) briefingHades1.textContent = L.hades1;
+        if (briefingHades2) briefingHades2.textContent = L.hades2;
+        if (briefingHades3) briefingHades3.textContent = L.hades3;
+        if (briefingHades4) briefingHades4.textContent = L.hades4;
+        if (briefingObjectivesTitle) briefingObjectivesTitle.textContent = L.objectivesTitle;
+        if (briefingObj1) briefingObj1.textContent = L.obj1;
+        if (briefingObj2) briefingObj2.textContent = L.obj2;
+        if (briefingObj3) briefingObj3.textContent = L.obj3;
+        var labels = { 'label-match-id': L.matchId, 'label-remaining': L.remaining, 'label-location': L.location, 'label-threat': L.threat, 'label-outcome': L.outcome, 'label-dead': L.deadRoles };
+        for (var k in labels) { var el = document.getElementById(k); if (el) el.textContent = labels[k]; }
+        actionBtns.forEach(function(b) {
+          var a = b.dataset.action;
+          if (a === 'question') b.textContent = L.question;
+          else if (a === 'cctv') b.textContent = L.cctv;
+          else if (a === 'engine') b.textContent = L.engine;
+          else if (a === 'pistol') b.textContent = L.pistol;
+          else if (a === 'threat') b.textContent = L.threatBtn;
+          else if (a === 'clue') b.textContent = L.clue;
+          else if (a === 'execute') b.textContent = L.execute;
+        });
+        if (freeInput) {
+          if (isGameOver) freeInput.placeholder = L.gameOverPlaceholder;
+          else if (userActionPending) freeInput.placeholder = L.statusInputLocked || L.statusCrewPending || '';
+          else freeInput.placeholder = L.freeInput;
+        }
+        if (sendBtn) sendBtn.textContent = L.send;
+        if (restartBtn) restartBtn.textContent = L.restart;
+        if (resultRestartBtn) {
+          resultRestartBtn.textContent = L.restart;
+          if (!startRequestInFlight) resultRestartBtn.disabled = false;
+        }
+        var execTitle = document.getElementById('execute-modal-title');
+        var execInst = document.getElementById('execute-modal-instruction');
+        var execCancel = document.getElementById('execute-cancel');
+        if (execTitle) execTitle.textContent = L.executeModalTitle;
+        if (execInst) execInst.textContent = L.executeModalInstruction || '';
+        if (execCancel) execCancel.textContent = L.cancel;
+        if (executeConfirmBtn) {
+          executeConfirmBtn.textContent = L.confirm;
+          if (!accuseRequestInFlight) updateExecuteConfirmEnabled();
+        }
+        var execNoTarget = document.getElementById('execute-no-target-hint');
+        if (execNoTarget) {
+          execNoTarget.textContent = L.executeNoTargetHint || '';
+          execNoTarget.classList.remove('visible');
+        }
+        applyDeadStateToModalButtons();
+        var threatTitle = document.getElementById('threat-modal-title');
+        var threatInst = document.getElementById('threat-modal-instruction');
+        var threatCancel = document.getElementById('threat-cancel');
+        if (threatTitle) threatTitle.textContent = L.threatModalTitle || '';
+        if (threatInst) threatInst.textContent = L.threatModalInstruction || '';
+        if (threatCancel) threatCancel.textContent = L.cancel;
+        if (threatConfirmBtn) {
+          threatConfirmBtn.textContent = L.confirm;
+          if (!threatRequestInFlight) updateThreatConfirmEnabled();
+        }
+        var threatNoTarget = document.getElementById('threat-no-target-hint');
+        if (threatNoTarget) {
+          threatNoTarget.textContent = L.threatNoTargetHint || '';
+          threatNoTarget.classList.remove('visible');
+        }
+        var qTitle = document.getElementById('question-modal-title');
+        var qInst = document.getElementById('question-modal-instruction');
+        var qCancel = document.getElementById('question-cancel');
+        if (qTitle) qTitle.textContent = L.questionModalTitle || '';
+        if (qInst) qInst.textContent = L.questionModalInstruction || '';
+        if (qCancel) qCancel.textContent = L.cancel;
+        if (questionConfirmBtn) {
+          questionConfirmBtn.textContent = L.confirm;
+          updateQuestionConfirmEnabled();
+        }
+        var qNoTarget = document.getElementById('question-no-target-hint');
+        if (qNoTarget) {
+          qNoTarget.textContent = L.questionNoTargetHint || '';
+          qNoTarget.classList.remove('visible');
+        }
+        refreshCaptainPhaseStatusUi();
+        applyCaptainInputChrome();
+      }
+
+      function formatOutcomeDisplay(outcome) {
+        if (!outcome) return 'unknown';
+        var map = { crew_win: 'crew_win', accuse_failed: 'accuse_failed', impostor_win: 'impostor_win', timeout: 'timeout' };
+        return (map[outcome] || outcome).replace(/_/g, ' ').toUpperCase();
+      }
+
+      /** API actual_imposter가 ?�뢰 가?�한 ??�� ?�일 ?�만 결과 모달???�출 */
+      function canonicalActualImposterRole(raw) {
+        if (raw == null) return null;
+        var s = String(raw).trim();
+        if (!s) return null;
+        var low = s.toLowerCase();
+        if (low === 'unknown' || low === 'null' || low === 'undefined') return null;
+        if (low === '(unknown)' || low === 'n/a' || low === 'none') return null;
+        if (/(?�인\s*불�?)/.test(s)) return null;
+        if (['doctor', 'engineer', 'navigator', 'pilot'].indexOf(low) >= 0) return low;
+        return null;
+      }
+
+      function showResultModal(state) {
+        var gs = state.game_state || {};
+        var outcome = gs.outcome || 'unknown';
+        var isTimeout = !!state.is_timeout;
+        var actualImposter = state.actual_imposter;
+        var deadRoles = gs.dead_roles || [];
+        var L = getL();
+        var resultModal = document.getElementById('result-modal');
+        var resultTitle = document.getElementById('result-title');
+        var resultDesc = document.getElementById('result-desc');
+        var resultOutcomeRow = document.getElementById('result-outcome-row');
+        var resultOutcomeLabel = document.getElementById('result-outcome-label');
+        var resultOutcomeValue = document.getElementById('result-outcome-value');
+        var resultImposter = document.getElementById('result-imposter');
+        var resultDead = document.getElementById('result-dead');
+        resultModal.classList.remove('result-win', 'result-lose');
+        if (outcome === 'crew_win') {
+          resultModal.classList.add('result-win');
+          resultTitle.textContent = L.resultTitleWin;
+          resultDesc.textContent = L.resultDescCrewWin;
+        } else {
+          resultModal.classList.add('result-lose');
+          if (outcome === 'accuse_failed') {
+            resultTitle.textContent = L.resultTitleLoseAccuse;
+            resultDesc.textContent = L.resultDescAccuseFailed;
+          } else if (isTimeout || outcome === 'timeout') {
+            resultTitle.textContent = L.resultTitleLoseTimeout;
+            resultDesc.textContent = L.resultDescTimeout;
+          } else {
+            resultTitle.textContent = L.resultTitleLoseImpostor;
+            resultDesc.textContent = L.resultDescImpostorWin;
+          }
+        }
+
+        if (resultOutcomeRow) {
+          resultOutcomeLabel.textContent = (L.resultOutcomeLabel || 'Outcome') + ': ';
+          resultOutcomeValue.textContent = formatOutcomeDisplay(outcome);
+          resultOutcomeRow.style.display = 'block';
+        }
+
+        var imposterKey = canonicalActualImposterRole(actualImposter);
+        if (imposterKey && resultImposter) {
+          var roleLabel = L[imposterKey] || imposterKey;
+          resultImposter.textContent = L.resultImposterPrefix + roleLabel;
+          resultImposter.style.display = 'block';
+        } else if (resultImposter) {
+          resultImposter.textContent = '';
+          resultImposter.style.display = 'none';
+        }
+
+        if (deadRoles.length > 0) {
+          var deadLabels = deadRoles.map(function(r) { return L[r] || r; });
+          resultDead.innerHTML = '<span class="result-dead-label">' + L.resultDeadLabel + ': </span>' + deadLabels.join(', ');
+          resultDead.style.display = 'block';
+        } else {
+          resultDead.style.display = 'none';
+        }
+
+        if (resultRestartBtn) {
+          resultRestartBtn.textContent = L.restart;
+          if (!startRequestInFlight) resultRestartBtn.disabled = false;
+        }
+        if (resultModal) resultModal.classList.add('visible');
+      }
+
+      function closeResultModal() {
+        var resultModal = document.getElementById('result-modal');
+        if (resultModal) resultModal.classList.remove('visible');
+      }
+
+      function updateStatus(state, opts) {
+        opts = opts || {};
+        if (!state) return;
+        /* opts.fromPoll === true ??/api/state 경로??userActionPending??켜거???��? ?�음(게임 ?�버 ??forceInvalidate�?. */
+        var gs = state.game_state || {};
+        lastDeadRoles = gs.dead_roles || [];
+        var prevWasGameOver = previousGameOver;
+
+        if (state.match_id) {
+          var short = truncateMatchId(state.match_id);
+          statusMatchId.textContent = short;
+          statusMatchId.title = state.match_id;
+        }
+        var timeStr = formatTime(state.remaining_sec);
+        statusTime.textContent = timeStr;
+        statusLocation.textContent = state.location || 'Bridge';
+        if (hudCountdown) hudCountdown.textContent = getL().countdown + ' : ' + timeStr;
+
+        if (gs.game_over && gs.outcome) {
+          forceInvalidateUserActionLock();
+          statusThreat.textContent = 'GAME OVER';
+          statusThreat.classList.remove('nominal');
+          statusThreat.classList.add('threat');
+          setGameOverLock(true);
+
+          outcomeBadge.textContent = gs.outcome.toUpperCase().replace(/_/g, ' ');
+          outcomeBadge.className = 'outcome-badge visible ' + (gs.outcome || '').replace(/-/g, '_');
+          if (statusOutcomeWrap) { statusOutcomeWrap.style.display = 'block'; statusOutcome.textContent = gs.outcome; }
+
+          /* /api/start 복원 ??fromStart) ?�는 /api/message ?�답 ??forApiMessage): game_over ?�환�?결과 모달 */
+          var allowResultModal = opts.fromStart === true || opts.forApiMessage === true;
+          if (!prevWasGameOver && allowResultModal) showResultModal(state);
+        } else if (gs.game_over && !gs.outcome) {
+          forceInvalidateUserActionLock();
+          statusThreat.textContent = 'GAME OVER';
+          statusThreat.classList.remove('nominal');
+          statusThreat.classList.add('threat');
+          setGameOverLock(true);
+          outcomeBadge.classList.remove('visible', 'crew_win', 'impostor_win', 'accuse_failed');
+          outcomeBadge.textContent = '';
+          if (statusOutcomeWrap) statusOutcomeWrap.style.display = 'none';
+          if (statusOutcome) statusOutcome.textContent = '--';
+          closeResultModal();
+        } else {
+          statusThreat.textContent = (gs.dead_roles && gs.dead_roles.length > 0) ? 'ELEVATED' : 'NOMINAL';
+          statusThreat.classList.toggle('threat', (gs.dead_roles && gs.dead_roles.length > 0));
+          statusThreat.classList.toggle('nominal', !(gs.dead_roles && gs.dead_roles.length > 0));
+          setGameOverLock(false);
+          outcomeBadge.classList.remove('visible', 'crew_win', 'impostor_win', 'accuse_failed');
+          outcomeBadge.textContent = '';
+          if (statusOutcomeWrap) statusOutcomeWrap.style.display = 'none';
+          if (statusOutcome) statusOutcome.textContent = '--';
+          closeResultModal();
+        }
+
+        previousGameOver = !!gs.game_over;
+        previousOutcome = gs.outcome || null;
+
+        if (gs.dead_roles && gs.dead_roles.length > 0) {
+          if (statusDeadWrap) { statusDeadWrap.style.display = 'block'; statusDead.textContent = gs.dead_roles.join(', '); statusDead.classList.add('threat'); }
+        } else if (statusDeadWrap) { statusDeadWrap.style.display = 'none'; statusDead.classList.remove('threat'); }
+
+        applyDeadStateToModalButtons();
+      }
+
+      function applyEvents(events) {
+        if (!events || !events.length) return;
+        events.forEach(function(ev) {
+          var label = String((ev.type || ev.role || '') + (ev.target ? ' -> ' + ev.target : '')).trim();
+          if (label) appendLog(label, false);
+        });
+      }
+
+      function appendSummaryOrEvents(data) {
+        if (data.recent_events && data.recent_events.length) {
+          applyEvents(data.recent_events);
+        } else {
+          var fb = (getLangForApi() === 'ko') ? '?�장???�동?�다.' : 'Captain acted.';
+          var s = String(data.summary || fb).replace(/\s+/g, ' ').trim();
+          if (s && s !== '\u200b') appendLog(s, false);
+        }
+      }
+
+      function doStart(restart) {
+        if (startRequestInFlight) return;
+        forceInvalidateUserActionLock();
+        startRequestInFlight = true;
+        setRestartButtonsDisabled(true);
+        var playerId = getPlayerId();
+        logMiniappApiLang('/api/start');
+        fetch(API_BASE + '/api/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ playerId: playerId, restart: !!restart, lang: getLangForApi() })
+        })
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.ok) {
+              resetResultUI();
+              ensureIntroButtonsEnabled();
+              var st = { match_id: data.match_id, remaining_sec: data.remaining_sec, game_state: data.game_state };
+              if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
+              if (data.is_timeout) st.is_timeout = data.is_timeout;
+              updateStatus(st, { fromStart: true });
+              if (restart) {
+                clearGameLogPanelAndState();
+                appendLog('System: Tartarus Protocol initialized.', false);
+              } else if (data.events && data.events.length) {
+                applyEvents(data.events);
+              } else {
+                appendLog('System: Tartarus Protocol initialized.', false);
+              }
+              startStatePolling();
+            } else {
+              appendLog('Error: ' + (data.error || 'unknown'), true);
+            }
+          })
+          .catch(function(err) {
+            appendLog('Connection failed. Start: node telegram/bot/bot.js', true);
+          })
+          .finally(function() {
+            startRequestInFlight = false;
+            setRestartButtonsDisabled(false);
+            forceInvalidateUserActionLock();
+          });
+      }
+
+      function doMessage(text) {
+        if (isGameOver || userActionPending) return;
+        var userTurnLockSeq = beginCaptainUserActionLock();
+        var playerId = getPlayerId();
+        logMiniappApiLang('/api/message');
+        fetch(API_BASE + '/api/message', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ playerId: playerId, text: text, lang: getLangForApi() })
+        })
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.ok) {
+              var st = { remaining_sec: data.remaining_sec, game_state: data.match_state };
+              if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
+              if (data.is_timeout) st.is_timeout = data.is_timeout;
+              updateStatus(st, { forApiMessage: true });
+              if (data.game_over) stopStatePolling();
+              appendSummaryOrEvents(data);
+            } else {
+              appendLog('Error: ' + (data.error || 'unknown'), true);
+            }
+          })
+          .catch(function(err) {
+            appendLog('Connection failed: ' + err.message, true);
+          })
+          .finally(function() {
+            scheduleTryReleaseUserActionAfterLogRender(userTurnLockSeq);
+          });
+      }
+
+      /** 처형 ?�정 ?�용 ??/api/message·doMessage 경로 미사?? ?�스???�싱 ?�음 (?�래그는 confirmAccuse?�서 ?�설?? */
+      function postAccuse(targetKey) {
+        if (isGameOver) {
+          accuseRequestInFlight = false;
+          setAccuseConfirmDisabled(false);
+          updateExecuteConfirmEnabled();
+          return;
+        }
+        var playerId = getPlayerId();
+        logMiniappApiLang('/api/accuse');
+        fetch(API_BASE + '/api/accuse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ playerId: playerId, target: targetKey, lang: getLangForApi() })
+        })
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.ok) {
+              var st = { remaining_sec: data.remaining_sec, game_state: data.match_state };
+              if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
+              if (data.is_timeout) st.is_timeout = data.is_timeout;
+              updateStatus(st, { forApiMessage: true });
+              if (data.game_over) stopStatePolling();
+              appendSummaryOrEvents(data);
+            } else {
+              appendLog('Error: ' + (data.error || 'unknown'), true);
+            }
+          })
+          .catch(function(err) {
+            appendLog('Connection failed: ' + err.message, true);
+          })
+          .finally(function() {
+            accuseRequestInFlight = false;
+            updateExecuteConfirmEnabled();
+          });
+      }
+
+      /** 권총 ?�득 ??/api/message·?�스???�싱 ?�이 POST /api/action */
+      function postTakePistol() {
+        if (isGameOver || takePistolRequestInFlight || userActionPending) return;
+        takePistolRequestInFlight = true;
+        var userTurnLockSeq = beginCaptainUserActionLock();
+        var playerId = getPlayerId();
+        logMiniappApiLang('/api/action');
+        fetch(API_BASE + '/api/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ playerId: playerId, action: 'take_pistol', lang: getLangForApi() })
+        })
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.ok) {
+              var st = { remaining_sec: data.remaining_sec, game_state: data.match_state };
+              if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
+              if (data.is_timeout) st.is_timeout = data.is_timeout;
+              updateStatus(st, { forApiMessage: true });
+              if (data.game_over) stopStatePolling();
+              appendSummaryOrEvents(data);
+            } else {
+              appendLog('Error: ' + (data.error || 'unknown'), true);
+            }
+          })
+          .catch(function(err) {
+            appendLog('Connection failed: ' + err.message, true);
+          })
+          .finally(function() {
+            takePistolRequestInFlight = false;
+            scheduleTryReleaseUserActionAfterLogRender(userTurnLockSeq);
+          });
+      }
+
+      /** ?�서 ?�집 ??/api/message·?�스???�싱 ?�이 POST /api/action */
+      function postCollectClue() {
+        if (isGameOver || collectClueRequestInFlight || userActionPending) return;
+        collectClueRequestInFlight = true;
+        var userTurnLockSeq = beginCaptainUserActionLock();
+        var playerId = getPlayerId();
+        logMiniappApiLang('/api/action');
+        fetch(API_BASE + '/api/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ playerId: playerId, action: 'collect_clue', lang: getLangForApi() })
+        })
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.ok) {
+              var st = { remaining_sec: data.remaining_sec, game_state: data.match_state };
+              if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
+              if (data.is_timeout) st.is_timeout = data.is_timeout;
+              updateStatus(st, { forApiMessage: true });
+              if (data.game_over) stopStatePolling();
+              appendSummaryOrEvents(data);
+            } else {
+              appendLog('Error: ' + (data.error || 'unknown'), true);
+            }
+          })
+          .catch(function(err) {
+            appendLog('Connection failed: ' + err.message, true);
+          })
+          .finally(function() {
+            collectClueRequestInFlight = false;
+            scheduleTryReleaseUserActionAfterLogRender(userTurnLockSeq);
+          });
+      }
+
+      /** ?�협 ???��??�택 ??POST /api/action threaten (비처??; threatRequestInFlight??confirmThreat?�서 ?�설??*/
+      function postThreaten(targetKey) {
+        if (isGameOver) {
+          threatRequestInFlight = false;
+          updateThreatConfirmEnabled();
+          return;
+        }
+        var userTurnLockSeq = beginCaptainUserActionLock();
+        var playerId = getPlayerId();
+        logMiniappApiLang('/api/action');
+        fetch(API_BASE + '/api/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ playerId: playerId, action: 'threaten', target: targetKey, lang: getLangForApi() })
+        })
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.ok) {
+              var st = { remaining_sec: data.remaining_sec, game_state: data.match_state };
+              if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
+              if (data.is_timeout) st.is_timeout = data.is_timeout;
+              updateStatus(st, { forApiMessage: true });
+              if (data.game_over) stopStatePolling();
+              appendSummaryOrEvents(data);
+            } else {
+              appendLog('Error: ' + (data.error || 'unknown'), true);
+            }
+          })
+          .catch(function(err) {
+            appendLog('Connection failed: ' + err.message, true);
+          })
+          .finally(function() {
+            threatRequestInFlight = false;
+            updateThreatConfirmEnabled();
+            scheduleTryReleaseUserActionAfterLogRender(userTurnLockSeq);
+          });
+      }
+
+      renderIntroScreen();
+
+      introLangKo.addEventListener('click', function() {
+        lang = 'ko';
+        localStorage.setItem(LANG_KEY, lang);
+        renderIntroScreen();
+      });
+      introLangEn.addEventListener('click', function() {
+        lang = 'en';
+        localStorage.setItem(LANG_KEY, lang);
+        renderIntroScreen();
+      });
+
+      introInitBtn.addEventListener('click', function() {
+        screen = 'game';
+        if (introScreen) introScreen.classList.add('hidden');
+        if (gameScreen) gameScreen.classList.add('visible');
+        renderGameLabels();
+        startGameBriefingScroll();
+        doStart(false);
+      });
+
+      var executeModal = document.getElementById('execute-modal');
+      var threatModal = document.getElementById('threat-modal');
+
+      /** 처형 ?�정 ?�일 진입????/api/accuse (confirm 버튼·모달 ?�임�????�수 ?�출) */
+      function confirmAccuse() {
+        if (accuseRequestInFlight || userActionPending) return;
+        var targetKey = selectedExecuteTarget;
+        if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
+          var sel = executeModal ? executeModal.querySelector('.modal-target-btn.selected') : null;
+          targetKey = sel ? String(sel.getAttribute('data-target') || '').toLowerCase() : '';
+        }
+        if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
+          var warn = document.getElementById('execute-no-target-hint');
+          if (warn) {
+            warn.textContent = (getL().executeNoTargetHint || '').trim();
+            warn.classList.add('visible');
+          }
+          return;
+        }
+        if (isRoleDead(targetKey)) {
+          selectedExecuteTarget = null;
+          document.querySelectorAll('.modal-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+          updateExecuteConfirmEnabled();
+          return;
+        }
+        accuseRequestInFlight = true;
+        setAccuseConfirmDisabled(true);
+        var warnEl = document.getElementById('execute-no-target-hint');
+        if (warnEl) warnEl.classList.remove('visible');
+        if (freeInput) {
+          freeInput.value = '';
+          freeInput.blur();
+        }
+        closeExecuteModal();
+        postAccuse(targetKey);
+      }
+
+      function openExecuteModal() {
+        if (isGameOver || userActionPending) return;
+        if (executeModalUnlockTimer) {
+          clearTimeout(executeModalUnlockTimer);
+          executeModalUnlockTimer = null;
+        }
+        document.body.classList.add('execute-modal-open');
+        if (freeInput) freeInput.blur();
+        selectedExecuteTarget = null;
+        var L = getL();
+        document.querySelectorAll('.modal-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+        var hint = document.getElementById('execute-no-target-hint');
+        if (hint) {
+          hint.textContent = L.executeNoTargetHint || '';
+          hint.classList.remove('visible');
+        }
+        if (executeModal) executeModal.classList.add('visible');
+        applyDeadStateToModalButtons();
+      }
+
+      function closeExecuteModal() {
+        if (executeModal) executeModal.classList.remove('visible');
+        if (executeModalUnlockTimer) clearTimeout(executeModalUnlockTimer);
+        executeModalUnlockTimer = setTimeout(function() {
+          executeModalUnlockTimer = null;
+          document.body.classList.remove('execute-modal-open');
+        }, 200);
+      }
+
+      function confirmThreat() {
+        if (threatRequestInFlight || userActionPending) return;
+        var targetKey = selectedThreatTarget;
+        if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
+          var sel = threatModal ? threatModal.querySelector('.threat-target-btn.selected') : null;
+          targetKey = sel ? String(sel.getAttribute('data-target') || '').toLowerCase() : '';
+        }
+        if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
+          var w = document.getElementById('threat-no-target-hint');
+          if (w) {
+            w.textContent = (getL().threatNoTargetHint || '').trim();
+            w.classList.add('visible');
+          }
+          return;
+        }
+        if (isRoleDead(targetKey)) {
+          selectedThreatTarget = null;
+          if (threatModal) threatModal.querySelectorAll('.threat-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+          updateThreatConfirmEnabled();
+          return;
+        }
+        threatRequestInFlight = true;
+        if (threatConfirmBtn) threatConfirmBtn.disabled = true;
+        var wh = document.getElementById('threat-no-target-hint');
+        if (wh) wh.classList.remove('visible');
+        if (freeInput) {
+          freeInput.value = '';
+          freeInput.blur();
+        }
+        closeThreatModal();
+        postThreaten(targetKey);
+      }
+
+      function openThreatModal() {
+        if (isGameOver || userActionPending) return;
+        if (threatModalUnlockTimer) {
+          clearTimeout(threatModalUnlockTimer);
+          threatModalUnlockTimer = null;
+        }
+        document.body.classList.add('threat-modal-open');
+        if (freeInput) freeInput.blur();
+        selectedThreatTarget = null;
+        var L = getL();
+        if (threatModal) threatModal.querySelectorAll('.threat-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+        var th = document.getElementById('threat-no-target-hint');
+        if (th) {
+          th.textContent = L.threatNoTargetHint || '';
+          th.classList.remove('visible');
+        }
+        if (threatModal) threatModal.classList.add('visible');
+        applyDeadStateToModalButtons();
+      }
+
+      function closeThreatModal() {
+        if (threatModal) threatModal.classList.remove('visible');
+        if (threatModalUnlockTimer) clearTimeout(threatModalUnlockTimer);
+        threatModalUnlockTimer = setTimeout(function() {
+          threatModalUnlockTimer = null;
+          document.body.classList.remove('threat-modal-open');
+        }, 200);
+        selectedThreatTarget = null;
+        if (threatModal) threatModal.querySelectorAll('.threat-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+        if (threatConfirmBtn) threatConfirmBtn.disabled = true;
+      }
+
+      function buildQuestionMessageForRole(roleKey) {
+        var L = getL();
+        var rk = String(roleKey || '').toLowerCase();
+        var name = L[rk] || rk;
+        if (lang === 'ko') {
+          return name + ', 그때 ?�디 ?�었지?';
+        }
+        return name + ', where were you then?';
+      }
+
+      function openQuestionModal() {
+        if (isGameOver || userActionPending) return;
+        if (questionModalUnlockTimer) {
+          clearTimeout(questionModalUnlockTimer);
+          questionModalUnlockTimer = null;
+        }
+        document.body.classList.add('question-modal-open');
+        if (freeInput) freeInput.blur();
+        selectedQuestionTarget = null;
+        var L = getL();
+        document.querySelectorAll('.question-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+        var qh = document.getElementById('question-no-target-hint');
+        if (qh) {
+          qh.textContent = L.questionNoTargetHint || '';
+          qh.classList.remove('visible');
+        }
+        if (questionModal) questionModal.classList.add('visible');
+        applyDeadStateToModalButtons();
+      }
+
+      function closeQuestionModal() {
+        if (questionModal) questionModal.classList.remove('visible');
+        if (questionModalUnlockTimer) clearTimeout(questionModalUnlockTimer);
+        questionModalUnlockTimer = setTimeout(function() {
+          questionModalUnlockTimer = null;
+          document.body.classList.remove('question-modal-open');
+        }, 200);
+        selectedQuestionTarget = null;
+        document.querySelectorAll('.question-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+        if (questionConfirmBtn) questionConfirmBtn.disabled = true;
+        updateQuestionConfirmEnabled();
+      }
+
+      function confirmQuestion() {
+        if (userActionPending || isGameOver) return;
+        var sel = questionModal ? questionModal.querySelector('.question-target-btn.selected') : null;
+        var targetKey = sel ? String(sel.getAttribute('data-target') || '').toLowerCase() : '';
+        if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
+          var w = document.getElementById('question-no-target-hint');
+          if (w) {
+            w.textContent = (getL().questionNoTargetHint || '').trim();
+            w.classList.add('visible');
+          }
+          return;
+        }
+        if (isRoleDead(targetKey)) {
+          selectedQuestionTarget = null;
+          if (questionModal) questionModal.querySelectorAll('.question-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+          updateQuestionConfirmEnabled();
+          return;
+        }
+        console.log('[miniapp] question target=' + targetKey);
+        var msg = buildQuestionMessageForRole(targetKey);
+        if (freeInput) {
+          freeInput.value = '';
+          freeInput.blur();
+        }
+        closeQuestionModal();
+        doMessage(msg);
+      }
+
+      document.querySelectorAll('.modal-target-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          if (userActionPending || this.disabled || this.classList.contains('dead')) return;
+          var rid = String(this.getAttribute('data-target') || '').toLowerCase();
+          if (isRoleDead(rid)) return;
+          selectedExecuteTarget = VALID_ACCUSE_TARGETS.indexOf(rid) >= 0 ? rid : null;
+          document.querySelectorAll('.modal-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+          this.classList.add('selected');
+          var w = document.getElementById('execute-no-target-hint');
+          if (w) w.classList.remove('visible');
+          updateExecuteConfirmEnabled();
+        });
+      });
+
+      if (executeModal) {
+        executeModal.addEventListener('click', function(e) {
+          var t = e.target;
+          var confirmEl = t && t.closest ? t.closest('#execute-confirm') : (t && t.id === 'execute-confirm' ? t : null);
+          if (confirmEl) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (userActionPending) return;
+            confirmAccuse();
+            return;
+          }
+          var cancelEl = t && t.closest ? t.closest('#execute-cancel') : (t && t.id === 'execute-cancel' ? t : null);
+          if (cancelEl) {
+            e.preventDefault();
+            e.stopPropagation();
+            closeExecuteModal();
+            return;
+          }
+          if (e.target === executeModal) closeExecuteModal();
+        });
+      }
+
+      if (threatModal) {
+        threatModal.querySelectorAll('.threat-target-btn').forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            if (userActionPending || this.disabled || this.classList.contains('dead')) return;
+            var rid = String(this.getAttribute('data-target') || '').toLowerCase();
+            if (isRoleDead(rid)) return;
+            selectedThreatTarget = VALID_ACCUSE_TARGETS.indexOf(rid) >= 0 ? rid : null;
+            threatModal.querySelectorAll('.threat-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+            this.classList.add('selected');
+            var hw = document.getElementById('threat-no-target-hint');
+            if (hw) hw.classList.remove('visible');
+            updateThreatConfirmEnabled();
+          });
+        });
+        threatModal.addEventListener('click', function(e) {
+          var t = e.target;
+          var confirmEl = t && t.closest ? t.closest('#threat-confirm') : (t && t.id === 'threat-confirm' ? t : null);
+          if (confirmEl) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (userActionPending) return;
+            confirmThreat();
+            return;
+          }
+          var cancelEl = t && t.closest ? t.closest('#threat-cancel') : (t && t.id === 'threat-cancel' ? t : null);
+          if (cancelEl) {
+            e.preventDefault();
+            e.stopPropagation();
+            closeThreatModal();
+            return;
+          }
+          if (e.target === threatModal) closeThreatModal();
+        });
+      }
+
+      if (questionModal) {
+        questionModal.querySelectorAll('.question-target-btn').forEach(function(btn) {
+          btn.addEventListener('click', function() {
+            if (userActionPending || this.disabled || this.classList.contains('dead')) return;
+            var rid = String(this.getAttribute('data-target') || '').toLowerCase();
+            if (isRoleDead(rid)) return;
+            selectedQuestionTarget = VALID_ACCUSE_TARGETS.indexOf(rid) >= 0 ? rid : null;
+            questionModal.querySelectorAll('.question-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+            this.classList.add('selected');
+            var qw = document.getElementById('question-no-target-hint');
+            if (qw) qw.classList.remove('visible');
+            updateQuestionConfirmEnabled();
+          });
+        });
+        questionModal.addEventListener('click', function(e) {
+          var t = e.target;
+          var confirmEl = t && t.closest ? t.closest('#question-confirm') : (t && t.id === 'question-confirm' ? t : null);
+          if (confirmEl) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (userActionPending) return;
+            confirmQuestion();
+            return;
+          }
+          var cancelEl = t && t.closest ? t.closest('#question-cancel') : (t && t.id === 'question-cancel' ? t : null);
+          if (cancelEl) {
+            e.preventDefault();
+            e.stopPropagation();
+            closeQuestionModal();
+            return;
+          }
+          if (e.target === questionModal) closeQuestionModal();
+        });
+      }
+
+      sendBtn.addEventListener('click', function() {
+        if (isGameOver || userActionPending) return;
+        var text = (freeInput.value || '').trim();
+        if (!text) return;
+        doMessage(text);
+        freeInput.value = '';
+      });
+
+      freeInput.addEventListener('keydown', function(e) {
+        if (e.key !== 'Enter') return;
+        if (isGameOver || userActionPending) {
+          e.preventDefault();
+          return;
+        }
+        sendBtn.click();
+      });
+
+      actionBtns.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          if (isGameOver || userActionPending) return;
+          var action = this.dataset.action || '';
+          if (action === 'question') {
+            openQuestionModal();
+          } else if (action === 'cctv') {
+            doMessage(lang === 'ko' ? 'CCTV 로그�??�인?�다.' : 'Checking CCTV logs.');
+          } else if (action === 'engine') {
+            doMessage(lang === 'ko' ? '?�진??로그�??�인?�다.' : 'Checking engine room logs.');
+          } else if (action === 'pistol') {
+            postTakePistol();
+          } else if (action === 'clue') {
+            postCollectClue();
+          } else if (action === 'threat') {
+            openThreatModal();
+          } else if (action === 'execute') {
+            openExecuteModal();
+          } else {
+            console.log('[Tartarus MiniApp] action:', action);
+          }
+        });
+      });
+
+      function doRestart() {
+        if (!isGameOver || startRequestInFlight) return;
+        forceInvalidateUserActionLock();
+        stopStatePolling();
+        clearGameLogPanelAndState();
+        previousGameOver = false;
+        previousOutcome = null;
+        resetResultUI();
+        restartSection.classList.remove('visible');
+        startGameBriefingScroll();
+        doStart(true);
+      }
+
+      function onRestartClick(e) {
+        if (e) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        doRestart();
+      }
+      if (restartBtn) restartBtn.addEventListener('click', onRestartClick);
+      if (resultRestartBtn) resultRestartBtn.addEventListener('click', onRestartClick);
+
+      var resultModalEl = document.getElementById('result-modal');
+      if (resultModalEl) resultModalEl.addEventListener('click', function(e) {
+        if (e.target === resultModalEl) closeResultModal();
+      });
+
+      episodeUnlockBtn.addEventListener('click', function() {
+        console.log('[Tartarus MiniApp] Unlock Episode Pass (placeholder)');
+      });
+    })();
+  </script>
+</body>
+</html>
