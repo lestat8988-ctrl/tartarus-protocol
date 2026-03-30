@@ -388,8 +388,13 @@ function logIntentPromptDecision(cls, parsed, consumesFreePrompt) {
 }
 
 async function enrichResultWithEntitlement(result, playerId) {
-  /** free_prompt_consumed_this_request 성공 응답은 ok/blocked를 덮어쓰지 않음 */
-  if (!result || result.blocked || result.ok === false) return result;
+  if (!result) return result;
+  /** 이미 consume 허용된 lore 요청은 entitlement 스냅샷 전에도 ok/blocked 고정 */
+  if (result.free_prompt_consumed_this_request) {
+    result.blocked = false;
+    result.ok = true;
+  }
+  if (result.blocked || result.ok === false) return result;
   try {
     const pl = await playerStore.getPlayer(playerId);
     const mid = pl?.match_id;
@@ -409,16 +414,32 @@ async function enrichResultWithEntitlement(result, playerId) {
   } catch (e) {
     console.warn('[bot][entitlement] enrichResult warn ' + String(e?.message || e));
   }
+  if (result.free_prompt_consumed_this_request) {
+    result.blocked = false;
+    result.ok = true;
+  }
   return result;
 }
 
 function truncateJsonish(obj, maxLen) {
+  const cap =
+    typeof maxLen === 'number' && Number.isFinite(maxLen) && maxLen > 0 ? maxLen : 200000;
   try {
     const s = JSON.stringify(obj);
-    if (s.length <= maxLen) return obj;
-    return { _truncated: true, preview: s.slice(0, maxLen) };
+    if (s.length <= cap) return obj;
+    return { _truncated: true, preview: s.slice(0, cap) };
   } catch {
     return { _error: 'serialize' };
+  }
+}
+
+/** message_result 페이로드용 — DB/직렬화 실패 시 빈 배열로 수렴 */
+function safeRecentEventsPayloadForDb(result) {
+  try {
+    const ev = result?.recent_events || result?.events || [];
+    return truncateJsonish(ev, 200000);
+  } catch (e) {
+    return [];
   }
 }
 
@@ -595,22 +616,21 @@ async function dbPersistAfterStartState(playerId, locale, out) {
 }
 
 async function dbPersistAfterMessageResult(playerId, locale, inputText, result) {
+  if (result?.free_prompt_consumed_this_request) {
+    result.blocked = false;
+    result.ok = true;
+  }
+  const blk = !!result?.blocked;
+  const okFalse = result?.ok === false;
+  if (blk || okFalse) {
+    try {
+      console.log(
+        '[bot][db] message_result persist skipped blocked=' + String(blk) + ' ok=' + String(result?.ok)
+      );
+    } catch (e) {}
+    return;
+  }
   try {
-    if (result?.blocked) {
-      try {
-        console.log('[bot][db] message persist skipped blocked=true');
-      } catch (e) {}
-      return;
-    }
-    if (result?.ok === false) {
-      try {
-        console.log(
-          '[bot][db] message persist skipped ok=false free_prompt_consumed=' +
-            String(!!result?.free_prompt_consumed_this_request)
-        );
-      } catch (e) {}
-      return;
-    }
     const player = await playerStore.getPlayer(playerId);
     const matchId = player?.match_id;
     if (!matchId) return;
@@ -632,9 +652,6 @@ async function dbPersistAfterMessageResult(playerId, locale, inputText, result) 
       } catch (e2) {}
     }
     const persistKind = consumesFreePrompt ? 'lore_question' : messageKind;
-    try {
-      console.log('[bot][db] message persist scheduled kind=' + persistKind + ' blocked=false');
-    } catch (e) {}
     const gs = result.match_state || {};
     await upsertMatchState({
       match_id: matchId,
@@ -655,17 +672,49 @@ async function dbPersistAfterMessageResult(playerId, locale, inputText, result) 
         consumes_free_prompt: consumesFreePrompt
       }
     });
-    await appendMatchEvent({
-      match_id: matchId,
-      user_key: userKey,
-      event_type: 'message_result',
-      payload: {
-        summary: result.summary,
-        recent_events: truncateJsonish(result.recent_events || result.events),
-        message_kind: messageKind,
-        consumes_free_prompt: consumesFreePrompt
+    try {
+      console.log('[bot][db] message_input persisted kind=' + persistKind);
+    } catch (e) {}
+    const recentPayload = safeRecentEventsPayloadForDb(result);
+    const resultPayload = {
+      summary: result.summary,
+      recent_events: recentPayload,
+      message_kind: messageKind,
+      consumes_free_prompt: consumesFreePrompt
+    };
+    try {
+      console.log('[bot][db] message_result persist scheduled blocked=false ok=true');
+    } catch (e) {}
+    try {
+      await appendMatchEvent({
+        match_id: matchId,
+        user_key: userKey,
+        event_type: 'message_result',
+        payload: resultPayload
+      });
+    } catch (eRes) {
+      try {
+        console.log(
+          '[bot][error] lore pipeline failed after input persist err=' + String(eRes?.message || eRes)
+        );
+      } catch (e) {}
+      try {
+        await appendMatchEvent({
+          match_id: matchId,
+          user_key: userKey,
+          event_type: 'message_result',
+          payload: {
+            summary: String(result?.summary || '').slice(0, 4000),
+            recent_events: [],
+            message_kind: messageKind,
+            consumes_free_prompt: consumesFreePrompt,
+            _persist_fallback: true
+          }
+        });
+      } catch (e2) {
+        console.warn('[bot][db] message_result fallback also failed', e2?.message || e2);
       }
-    });
+    }
   } catch (e) {
     console.warn('[bot] db persist message failed', e?.message || e);
   }
@@ -7272,6 +7321,7 @@ async function processMessageApi(playerId, text, opts = {}) {
   const consumesFreePromptApi = shouldConsumeFreePromptForMessageKind(cls, parsed, text);
   logIntentPromptDecision(cls, parsed, consumesFreePromptApi);
   let freePromptConsumedThisApi = false;
+  let loreFreePromptUsedAfterConsume = null;
   if (consumesFreePromptApi) {
     const userKey = resolveUserKey(playerId, matchId);
     const pr = await consumeFreePromptIfAllowed(userKey, { locale });
@@ -7294,10 +7344,9 @@ async function processMessageApi(playerId, text, opts = {}) {
       });
     }
     freePromptConsumedThisApi = true;
+    loreFreePromptUsedAfterConsume = pr.entitlement != null ? pr.entitlement.daily_free_prompt_used : null;
     try {
-      const uAfter = pr.entitlement?.daily_free_prompt_used ?? '?';
       console.log('[bot][entitlement] prompt final decision allow');
-      console.log('[bot][message] lore response emitted on used=' + uAfter);
     } catch (e) {}
   }
 
@@ -7422,7 +7471,16 @@ async function processMessageApi(playerId, text, opts = {}) {
   }
 
   if (cls.kind === 'lore_question') {
+    try {
+      const tq = String(text || '')
+        .replace(/\\/g, '\\\\')
+        .replace(/"/g, '\\"')
+        .replace(/\r?\n/g, ' ')
+        .slice(0, 220);
+      console.log('[bot][message] classified kind=lore_question text="' + tq + '"');
+    } catch (e) {}
     console.log('[bot] message kind=lore_question');
+    try {
     const gateApi = evaluateLoreUnknownTermGate('lore_question', String(text || ''), locale);
     if (gateApi.block) {
       await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
@@ -7435,6 +7493,12 @@ async function processMessageApi(playerId, text, opts = {}) {
       const timerUnk = ep1Engine.getTimerStatus(updatedUnk, now);
       const remUnk = Math.max(0, Math.floor(timerUnk.remaining_sec ?? 0));
       const summaryTextUnk = summaryFromDisplayLogs(newDisplayLogsUnk, locale);
+      try {
+        console.log(
+          '[bot][message] lore response emitted blocked=false ok=true used=' +
+            String(loreFreePromptUsedAfterConsume ?? '?')
+        );
+      } catch (e) {}
       return attachFreePromptConsumedMetadata(
         {
           ok: true,
@@ -7495,6 +7559,12 @@ async function processMessageApi(playerId, text, opts = {}) {
     const timer = ep1Engine.getTimerStatus(updated, now);
     const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
     const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
+    try {
+      console.log(
+        '[bot][message] lore response emitted blocked=false ok=true used=' +
+          String(loreFreePromptUsedAfterConsume ?? '?')
+      );
+    } catch (e) {}
     return attachFreePromptConsumedMetadata(
       {
         ok: true,
@@ -7508,6 +7578,39 @@ async function processMessageApi(playerId, text, opts = {}) {
       },
       freePromptConsumedThisApi
     );
+    } catch (err) {
+      try {
+        console.log('[bot][error] lore pipeline failed err=' + String(err?.message || err));
+      } catch (e2) {}
+      const mFb = await matchStore.getMatch(matchId);
+      const timerFb = ep1Engine.getTimerStatus(mFb, now);
+      const remFb = Math.max(0, Math.floor(timerFb.remaining_sec ?? 0));
+      const fbSum =
+        locale === 'en'
+          ? '[System] Lore response could not be fully generated. The crew remains on standby.'
+          : '[시스템] 로어 응답을 완전히 생성하지 못했습니다. 승무원은 대기 중입니다.';
+      try {
+        console.log(
+          '[bot][message] lore response emitted blocked=false ok=true used=' +
+            String(loreFreePromptUsedAfterConsume ?? '?')
+        );
+      } catch (e3) {}
+      return attachFreePromptConsumedMetadata(
+        {
+          ok: true,
+          blocked: false,
+          summary: fbSum,
+          remaining_sec: remFb,
+          game_over: false,
+          outcome: null,
+          events: [],
+          recent_events: [],
+          match_state: mFb?.game_state || {},
+          lore_pipeline_error_fallback: true
+        },
+        freePromptConsumedThisApi
+      );
+    }
   }
 
   if (cls.kind === 'brief_question') {
