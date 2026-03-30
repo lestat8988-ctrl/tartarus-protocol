@@ -1703,6 +1703,12 @@ function detectLoreQuestionTopic(raw, locale) {
   if (/gravity\s*drive|중력\s*드라이브|워프\s*실험|gravity\s*experiment/i.test(lower)) return 'gravity';
   if (/missing\s+experimental|실험선|실종된\s*함|실험\s*함/i.test(t)) return 'ship';
   if (/awakened|기상한|깨어난|기상\s*인원/i.test(t)) return 'awakened';
+
+  /** 공식 세계관 별칭 → 기존 lore 토픽 (alias registry와 동일 목표 키) */
+  if (/칼릭스|calix/i.test(t) && /프로토콜|protocol/i.test(t)) return 'horizon';
+  if (/네오\s*아크|neo\s*arc|neoarc/i.test(t)) return 'neptune';
+  if (/오르페우스|orpheus/i.test(t) && /게이트|gate/i.test(t)) return 'hades';
+
   return 'general';
 }
 
@@ -1867,13 +1873,11 @@ function normalizeLoreTermToken(raw) {
 }
 
 /**
- * 명백한 동의어/영한 표기만 — 공격적 fuzzy 금지.
- * @returns {{ canonical: string } | null}
+ * alias(소문자·공백 정규화) → 기존 lore 토픽 키(detectLoreQuestionTopic / getLoreTopicSnippet / loreFallbackByTopic와 정합).
+ * 명백한 동의어·운영 별칭만 — 공격적 fuzzy 금지.
  */
-function maybeNormalizeLoreAlias(raw) {
-  const t = normalizeLoreTermToken(raw).toLowerCase().replace(/\s+/g, ' ');
-  if (!t) return null;
-  const map = new Map([
+const LORE_ALIAS_TO_CANONICAL = new Map(
+  [
     ['axis', 'axis'],
     ['액시스', 'axis'],
     ['hades', 'hades'],
@@ -1895,10 +1899,31 @@ function maybeNormalizeLoreAlias(raw) {
     ['gravitydrive', 'gravity'],
     ['gravity drive', 'gravity'],
     ['중력드라이브', 'gravity'],
-    ['중력 드라이브', 'gravity']
-  ]);
-  if (map.has(t)) {
-    return { canonical: map.get(t) };
+    ['중력 드라이브', 'gravity'],
+    /** 프로젝트 실험 프로토콜 묶음 → Project HORIZON(정식 코드명·phase shock 전후) */
+    ['칼릭스 프로토콜', 'horizon'],
+    ['calix protocol', 'horizon'],
+    ['calixprotocol', 'horizon'],
+    /** 임무 궤도·배치 호칭 → Neptune 실험 구간 */
+    ['네오 아크', 'neptune'],
+    ['neo arc', 'neptune'],
+    ['neoarc', 'neptune'],
+    /** 층계/봉인 경계 호칭 → HADES(AXIS 내부 비인가 레이어·저승 병치) */
+    ['오르페우스 게이트', 'hades'],
+    ['orpheus gate', 'hades'],
+    ['orpheusgate', 'hades']
+  ].map(([k, v]) => [k.toLowerCase(), v])
+);
+
+/**
+ * 명백한 동의어/영한 표기만 — 공격적 fuzzy 금지.
+ * @returns {{ canonical: string, matchedAlias: string } | null}
+ */
+function maybeNormalizeLoreAlias(raw) {
+  const t = normalizeLoreTermToken(raw).toLowerCase().replace(/\s+/g, ' ');
+  if (!t) return null;
+  if (LORE_ALIAS_TO_CANONICAL.has(t)) {
+    return { canonical: LORE_ALIAS_TO_CANONICAL.get(t), matchedAlias: t };
   }
   return null;
 }
@@ -2048,6 +2073,7 @@ function evaluateLoreUnknownTermGate(clsKind, raw, locale) {
   const alias = maybeNormalizeLoreAlias(extracted);
   if (alias) {
     try {
+      console.log('[bot][lore] matched alias="' + String(alias.matchedAlias) + '"');
       console.log('[bot][lore] canonical term="' + String(alias.canonical) + '"');
     } catch (e) {}
     return { block: false };
@@ -2065,7 +2091,7 @@ function evaluateLoreUnknownTermGate(clsKind, raw, locale) {
     return { block: false };
   }
   try {
-    console.log('[bot][lore] unknown lore term term=' + extracted);
+    console.log('[bot][lore] unknown term fallback term=' + extracted);
     console.log('[bot][intent] unknown lore safe response selected');
   } catch (e) {}
   return { block: true, term: extracted };
