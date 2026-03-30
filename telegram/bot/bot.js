@@ -22,6 +22,58 @@ const { OpenAI } = require('openai');
 
 const API_PORT = 8788;
 
+/**
+ * 게임 시작 인트로 나레이션 — telegram/miniapp/index.html 의 OPENING_LINES 와 동일 유지.
+ */
+const OPENING_STORY_LINES = {
+  ko: [
+    '타르타로스 호는 해왕성 외곽에서 차세대 중력 워프 실험을 수행하던 실전형 우주 실험선이다.',
+    ' ',
+    '워프 전이 도중 위상 충격이 발생했다.',
+    'AXIS 비상 프로토콜이 발동했고, 핵심 승무원만 강제 기상했다.',
+    ' ',
+    '통신은 두절되었다.',
+    '일부 구역은 정전되었다.',
+    '일부 구역은 격리되었다.',
+    ' ',
+    '강제 기상한 핵심 인원 중 한 명의 생체 신원이 일치하지 않는다.',
+    ' ',
+    'AXIS는 손상되었다.',
+    'AXIS 내부의 봉인된 비인가 계층, HADES는 깨어났다.',
+    ' ',
+    'HADES는 감정이 없고 악의를 갖지 않는다.',
+    '정확한 함선 생존 계산이 그렇게 결정했을 뿐이다.',
+    ' ',
+    '함장은 권총 1발을 쥔다.',
+    '중첩체를 찾아야 한다.',
+    '함장의 정확한 판단과 중첩체 제거로 모든 승무원은 살아남는다.',
+    '누가 중첩체일지는, 아직 아무도 모른다.'
+  ],
+  en: [
+    'Tartarus is a field-grade experimental vessel conducting next-generation gravity warp trials in the Neptune outer rim.',
+    ' ',
+    'A phase shock occurred mid-warp transit.',
+    'AXIS emergency protocols triggered, force-awakening only essential crew.',
+    ' ',
+    'Communications are severed.',
+    'Some sections are dark.',
+    'Some sections are sealed.',
+    ' ',
+    'Among the force-awakened essential personnel, one biometric signature does not match.',
+    ' ',
+    'AXIS is damaged.',
+    'The sealed unauthorized layer inside AXIS—HADES—has awakened.',
+    ' ',
+    'HADES has no emotion and holds no malice.',
+    'The precise ship survival calculation simply decided so.',
+    ' ',
+    'The Captain holds one bullet.',
+    'The parasite must be found.',
+    "With the Captain's judgment and the parasite's removal, all crew will survive.",
+    'Who the parasite is, no one yet knows.'
+  ]
+};
+
 /** -------------------------------------------------------------------------
  * DB persistence skeleton: user_entitlements / match_sessions / match_events
  * In-memory always; optional Supabase when SUPABASE_URL + key are set.
@@ -8839,5 +8891,6 @@ module.exports = {
   resolveUserKey,
   upsertUserEntitlement,
   upsertMatchState,
-  appendMatchEvent
+  appendMatchEvent,
+  OPENING_STORY_LINES
 };
