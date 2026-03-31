@@ -1558,9 +1558,6 @@
       const threatConfirmBtn = document.getElementById('threat-confirm');
       const questionModal = document.getElementById('question-modal');
       const questionConfirmBtn = document.getElementById('question-confirm');
-      /** setUserActionPending에서 참조 — 스크립트 앞쪽에 두어 항상 초기화된 노드를 가리킴 */
-      var executeModal = document.getElementById('execute-modal');
-      var threatModal = document.getElementById('threat-modal');
       const captainPhaseStatusEl = document.getElementById('captain-phase-status');
       const entitlementStartBanner = document.getElementById('entitlement-start-banner');
       const entitlementPromptHint = document.getElementById('entitlement-prompt-hint');
@@ -1602,13 +1599,6 @@
       /** 잠금을 잡은 요청의 시퀀스; 늦게 도착한 응답의 idle 콜백은 불일치 시 무시 */
       var captainUserActionSeq = 0;
       var captainUserActionLockSeq = null;
-      /** 타깃 모달·액션 패널 전용 가변 UI 상태 (const 재할당 방지·취소 시 새 게임 경로 차단용) */
-      var actionUi = {
-        pendingActionType: null,
-        pendingTargetRole: null,
-        modalOpen: false,
-        requestInFlight: false
-      };
 
       function refreshCaptainPhaseStatusUi() {
         if (!captainPhaseStatusEl) return;
@@ -1668,7 +1658,6 @@
       function setUserActionPending(on) {
         if (on) cancelCaptainIdleBackup();
         userActionPending = !!on;
-        actionUi.requestInFlight = !!on;
         if (!on) {
           cancelCaptainIdleBackup();
           captainUserActionLockSeq = null;
@@ -1683,7 +1672,6 @@
         refreshCaptainPhaseStatusUi();
         updateThreatConfirmEnabled();
         updateQuestionConfirmEnabled();
-        syncActionUiModalOpen();
       }
 
       /** setPending: 오직 사용자 턴 요청 시작 시 */
@@ -1740,12 +1728,10 @@
         captainUserActionSeq++;
         captainUserActionLockSeq = null;
         userActionPending = false;
-        actionUi.requestInFlight = false;
         applyCaptainInputChrome();
         refreshCaptainPhaseStatusUi();
         updateThreatConfirmEnabled();
         updateQuestionConfirmEnabled();
-        syncActionUiModalOpen();
       }
 
       function setRestartButtonsDisabled(disabled) {
@@ -3645,15 +3631,8 @@
         doStart(false);
       });
 
-      function syncActionUiModalOpen() {
-        try {
-          var ex = !!(executeModal && executeModal.classList.contains('visible'));
-          var th = !!(threatModal && threatModal.classList.contains('visible'));
-          var q = !!(questionModal && questionModal.classList.contains('visible'));
-          actionUi.modalOpen = ex || th || q;
-          if (!actionUi.modalOpen) actionUi.pendingActionType = null;
-        } catch (e) {}
-      }
+      var executeModal = document.getElementById('execute-modal');
+      var threatModal = document.getElementById('threat-modal');
 
       /** 처형 확정 단일 진입점 — /api/accuse (confirm 버튼·모달 위임만 이 함수 호출) */
       function confirmAccuse() {
@@ -3695,7 +3674,6 @@
           clearTimeout(executeModalUnlockTimer);
           executeModalUnlockTimer = null;
         }
-        actionUi.pendingActionType = 'execute';
         document.body.classList.add('execute-modal-open');
         if (freeInput) freeInput.blur();
         selectedExecuteTarget = null;
@@ -3708,7 +3686,6 @@
         }
         if (executeModal) executeModal.classList.add('visible');
         applyDeadStateToModalButtons();
-        syncActionUiModalOpen();
       }
 
       function closeExecuteModal() {
@@ -3717,9 +3694,7 @@
         executeModalUnlockTimer = setTimeout(function() {
           executeModalUnlockTimer = null;
           document.body.classList.remove('execute-modal-open');
-          syncActionUiModalOpen();
         }, 200);
-        syncActionUiModalOpen();
       }
 
       function confirmThreat() {
@@ -3761,7 +3736,6 @@
           clearTimeout(threatModalUnlockTimer);
           threatModalUnlockTimer = null;
         }
-        actionUi.pendingActionType = 'threat';
         document.body.classList.add('threat-modal-open');
         if (freeInput) freeInput.blur();
         selectedThreatTarget = null;
@@ -3774,7 +3748,6 @@
         }
         if (threatModal) threatModal.classList.add('visible');
         applyDeadStateToModalButtons();
-        syncActionUiModalOpen();
       }
 
       function closeThreatModal() {
@@ -3783,12 +3756,10 @@
         threatModalUnlockTimer = setTimeout(function() {
           threatModalUnlockTimer = null;
           document.body.classList.remove('threat-modal-open');
-          syncActionUiModalOpen();
         }, 200);
         selectedThreatTarget = null;
         if (threatModal) threatModal.querySelectorAll('.threat-target-btn').forEach(function(b) { b.classList.remove('selected'); });
         if (threatConfirmBtn) threatConfirmBtn.disabled = true;
-        syncActionUiModalOpen();
       }
 
       function buildQuestionMessageForRole(roleKey) {
@@ -3807,8 +3778,6 @@
           clearTimeout(questionModalUnlockTimer);
           questionModalUnlockTimer = null;
         }
-        actionUi.pendingActionType = 'question';
-        actionUi.pendingTargetRole = null;
         document.body.classList.add('question-modal-open');
         if (freeInput) freeInput.blur();
         selectedQuestionTarget = null;
@@ -3821,7 +3790,6 @@
         }
         if (questionModal) questionModal.classList.add('visible');
         applyDeadStateToModalButtons();
-        syncActionUiModalOpen();
       }
 
       function closeQuestionModal() {
@@ -3830,18 +3798,15 @@
         questionModalUnlockTimer = setTimeout(function() {
           questionModalUnlockTimer = null;
           document.body.classList.remove('question-modal-open');
-          syncActionUiModalOpen();
         }, 200);
         selectedQuestionTarget = null;
-        actionUi.pendingTargetRole = null;
         document.querySelectorAll('.question-target-btn').forEach(function(b) { b.classList.remove('selected'); });
         if (questionConfirmBtn) questionConfirmBtn.disabled = true;
         updateQuestionConfirmEnabled();
-        syncActionUiModalOpen();
       }
 
       function confirmQuestion() {
-        if (userActionPending || isGameOver || actionUi.requestInFlight) return;
+        if (userActionPending || isGameOver) return;
         var sel = questionModal ? questionModal.querySelector('.question-target-btn.selected') : null;
         var targetKey = sel ? String(sel.getAttribute('data-target') || '').toLowerCase() : '';
         if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
@@ -3858,23 +3823,14 @@
           updateQuestionConfirmEnabled();
           return;
         }
-        try {
-          console.log('[miniapp] question target=' + targetKey);
-          actionUi.pendingTargetRole = targetKey;
-          var msg = buildQuestionMessageForRole(targetKey);
-          if (freeInput) {
-            freeInput.value = '';
-            freeInput.blur();
-          }
-          closeQuestionModal();
-          doMessage(msg);
-        } catch (err) {
-          try {
-            console.warn('[miniapp] confirmQuestion error', err);
-          } catch (e2) {}
-          var em = err && err.message ? String(err.message) : String(err);
-          appendLog('[시스템] 심문 전송 오류: ' + em, true, 'confirmQuestion');
+        console.log('[miniapp] question target=' + targetKey);
+        var msg = buildQuestionMessageForRole(targetKey);
+        if (freeInput) {
+          freeInput.value = '';
+          freeInput.blur();
         }
+        closeQuestionModal();
+        doMessage(msg);
       }
 
       document.querySelectorAll('.modal-target-btn').forEach(function(btn) {
@@ -3955,7 +3911,6 @@
             var rid = String(this.getAttribute('data-target') || '').toLowerCase();
             if (isRoleDead(rid)) return;
             selectedQuestionTarget = VALID_ACCUSE_TARGETS.indexOf(rid) >= 0 ? rid : null;
-            actionUi.pendingTargetRole = selectedQuestionTarget;
             questionModal.querySelectorAll('.question-target-btn').forEach(function(b) { b.classList.remove('selected'); });
             this.classList.add('selected');
             var qw = document.getElementById('question-no-target-hint');
@@ -3969,7 +3924,7 @@
           if (confirmEl) {
             e.preventDefault();
             e.stopPropagation();
-            if (userActionPending || actionUi.requestInFlight) return;
+            if (userActionPending) return;
             confirmQuestion();
             return;
           }
@@ -3998,52 +3953,29 @@
         });
       }
 
-      function dispatchActionPanelButton(actionKey) {
-        var ak = String(actionKey || '').trim();
-        if (!ak) return;
-        if (isGameOver || userActionPending || actionUi.requestInFlight) return;
-        if (takePistolRequestInFlight || collectClueRequestInFlight || threatRequestInFlight || accuseRequestInFlight) {
-          return;
-        }
-        try {
-          if (ak === 'question') {
+      actionBtns.forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          if (isGameOver || userActionPending) return;
+          var action = this.dataset.action || '';
+          if (action === 'question') {
             openQuestionModal();
-          } else if (ak === 'cctv') {
-            doMessage(getLangForApi() === 'ko' ? 'CCTV 로그를 확인한다.' : 'Checking CCTV logs.');
-          } else if (ak === 'engine') {
-            doMessage(getLangForApi() === 'ko' ? '엔진실 로그를 확인한다.' : 'Checking engine room logs.');
-          } else if (ak === 'pistol') {
+          } else if (action === 'cctv') {
+            doMessage(lang === 'ko' ? 'CCTV 로그를 확인한다.' : 'Checking CCTV logs.');
+          } else if (action === 'engine') {
+            doMessage(lang === 'ko' ? '엔진실 로그를 확인한다.' : 'Checking engine room logs.');
+          } else if (action === 'pistol') {
             postTakePistol();
-          } else if (ak === 'clue') {
+          } else if (action === 'clue') {
             postCollectClue();
-          } else if (ak === 'threat') {
+          } else if (action === 'threat') {
             openThreatModal();
-          } else if (ak === 'execute') {
+          } else if (action === 'execute') {
             openExecuteModal();
           } else {
-            try {
-              console.log('[Tartarus MiniApp] action:', ak);
-            } catch (e) {}
+            console.log('[Tartarus MiniApp] action:', action);
           }
-        } catch (err) {
-          try {
-            console.warn('[miniapp] dispatchActionPanelButton', err);
-          } catch (e2) {}
-          var em = err && err.message ? String(err.message) : String(err);
-          appendLog('[시스템] 액션 오류: ' + em, true, 'actionPanel');
-        }
-      }
-
-      if (actionPanel) {
-        actionPanel.addEventListener('click', function(ev) {
-          var btn = ev.target && ev.target.closest ? ev.target.closest('.action-btn') : null;
-          if (!btn || btn.disabled || btn.classList.contains('locked')) return;
-          var actionKey = String(btn.getAttribute('data-action') || '').trim();
-          if (!actionKey) return;
-          ev.preventDefault();
-          dispatchActionPanelButton(actionKey);
         });
-      }
+      });
 
       function doRestart() {
         if (startRequestInFlight) return;
