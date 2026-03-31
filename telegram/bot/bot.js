@@ -7437,8 +7437,13 @@ async function handleTextMessage(playerId, text, opts = {}) {
     await playerStore.setPlayer(playerId, { match_id: matchId, role: 'captain' });
   }
 
-  const match = await matchStore.getMatch(matchId);
+  let match = await matchStore.getMatch(matchId);
   if (!match) return 'Match not found. Send /start to begin.';
+
+  const tensionNowTg =
+    opts.now instanceof Date ? opts.now : opts.now != null ? new Date(opts.now) : new Date();
+  const tensionTg = await persistTimerTensionForMatch(matchId, match, locale, tensionNowTg);
+  match = tensionTg.match || match;
 
   const parsed = applyQuestionLikeIntentGuard(text, intentParser.parse(text));
   const cls = classifyMiniappFreeText(text, parsed);
@@ -7458,7 +7463,8 @@ async function handleTextMessage(playerId, text, opts = {}) {
     );
     const line = buildStateQueryDialogueLine(match, cls.subtype, locale, now);
     const rawEvents = [{ type: 'CREW_DIALOGUE', role: 'system', dialogue: line }];
-    const recentDisplay = dedupeDisplayLogs(toPlayerDisplayLogs(rawEvents, { locale }), locale);
+    let recentDisplay = dedupeDisplayLogs(toPlayerDisplayLogs(rawEvents, { locale }), locale);
+    recentDisplay = mergePrependedTensionDisplayLogs(tensionTg, recentDisplay, locale);
     let reply = recentDisplay.map((e) => e.type).filter(Boolean).join('\n');
     if (!isOver) {
       const m = Math.floor(rem / 60);
@@ -7526,6 +7532,7 @@ async function handleTextMessage(playerId, text, opts = {}) {
         gameOver: !!gsToneRo.game_over
       });
     }
+    recentDisplay = mergePrependedTensionDisplayLogs(tensionTg, recentDisplay, locale);
     let reply = recentDisplay.map((e) => e.type).filter(Boolean).join('\n') || '…';
     const m = Math.floor(rem / 60);
     const sec = rem % 60;
@@ -7560,6 +7567,7 @@ async function handleTextMessage(playerId, text, opts = {}) {
       deadRolesCount: Array.isArray(gsToneG.dead_roles) ? gsToneG.dead_roles.length : 0,
       gameOver: !!gsToneG.game_over
     });
+    recentDisplay = mergePrependedTensionDisplayLogs(tensionTg, recentDisplay, locale);
     let reply = recentDisplay.map((e) => e.type).filter(Boolean).join('\n') || '…';
     const m = Math.floor(rem / 60);
     const sec = rem % 60;
@@ -7591,6 +7599,7 @@ async function handleTextMessage(playerId, text, opts = {}) {
       deadRolesCount: Array.isArray(gsToneSq.dead_roles) ? gsToneSq.dead_roles.length : 0,
       gameOver: !!gsToneSq.game_over
     });
+    recentDisplay = mergePrependedTensionDisplayLogs(tensionTg, recentDisplay, locale);
     let reply = recentDisplay.map((e) => e.type).filter(Boolean).join('\n') || '…';
     const m = Math.floor(rem / 60);
     const sec = rem % 60;
@@ -7608,9 +7617,10 @@ async function handleTextMessage(playerId, text, opts = {}) {
       await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
       const lineUnk = buildUnknownLoreTermSystemLine(locale, gateTg.term);
       const rawEvUnk = [{ type: 'CREW_DIALOGUE', role: 'system', dialogue: lineUnk }];
-      const recentDisplayUnk = dedupeDisplayLogs(toPlayerDisplayLogs(rawEvUnk, { locale }), locale);
-      const toStoreUnk = displayLogsToCrewDialogueEvents(recentDisplayUnk, locale);
+      const recentDisplayUnkBase = dedupeDisplayLogs(toPlayerDisplayLogs(rawEvUnk, { locale }), locale);
+      const toStoreUnk = displayLogsToCrewDialogueEvents(recentDisplayUnkBase, locale);
       for (const ev of toStoreUnk) await matchStore.appendEvent(matchId, ev);
+      const recentDisplayUnk = mergePrependedTensionDisplayLogs(tensionTg, recentDisplayUnkBase, locale);
       const updatedUnk = await matchStore.getMatch(matchId);
       const timerUnk = ep1Engine.getTimerStatus(updatedUnk, now);
       const remUnk = Math.max(0, Math.floor(timerUnk.remaining_sec ?? 0));
@@ -7621,9 +7631,10 @@ async function handleTextMessage(playerId, text, opts = {}) {
       return replyUnk;
     }
     await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
-    let recentDisplay = buildLoreQuestionSystemOnlyDisplayLogs(locale, text);
-    const toStore = displayLogsToCrewDialogueEvents(recentDisplay, locale);
+    const recentDisplayLoreBase = buildLoreQuestionSystemOnlyDisplayLogs(locale, text);
+    const toStore = displayLogsToCrewDialogueEvents(recentDisplayLoreBase, locale);
     for (const ev of toStore) await matchStore.appendEvent(matchId, ev);
+    let recentDisplay = mergePrependedTensionDisplayLogs(tensionTg, recentDisplayLoreBase, locale);
     const updated = await matchStore.getMatch(matchId);
     const timer = ep1Engine.getTimerStatus(updated, now);
     const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
@@ -7652,6 +7663,7 @@ async function handleTextMessage(playerId, text, opts = {}) {
       recentDisplay = applyTargetedQuestionCaptainDisplayBody(recentDisplay, captainBodyForBrief, locale);
       recentDisplay = dedupeDisplayLogs(recentDisplay, locale);
     }
+    recentDisplay = mergePrependedTensionDisplayLogs(tensionTg, recentDisplay, locale);
     const timer = ep1Engine.getTimerStatus(updated, now);
     const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
     let reply = recentDisplay.map((e) => e.type).filter(Boolean).join('\n') || '…';
@@ -7769,6 +7781,7 @@ async function handleTextMessage(playerId, text, opts = {}) {
     console.log('[bot] targeted_question removed_midstage_captain_override=true');
     console.log('[bot] targeted_question captain_display_source=final_only');
   }
+  recentDisplay = mergePrependedTensionDisplayLogs(tensionTg, recentDisplay, locale);
   if (recentDisplay.length > 0) {
     reply += '\n\nRecent: ' + recentDisplay.map((e) => e.type).join(', ');
   }
@@ -7848,6 +7861,94 @@ function attachActualImposterIfGameOverResult(ret, match) {
   }
 }
 
+/** game_state.timer_tension_warnings — 매 러닝 1회만, 새 매치면 자연 초기화 */
+function ensureTimerWarningFlags(gs) {
+  if (!gs || typeof gs !== 'object') return;
+  const cur = gs.timer_tension_warnings && typeof gs.timer_tension_warnings === 'object' ? gs.timer_tension_warnings : {};
+  gs.timer_tension_warnings = {
+    sixMinuteWarningShown: cur.sixMinuteWarningShown === true,
+    threeMinuteWarningShown: cur.threeMinuteWarningShown === true,
+    oneMinuteWarningShown: cur.oneMinuteWarningShown === true
+  };
+}
+
+function timerTensionDialogueLines(locale, gs) {
+  const dead = Array.isArray(gs?.dead_roles) ? gs.dead_roles.length : 0;
+  const ko6 =
+    '[시스템]\n함선 내부 이상 징후 감지. 의료실과 엔진실의 생체 신호가 불안정하다.';
+  const en6 = '[SYSTEM]\nHull anomaly signatures. Medical and engine biometrics are unstable.';
+  const ko3Base =
+    '[HADES]\n최적 제거 시점이 임박했다. 현재 대응 속도로는 전원 생존이 어렵다.';
+  const ko3Dead =
+    '[HADES]\n이미 사망자가 있다. 최적 제거 시점이 임박했고, 남은 시간으로는 전원 생존이 어렵다.';
+  const en3Base =
+    '[HADES]\nOptimal removal is close. At this pace, full crew survival is unlikely.';
+  const en3Dead =
+    '[HADES]\nThere are already deaths. Optimal removal is close; full survival at this pace is unlikely.';
+  const ko1 =
+    '[HADES]\n최종 계산 완료. 남은 시간 내 중첩체를 제거하지 못하면 함선은 내 것이 된다.';
+  const en1 =
+    '[HADES]\nFinal calculation complete. Fail to remove the overlap in time, and the ship is mine.';
+  if (locale === 'en') {
+    return { six: en6, three: dead > 0 ? en3Dead : en3Base, one: en1 };
+  }
+  return { six: ko6, three: dead > 0 ? ko3Dead : ko3Base, one: ko1 };
+}
+
+/**
+ * 남은 초 기준 구간(6:00 / 3:00 / 1:00)에 맞춰 1회만 CREW_DIALOGUE 이벤트 생성. gs.timer_tension_warnings 갱신.
+ * @returns {object[]} 이번 호출에서 새로 추가할 raw 이벤트
+ */
+function maybeEmitTimerTensionEvents(gs, remainingSeconds, locale) {
+  ensureTimerWarningFlags(gs);
+  const w = gs.timer_tension_warnings;
+  const r = Math.max(0, Math.floor(Number(remainingSeconds) || 0));
+  const lines = timerTensionDialogueLines(locale, gs);
+  const out = [];
+  if (!w.sixMinuteWarningShown && r <= 360 && r > 180) {
+    w.sixMinuteWarningShown = true;
+    out.push({ type: 'CREW_DIALOGUE', role: 'system', dialogue: lines.six });
+  }
+  if (!w.threeMinuteWarningShown && r <= 180 && r > 60) {
+    w.threeMinuteWarningShown = true;
+    out.push({ type: 'CREW_DIALOGUE', role: 'system', dialogue: lines.three });
+  }
+  if (!w.oneMinuteWarningShown && r <= 60) {
+    w.oneMinuteWarningShown = true;
+    out.push({ type: 'CREW_DIALOGUE', role: 'system', dialogue: lines.one });
+  }
+  return out;
+}
+
+function mergePrependedTensionDisplayLogs(tension, displayLogs, locale) {
+  const base = displayLogs || [];
+  if (!tension || !tension.displayLogs || !tension.displayLogs.length) return base;
+  return dedupeDisplayLogs([...tension.displayLogs, ...base], locale);
+}
+
+/**
+ * 타이머 구간 경고를 appendEvent + game_state 플래그에 반영.
+ * @returns {Promise<{ newRawEvents: object[], match: object, displayLogs: object[] }>}
+ */
+async function persistTimerTensionForMatch(matchId, match, locale, now) {
+  const gs = match?.game_state;
+  if (!gs || gs.game_over) {
+    return { newRawEvents: [], match, displayLogs: [] };
+  }
+  const tNow = now instanceof Date ? now : now != null ? new Date(now) : new Date();
+  const timer = ep1Engine.getTimerStatus ? ep1Engine.getTimerStatus(match, tNow) : { remaining_sec: 420 };
+  const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
+  const newRaw = maybeEmitTimerTensionEvents(gs, rem, locale);
+  if (newRaw.length === 0) {
+    return { newRawEvents: [], match, displayLogs: [] };
+  }
+  for (const ev of newRaw) await matchStore.appendEvent(matchId, ev);
+  await matchStore.updateMatch(matchId, { game_state: { ...gs } });
+  const updated = await matchStore.getMatch(matchId);
+  const displayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(newRaw, { locale }), locale);
+  return { newRawEvents: newRaw, match: updated, displayLogs };
+}
+
 /**
  * API용 /start 상태 반환
  * actual_imposter: game_over=true일 때만 권위 필드에서 정규화. game_over=false면 미포함.
@@ -7924,21 +8025,24 @@ async function getStartStateApi(playerId, opts = {}) {
     } catch (e) {}
   }
   const match = await matchStore.getMatch(matchId);
-  const timer = ep1Engine.getTimerStatus ? ep1Engine.getTimerStatus(match) : { remaining_sec: 420 };
-  const gs = match?.game_state || {};
-  let displayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(match?.events || [], { locale }), locale);
-  displayLogs = ensureInitialSystemDisplayLogs(displayLogs, match, locale);
+  const nowStart = opts.now instanceof Date ? opts.now : opts.now != null ? new Date(opts.now) : new Date();
+  const tensionStart = await persistTimerTensionForMatch(matchId, match, locale, nowStart);
+  const matchForStart = tensionStart.match || match;
+  const timer = ep1Engine.getTimerStatus ? ep1Engine.getTimerStatus(matchForStart, nowStart) : { remaining_sec: 420 };
+  const gs = matchForStart?.game_state || {};
+  let displayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(matchForStart?.events || [], { locale }), locale);
+  displayLogs = ensureInitialSystemDisplayLogs(displayLogs, matchForStart, locale);
   const out = {
     ok: true,
     match_id: matchId,
     remaining_sec: timer.remaining_sec ?? 420,
     game_state: gs,
-    deadline_at: match?.deadline_at,
+    deadline_at: matchForStart?.deadline_at,
     events: displayLogs
   };
   if (gs.game_over) {
-    attachActualImposterIfGameOverResult(out, match);
-    const evs = match?.events || [];
+    attachActualImposterIfGameOverResult(out, matchForStart);
+    const evs = matchForStart?.events || [];
     if (evs.some((e) => e && e.type === 'TIMEOUT')) out.is_timeout = true;
   }
   await dbPersistAfterStartState(playerId, locale, out);
@@ -7978,6 +8082,11 @@ async function processMessageApi(playerId, text, opts = {}) {
   const match = await matchStore.getMatch(matchId);
   if (!match) return { ok: false, error: 'Match not found' };
 
+  const tensionNow =
+    opts.now instanceof Date ? opts.now : opts.now != null ? new Date(opts.now) : new Date();
+  const tension = await persistTimerTensionForMatch(matchId, match, locale, tensionNow);
+  match = tension.match || match;
+
   const parsed = applyQuestionLikeIntentGuard(text, intentParser.parse(text));
   const cls = classifyMiniappFreeText(text, parsed);
   if (cls.parsed && typeof cls.parsed === 'object') {
@@ -7996,7 +8105,8 @@ async function processMessageApi(playerId, text, opts = {}) {
     );
     const line = buildStateQueryDialogueLine(match, cls.subtype, locale, now);
     const rawEvents = [{ type: 'CREW_DIALOGUE', role: 'system', dialogue: line }];
-    const newDisplayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(rawEvents, { locale }), locale);
+    let newDisplayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(rawEvents, { locale }), locale);
+    newDisplayLogs = mergePrependedTensionDisplayLogs(tension, newDisplayLogs, locale);
     const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
     const ret = {
       ok: true,
@@ -8051,12 +8161,13 @@ async function processMessageApi(playerId, text, opts = {}) {
       } catch (e) {}
       const timer = ep1Engine.getTimerStatus(match, now);
       const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
+      const evBlock = mergePrependedTensionDisplayLogs(tension, [], locale);
       return buildEntitlementBlockedResponse(locale, 'daily_free_prompt_limit_reached', pr.entitlement, {
         remaining_sec: rem,
         game_over: false,
         outcome: null,
-        events: [],
-        recent_events: [],
+        events: evBlock,
+        recent_events: evBlock,
         match_state: { ...match.game_state }
       });
     }
@@ -8097,6 +8208,7 @@ async function processMessageApi(playerId, text, opts = {}) {
         gameOver: !!gsToneRo.game_over
       });
     }
+    newDisplayLogs = mergePrependedTensionDisplayLogs(tension, newDisplayLogs, locale);
     const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
     return {
       ok: true,
@@ -8137,6 +8249,7 @@ async function processMessageApi(playerId, text, opts = {}) {
       deadRolesCount: Array.isArray(gsToneG.dead_roles) ? gsToneG.dead_roles.length : 0,
       gameOver: !!gsToneG.game_over
     });
+    newDisplayLogs = mergePrependedTensionDisplayLogs(tension, newDisplayLogs, locale);
     const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
     return {
       ok: true,
@@ -8174,6 +8287,7 @@ async function processMessageApi(playerId, text, opts = {}) {
       deadRolesCount: Array.isArray(gsToneSq.dead_roles) ? gsToneSq.dead_roles.length : 0,
       gameOver: !!gsToneSq.game_over
     });
+    newDisplayLogs = mergePrependedTensionDisplayLogs(tension, newDisplayLogs, locale);
     const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
     return {
       ok: true,
@@ -8207,9 +8321,10 @@ async function processMessageApi(playerId, text, opts = {}) {
         await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
         const lineUnk = buildUnknownLoreTermSystemLine(locale, gateApi.term);
         const rawEvUnk = [{ type: 'CREW_DIALOGUE', role: 'system', dialogue: lineUnk }];
-        const newDisplayLogsUnk = dedupeDisplayLogs(toPlayerDisplayLogs(rawEvUnk, { locale }), locale);
-        const toStoreUnk = displayLogsToCrewDialogueEvents(newDisplayLogsUnk, locale);
+        const newDisplayLogsUnkBase = dedupeDisplayLogs(toPlayerDisplayLogs(rawEvUnk, { locale }), locale);
+        const toStoreUnk = displayLogsToCrewDialogueEvents(newDisplayLogsUnkBase, locale);
         for (const ev of toStoreUnk) await matchStore.appendEvent(matchId, ev);
+        const newDisplayLogsUnk = mergePrependedTensionDisplayLogs(tension, newDisplayLogsUnkBase, locale);
         const updatedUnk = await matchStore.getMatch(matchId);
         const timerUnk = ep1Engine.getTimerStatus(updatedUnk, now);
         const remUnk = Math.max(0, Math.floor(timerUnk.remaining_sec ?? 0));
@@ -8235,9 +8350,10 @@ async function processMessageApi(playerId, text, opts = {}) {
         );
       }
       await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
-      const newDisplayLogs = buildLoreQuestionSystemOnlyDisplayLogs(locale, text);
-      const toStore = displayLogsToCrewDialogueEvents(newDisplayLogs, locale);
+      const newDisplayLogsLoreBase = buildLoreQuestionSystemOnlyDisplayLogs(locale, text);
+      const toStore = displayLogsToCrewDialogueEvents(newDisplayLogsLoreBase, locale);
       for (const ev of toStore) await matchStore.appendEvent(matchId, ev);
+      const newDisplayLogs = mergePrependedTensionDisplayLogs(tension, newDisplayLogsLoreBase, locale);
       const updated = await matchStore.getMatch(matchId);
       const timer = ep1Engine.getTimerStatus(updated, now);
       const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
@@ -8286,8 +8402,8 @@ async function processMessageApi(playerId, text, opts = {}) {
           remaining_sec: remFb,
           game_over: false,
           outcome: null,
-          events: [],
-          recent_events: [],
+          events: mergePrependedTensionDisplayLogs(tension, [], locale),
+          recent_events: mergePrependedTensionDisplayLogs(tension, [], locale),
           match_state: mFb?.game_state || {},
           lore_pipeline_error_fallback: true
         },
@@ -8316,6 +8432,7 @@ async function processMessageApi(playerId, text, opts = {}) {
     }
     const timer = ep1Engine.getTimerStatus(updated, now);
     const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
+    newDisplayLogs = mergePrependedTensionDisplayLogs(tension, newDisplayLogs, locale);
     const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
     return {
       ok: true,
@@ -8412,6 +8529,7 @@ async function processMessageApi(playerId, text, opts = {}) {
     console.log('[bot] targeted_question removed_midstage_captain_override=true');
     console.log('[bot] targeted_question captain_display_source=final_only');
   }
+  newDisplayLogs = mergePrependedTensionDisplayLogs(tension, newDisplayLogs, locale);
   const updatedAfterDialogue = await matchStore.getMatch(matchId);
   const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
   const recentEvents = newDisplayLogs;
@@ -8469,8 +8587,13 @@ async function processAccuseApi(playerId, targetRaw, opts = {}) {
     matchId = match0.match_id;
     await playerStore.setPlayer(playerId, { match_id: matchId, role: 'captain' });
   }
-  const match = await matchStore.getMatch(matchId);
+  let match = await matchStore.getMatch(matchId);
   if (!match) return { ok: false, error: 'Match not found' };
+
+  const tensionNowAcc =
+    opts.now instanceof Date ? opts.now : opts.now != null ? new Date(opts.now) : new Date();
+  const tensionAcc = await persistTimerTensionForMatch(matchId, match, locale, tensionNowAcc);
+  match = tensionAcc.match || match;
 
   if (match.game_state?.game_over) {
     const ret = {
@@ -8503,7 +8626,8 @@ async function processAccuseApi(playerId, targetRaw, opts = {}) {
 
   const updated = await matchStore.getMatch(matchId);
   const gameOver = result.game_over || updated?.game_state?.game_over;
-  const newDisplayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(result.events || [], { locale }), locale);
+  let newDisplayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(result.events || [], { locale }), locale);
+  newDisplayLogs = mergePrependedTensionDisplayLogs(tensionAcc, newDisplayLogs, locale);
   const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
   const recentEvents = newDisplayLogs;
   const ret = {
@@ -8575,8 +8699,13 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
     matchId = match0.match_id;
     await playerStore.setPlayer(playerId, { match_id: matchId, role: 'captain' });
   }
-  const match = await matchStore.getMatch(matchId);
+  let match = await matchStore.getMatch(matchId);
   if (!match) return { ok: false, error: 'Match not found' };
+
+  const tensionNowAct =
+    opts.now instanceof Date ? opts.now : opts.now != null ? new Date(opts.now) : new Date();
+  const tensionAct = await persistTimerTensionForMatch(matchId, match, locale, tensionNowAct);
+  match = tensionAct.match || match;
 
   if (match.game_state?.game_over) {
     const ret = {
@@ -8627,7 +8756,7 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
         : locale === 'en'
           ? `[collect_clue action]`
           : `[단서수집 action]`;
-  const newDisplayLogs = dedupeDisplayLogs(
+  let newDisplayLogs = dedupeDisplayLogs(
     await maybeDialogueLogsFromLlmOrDeterministic({
       rawEvents: result.events || [],
       deterministicLogs,
@@ -8638,6 +8767,7 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
     }),
     locale
   );
+  newDisplayLogs = mergePrependedTensionDisplayLogs(tensionAct, newDisplayLogs, locale);
   const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
   const recentEvents = newDisplayLogs;
   const ret = {
@@ -8930,11 +9060,17 @@ function createLocalApiServer() {
         }
         const deltaRaw = await applyMatchClockTick(matchId);
         match = await matchStore.getMatch(matchId);
-        const timer = ep1Engine.getTimerStatus(match, new Date());
+        const pollNow = new Date();
+        const tensionPoll = await persistTimerTensionForMatch(matchId, match, locale, pollNow);
+        match = await matchStore.getMatch(matchId);
+        const timer = ep1Engine.getTimerStatus(match, pollNow);
         const gs = match?.game_state || {};
         let displayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(match?.events || [], { locale }), locale);
         displayLogs = ensureInitialSystemDisplayLogs(displayLogs, match, locale);
-        const recentDisplay = dedupeDisplayLogs(toPlayerDisplayLogs(deltaRaw, { locale }), locale);
+        const recentDisplay = dedupeDisplayLogs(
+          toPlayerDisplayLogs([...(tensionPoll.newRawEvents || []), ...deltaRaw], { locale }),
+          locale
+        );
         const statePayload = {
           ok: true,
           match_id: matchId,
