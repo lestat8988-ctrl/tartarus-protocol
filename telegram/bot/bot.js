@@ -8079,7 +8079,7 @@ async function processMessageApi(playerId, text, opts = {}) {
     matchId = match0.match_id;
     await playerStore.setPlayer(playerId, { match_id: matchId, role: 'captain' });
   }
-  const match = await matchStore.getMatch(matchId);
+  let match = await matchStore.getMatch(matchId);
   if (!match) return { ok: false, error: 'Match not found' };
 
   const tensionNow =
@@ -9038,58 +9038,72 @@ function createLocalApiServer() {
           res.end(JSON.stringify({ ok: false, error: 'playerId required' }));
           return;
         }
-        const locale = resolveRequestLocale({}, url.searchParams, req.headers);
-        console.log('[bot] LOCALE_RESOLVED locale=' + locale + ' action=state');
-        const player = await playerStore.getPlayer(playerId);
-        const matchId = player?.match_id;
-        console.log(
-          '[bot] api action=state match_id=' + String(matchId || '') + ' playerId=' + String(playerId)
-        );
-        if (!matchId) {
-          console.log('[bot] api action complete ok=true match_id=');
+        try {
+          const locale = resolveRequestLocale({}, url.searchParams, req.headers);
+          console.log('[bot] LOCALE_RESOLVED locale=' + locale + ' action=state');
+          const player = await playerStore.getPlayer(playerId);
+          const matchId = player?.match_id;
+          console.log(
+            '[bot] api action=state match_id=' + String(matchId || '') + ' playerId=' + String(playerId)
+          );
+          if (!matchId) {
+            console.log('[bot] api action complete ok=true match_id=');
+            res.writeHead(200);
+            res.end(JSON.stringify({ ok: true, match_id: null, game_state: null }));
+            return;
+          }
+          let match = await matchStore.getMatch(matchId);
+          if (!match) {
+            console.log('[bot] api action complete ok=true match_id=');
+            res.writeHead(200);
+            res.end(JSON.stringify({ ok: true, match_id: null, game_state: null }));
+            return;
+          }
+          const deltaRaw = await applyMatchClockTick(matchId);
+          match = await matchStore.getMatch(matchId);
+          const pollNow = new Date();
+          const tensionPoll = await persistTimerTensionForMatch(matchId, match, locale, pollNow);
+          match = await matchStore.getMatch(matchId);
+          const timer = ep1Engine.getTimerStatus(match, pollNow);
+          const gs = match?.game_state || {};
+          let displayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(match?.events || [], { locale }), locale);
+          displayLogs = ensureInitialSystemDisplayLogs(displayLogs, match, locale);
+          const recentDisplay = dedupeDisplayLogs(
+            toPlayerDisplayLogs([...(tensionPoll.newRawEvents || []), ...deltaRaw], { locale }),
+            locale
+          );
+          const statePayload = {
+            ok: true,
+            match_id: matchId,
+            remaining_sec: timer.remaining_sec ?? 0,
+            game_state: gs,
+            match_state: gs,
+            events: displayLogs,
+            recent_events: recentDisplay,
+            game_over: !!gs.game_over
+          };
+          if (gs.game_over) {
+            attachActualImposterIfGameOverResult(statePayload, match);
+            const evs = match?.events || [];
+            if (evs.some((e) => e && e.type === 'TIMEOUT')) statePayload.is_timeout = true;
+          }
+          console.log('[bot] api action complete ok=true match_id=' + String(matchId));
           res.writeHead(200);
-          res.end(JSON.stringify({ ok: true, match_id: null, game_state: null }));
+          res.end(JSON.stringify(statePayload));
+          return;
+        } catch (err) {
+          const stackLines = err && err.stack ? String(err.stack).split(/\r?\n/) : [];
+          const stackFirst = stackLines.length > 1 ? stackLines[1].trim() : stackLines[0] || '';
+          console.error(
+            '[bot][state-error] ' +
+              String(err && err.message != null ? err.message : err) +
+              ' stack=' +
+              stackFirst
+          );
+          res.writeHead(500);
+          res.end(JSON.stringify({ ok: false, error: String(err && err.message != null ? err.message : err) }));
           return;
         }
-        let match = await matchStore.getMatch(matchId);
-        if (!match) {
-          console.log('[bot] api action complete ok=true match_id=');
-          res.writeHead(200);
-          res.end(JSON.stringify({ ok: true, match_id: null, game_state: null }));
-          return;
-        }
-        const deltaRaw = await applyMatchClockTick(matchId);
-        match = await matchStore.getMatch(matchId);
-        const pollNow = new Date();
-        const tensionPoll = await persistTimerTensionForMatch(matchId, match, locale, pollNow);
-        match = await matchStore.getMatch(matchId);
-        const timer = ep1Engine.getTimerStatus(match, pollNow);
-        const gs = match?.game_state || {};
-        let displayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(match?.events || [], { locale }), locale);
-        displayLogs = ensureInitialSystemDisplayLogs(displayLogs, match, locale);
-        const recentDisplay = dedupeDisplayLogs(
-          toPlayerDisplayLogs([...(tensionPoll.newRawEvents || []), ...deltaRaw], { locale }),
-          locale
-        );
-        const statePayload = {
-          ok: true,
-          match_id: matchId,
-          remaining_sec: timer.remaining_sec ?? 0,
-          game_state: gs,
-          match_state: gs,
-          events: displayLogs,
-          recent_events: recentDisplay,
-          game_over: !!gs.game_over
-        };
-        if (gs.game_over) {
-          attachActualImposterIfGameOverResult(statePayload, match);
-          const evs = match?.events || [];
-          if (evs.some((e) => e && e.type === 'TIMEOUT')) statePayload.is_timeout = true;
-        }
-        console.log('[bot] api action complete ok=true match_id=' + String(matchId));
-        res.writeHead(200);
-        res.end(JSON.stringify(statePayload));
-        return;
       }
 
       if (route === '/api/message' && req.method === 'POST') {
