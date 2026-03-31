@@ -1606,10 +1606,10 @@
           resultTitleLoseTimeout: 'MISSION FAILED — Time expired',
           resultDescCrewWin: 'The parasite has been eliminated. HADES layer sealed. The ship survives.',
           resultDescAccuseFailed: 'Innocent crew member executed. Wrong target. Ship destroyed.',
-          resultDescImpostorWin: 'Impostor prevailed. The parasite killed all crew. The ship belongs to HADES.',
+          resultDescImpostorWin: 'The impostor prevailed. The parasite killed all crew. The ship belongs to HADES.',
           resultDescTimeout: "Time's up. The parasite was never found. The ship belongs to HADES now.",
           resultOutcomeLabel: 'Outcome',
-          resultImposterPrefix: 'Identified imposter: ',
+          resultImposterPrefix: 'Identified impostor: ',
           resultImposterFallback: '(unknown)',
           resultDeadLabel: 'Deceased',
           resultDeadPrefix: 'Deceased: ',
@@ -3009,8 +3009,8 @@
           },
           en: {
             body:
-              'Found in the medbay isolation ward. Abnormal incision marks on the abdomen. Last vitals: extreme fear response.',
-            hades: 'Medical capacity lost. Within containment scope.'
+              'Recovered in the medbay isolation zone. Irregular abdominal incision marks remain. Final vital record: extreme fear response.',
+            hades: 'Medical capability lost. Within acceptable range.'
           }
         },
         engineer: {
@@ -3021,7 +3021,7 @@
           },
           en: {
             body:
-              'Found near the engine cooling shaft. Limbs separated abnormally. Site logs show survival until 19 seconds prior.',
+              'Recovered near the engine cooling shaft. Limbs are separated in a visibly abnormal manner. Site logs show survival until 19 seconds before discovery.',
             hades: 'Engine efficiency maintained. Removal complete.'
           }
         },
@@ -3033,8 +3033,8 @@
           },
           en: {
             body:
-              'Found at the navigation console. Repeated identical coordinate entries. Last gaze log points toward the viewport.',
-            hades: 'Navigation automation viable. Crew redundant.'
+              'Recovered at the navigation console. Repeated coordinate input traces remain. Final eye-line record points toward the observation window.',
+            hades: 'Navigation can be automated. Personnel unnecessary.'
           }
         },
         pilot: {
@@ -3045,8 +3045,8 @@
           },
           en: {
             body:
-              'Found inside the decompression chamber. Suit faceplate shows rupture marks. Last transmission: three seconds of screaming.',
-            hades: 'Axis control transferred. Optimization complete.'
+              'Recovered inside the decompression chamber. Rupture marks remain across the front of the suit. Final transmission was a three-second scream.',
+            hades: 'Piloting function transferred to AXIS. Optimization complete.'
           }
         }
       };
@@ -3111,6 +3111,14 @@
         var deadRoles = gs.dead_roles || [];
         if (!deadRoles.length && lastDeadRoles && lastDeadRoles.length) {
           deadRoles = lastDeadRoles.slice();
+        }
+        if (!deadRoles.length && lastGameStateSnapshot && lastGameStateSnapshot.game_state) {
+          var snapDead = lastGameStateSnapshot.game_state.dead_roles;
+          if (snapDead && snapDead.length) {
+            var sm = lastGameStateSnapshot.match_id != null ? String(lastGameStateSnapshot.match_id) : '';
+            var cm = state.match_id != null ? String(state.match_id) : '';
+            if (!(sm && cm && sm !== cm)) deadRoles = snapDead.slice();
+          }
         }
         var L = getL();
         var resultModal = document.getElementById('result-modal');
@@ -3222,6 +3230,14 @@
         var incomingDead = gs.dead_roles;
         if (incomingDead && incomingDead.length) {
           lastDeadRoles = incomingDead.slice();
+        }
+        if (!lastDeadRoles.length && lastGameStateSnapshot && lastGameStateSnapshot.game_state) {
+          var snapDeadPre = lastGameStateSnapshot.game_state.dead_roles;
+          if (snapDeadPre && snapDeadPre.length) {
+            var smPre = lastGameStateSnapshot.match_id != null ? String(lastGameStateSnapshot.match_id) : '';
+            var cmPre = state.match_id != null ? String(state.match_id) : '';
+            if (!(smPre && cmPre && smPre !== cmPre)) lastDeadRoles = snapDeadPre.slice();
+          }
         }
         var prevWasGameOver = previousGameOver;
 
