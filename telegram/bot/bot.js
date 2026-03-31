@@ -1217,6 +1217,12 @@ function looksLikeOpenQuestion(lower, raw) {
 function isQuestionLikeCaptainText(raw) {
   const t = String(raw || '').trim();
   if (!t) return false;
+  if (
+    /(정확히\s*말해|말이\s*랑\s*다르|말이랑\s*다르|말이\s*바뀌|아까\s*말)/i.test(t) &&
+    /(닥터|의사|엔지니어|네비게이터|파일럿|doctor|engineer|navigator|pilot)/i.test(t)
+  ) {
+    return true;
+  }
   if (/[?？]/.test(t)) return true;
   if (
     /(무엇|뭐|뭔|누구|누가|이름|성함|정체|어디|언제|왜|어떻게|있었지|했지|봤지|기억하나|말해봐|설명해봐|알려|말해|가장\s*수상|수상하지|누가\s*범)/i.test(
@@ -1249,6 +1255,12 @@ function isStrongQuestionCueText(raw) {
   if (isQuestionLikeCaptainText(raw)) return true;
   const t = String(raw || '').trim();
   if (!t) return false;
+  if (
+    /(정확히\s*말해|말이\s*랑\s*다르|말이랑\s*다르|말이\s*바뀌|아까\s*말)/i.test(t) &&
+    /(닥터|의사|엔지니어|네비게이터|파일럿|doctor|engineer|navigator|pilot)/i.test(t)
+  ) {
+    return true;
+  }
   if (
     /(무엇|뭐|뭔|누구|누가|이름|성함|정체|어디|언제|왜|어떻게|있었지|했지|봤지|기억하나|말해봐|설명해봐)/i.test(t) &&
     /(자네들|다들|모두|승무원들|승무원\s+중|전원|여러분)/.test(t)
@@ -1429,6 +1441,65 @@ function detectCrewRoleForGameplayQuestion(raw) {
 }
 
 /**
+ * 자유 입력에서 승무원 타깃 역할 추출 — detectCrewRoleForGameplayQuestion과 동일 우선순위(닥터/의사/엔지니어/네비게이터/파일럿).
+ */
+function extractTargetRoleFromText(text) {
+  return detectCrewRoleForGameplayQuestion(String(text || ''));
+}
+
+/**
+ * observe/unknown 등 파서 결과와 무관하게 타깃+의도(질문/심문/위협) 추론 — 라우팅 전용.
+ * 불명확하면 QUESTION (OBSERVE 폴백 방지).
+ */
+function inferFreeTextCaptainIntent(text, parsedIntent, targetRole) {
+  if (!targetRole) return null;
+  const t = String(text || '');
+  if (!t.trim()) return 'QUESTION';
+  if (
+    /(위협|쏴버릴|쏴버리|당장\s*말해|가만\s*안\s*둬|죽을\s*수도|권총|총구|겨누|처형|쏘겠|threaten|gunpoint|shoot|execute)/i.test(
+      t
+    )
+  ) {
+    return 'THREAT';
+  }
+  if (
+    /(정확히\s*말해|말이\s*랑\s*다르|말이랑\s*다르|아까\s*말|말이\s*바뀌|바뀌고\s*있|계속\s*말이|왜\s*말이\s*바뀌|추궁|캐묻|왜\s*그랬지|심문|interrogat|contradict)/i.test(
+      t
+    )
+  ) {
+    return 'INTERROGATE';
+  }
+  if (/(어디\s*있었지|뭐\s*했지|말해봐|설명해|설명해봐|뭐\s*했는지|무엇을\s*했)/i.test(t)) {
+    return 'QUESTION';
+  }
+  const pi = String(parsedIntent || '').toLowerCase();
+  if (pi === 'observe' || pi === 'unknown') return 'QUESTION';
+  return 'QUESTION';
+}
+
+function shouldForceTargetedCrewReply(targetRole, intent) {
+  if (!targetRole) return false;
+  return intent === 'QUESTION' || intent === 'INTERROGATE' || intent === 'THREAT';
+}
+
+/**
+ * 역할 호칭 + 심문/위협/정보 질문 키워드 — isGameplayCrewQuestionPattern 보완.
+ */
+function isDirectedCrewGameplayIntent(raw) {
+  const t = String(raw || '');
+  if (!extractTargetRoleFromText(t)) return false;
+  if (containsLoreCanonSubject(raw)) return false;
+  if (
+    /(정확히\s*말해|말이\s*랑\s*다르|말이랑\s*다르|아까\s*말|말이\s*바뀌|바뀌고\s*있|계속\s*말이|왜\s*말이\s*바뀌|추궁|캐묻|왜\s*그랬지|심문)/i.test(t)
+  ) {
+    return true;
+  }
+  if (/(위협|쏴버릴|쏴버리|당장\s*말해|가만\s*안\s*둬|죽을\s*수도)/i.test(t)) return true;
+  if (/(어디\s*있었지|뭐\s*했지|말해봐|설명해|설명해봐)/i.test(t)) return true;
+  return false;
+}
+
+/**
  * 승무원 대상 심문/동선/신원 확인형 — lore가 아님.
  * "닥터 하네스가 무엇인가?" 처럼 역할+미확인 고유명사는 false → lore/unknown gate로 넘김.
  */
@@ -1466,7 +1537,7 @@ function isTargetedCrewQuestion(raw) {
   const crewRole = detectCrewRoleForGameplayQuestion(raw);
   if (!crewRole) return null;
   if (containsLoreCanonSubject(raw)) return null;
-  if (!isGameplayCrewQuestionPattern(raw)) return null;
+  if (!isGameplayCrewQuestionPattern(raw) && !isDirectedCrewGameplayIntent(raw)) return null;
   return crewRole;
 }
 
@@ -1495,6 +1566,17 @@ function classifyMiniappFreeText(text, parsed) {
   let intent = String(parsed.intent_type || 'unknown').toLowerCase();
   const pinnedThreatIntent = intent === 'threaten' || intent === 'threat';
   let effParsed = parsed;
+  if (intent === 'observe' || intent === 'unknown') {
+    const tr0 = extractTargetRoleFromText(raw);
+    const ft0 = tr0 ? inferFreeTextCaptainIntent(raw, intent, tr0) : null;
+    if (tr0 && ft0 && shouldForceTargetedCrewReply(tr0, ft0)) {
+      effParsed = { ...parsed, intent_type: 'question', target: tr0 };
+      intent = 'question';
+      try {
+        console.log('[intent] target=' + tr0 + ' intent=' + ft0 + ' source=free_text');
+      } catch (e) {}
+    }
+  }
   if (mappedActionIntents.has(intent) && isStrongQuestionCueText(raw) && !pinnedThreatIntent) {
     try {
       console.log('[bot][intent] action fallback blocked for question-like cue');
@@ -3600,6 +3682,152 @@ function mergeFindClueDeterministicClue(displayLogs, clueText, batchKey, locale,
   );
 }
 
+/**
+ * 라우팅: (text, observe|unknown, targetRole) → inferFreeTextCaptainIntent.
+ * 대사 톤: (text, dialogueKind) → inferDialogueToneIntent — dialogueKind=THREATEN|QUESTION 등.
+ */
+function inferCaptainIntent(text, actionOrKind, targetRole) {
+  if (arguments.length >= 3 && targetRole != null) {
+    const a = String(actionOrKind || '').toLowerCase();
+    if (a === 'observe' || a === 'unknown') {
+      return inferFreeTextCaptainIntent(text, actionOrKind, targetRole);
+    }
+  }
+  return inferDialogueToneIntent(text, actionOrKind);
+}
+
+/**
+ * QUESTION vs INTERROGATE vs THREAT — LLM 대사 톤. dialogueKind가 THREATEN이면 항상 THREAT.
+ */
+function inferDialogueToneIntent(text, dialogueKind) {
+  const k = String(dialogueKind || '');
+  if (k === 'THREATEN') return 'THREAT';
+  const t = String(text || '');
+  if (!t.trim()) return 'QUESTION';
+  if (
+    /(위협|쏴버리|가만\s*안\s*둬|당장\s*말해|죽을\s*수도|권총|총구|겨누|처형하|쏘겠|죽이|threaten|gunpoint|shoot\s*(you|at)|kill\s*you|or\s*else|execute)/i.test(
+      t
+    )
+  ) {
+    return 'THREAT';
+  }
+  if (
+    /(심문|추궁|캐묻|왜\s*그랬지|정확히\s*말해|캐물어보|집요하게|말이\s*바뀌|바뀌고\s*있|거짓말|interrogat|grill\s*you|contradict|story\s*keeps|exact\s*words)/i.test(
+      t
+    )
+  ) {
+    return 'INTERROGATE';
+  }
+  if (/(질문|물어본|어디\s*있었|말해봐|뭐\s*했지|what\s*did\s*you|where\s*were\s*you|tell\s*me)/i.test(t)) {
+    return 'QUESTION';
+  }
+  return 'QUESTION';
+}
+
+function applyResponseStyleRules(intent, role, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const r = String(role || '').toLowerCase();
+  if (!['doctor', 'engineer', 'navigator', 'pilot'].includes(r)) return '';
+  if (loc === 'en') {
+    if (intent === 'QUESTION') {
+      return 'CAPTAIN_TONE_MODE: QUESTION. focusTargetRole.text = 1–2 short sentences. Neutral, factual, information-seeking — no artificial drama.';
+    }
+    if (intent === 'INTERROGATE') {
+      return 'CAPTAIN_TONE_MODE: INTERROGATE. focusTargetRole.text = 2–3 sentences. Visible defensive pressure; challenge contradictions with concrete ship evidence; do NOT confess guilt.';
+    }
+    return 'CAPTAIN_TONE_MODE: THREAT / lethal pressure. focusTargetRole.text = 1–3 sentences. Strongest emotional reaction; self-preservation; innocent and impostor may both sound defensive; do NOT confess guilt.';
+  }
+  if (intent === 'QUESTION') {
+    return 'CAPTAIN_TONE_MODE: 질문. focusTargetRole.text는 1~2문장. 중립·사실 중심·정보 확인 톤 — 과장된 연극 금지.';
+  }
+  if (intent === 'INTERROGATE') {
+    return 'CAPTAIN_TONE_MODE: 심문. focusTargetRole.text는 2~3문장. 압박·방어가 드러나게; 모순은 함선 근거로 반박; 무죄·유죄를 스스로 고백하지 말 것.';
+  }
+  return 'CAPTAIN_TONE_MODE: 위협/생존 압박. focusTargetRole.text는 1~3문장. 감정 반응은 최대치로 짧게; 무고와 유죄 모두 방어적으로 말할 수 있음; 범인임을 고백하지 말 것.';
+}
+
+function getRoleToneGuide(role, intent, locale) {
+  const r = String(role || '').toLowerCase();
+  const loc = locale === 'en' ? 'en' : 'ko';
+  if (!['doctor', 'engineer', 'navigator', 'pilot'].includes(r)) return '';
+  const M = {
+    en: {
+      doctor: {
+        QUESTION:
+          'ROLE_TONE(doctor|QUESTION): Controlled, clinical, concise — vitals, records, corridor/medbay facts.',
+        INTERROGATE:
+          'ROLE_TONE(doctor|INTERROGATE): Calm but slightly offended; still rational; cite biometrics and logs, not feelings.',
+        THREAT:
+          'ROLE_TONE(doctor|THREAT): Fear suppressed; try to de-escalate while stressing medical/triage value — never beg with empty platitudes.'
+      },
+      engineer: {
+        QUESTION:
+          'ROLE_TONE(engineer|QUESTION): Practical, systems-first — logs, stamps, machine-room facts.',
+        INTERROGATE:
+          'ROLE_TONE(engineer|INTERROGATE): Defensive; lean on access logs, checksums, equipment state.',
+        THREAT:
+          'ROLE_TONE(engineer|THREAT): Stressed, self-preserving; insist the hull still needs your hands on the stack.'
+      },
+      navigator: {
+        QUESTION:
+          'ROLE_TONE(navigator|QUESTION): Uncertain but cooperative; route, chart, time-window, alibi.',
+        INTERROGATE:
+          'ROLE_TONE(navigator|INTERROGATE): Visibly shaken; slightly fragmented phrasing; still tie to chart/clock.',
+        THREAT:
+          'ROLE_TONE(navigator|THREAT): Anxious, squeezed; may stammer or contradict a minor detail under panic — keep it plausible.'
+      },
+      pilot: {
+        QUESTION: 'ROLE_TONE(pilot|QUESTION): Blunt, instinctive, short — gauges, pressure, vibration.',
+        INTERROGATE:
+          'ROLE_TONE(pilot|INTERROGATE): Irritated, confrontational; bridge instruments over mood words.',
+        THREAT:
+          'ROLE_TONE(pilot|THREAT): Angry fear; snap or push back; still first-person, no confession.'
+      }
+    },
+    ko: {
+      doctor: {
+        QUESTION:
+          'ROLE_TONE(닥터|질문): 절제된 임상 톤, 짧게 — 바이탈·기록·의무실/복도 사실만.',
+        INTERROGATE:
+          'ROLE_TONE(닥터|심문): 차갑지만 약간 불쾌; 이성 유지 — 생체·로그로 반박.',
+        THREAT:
+          'ROLE_TONE(닥터|위협): 겉으로는 두려움 억제, 의료·부상자 가치로 완화 시도 — 빈 위로 금지.'
+      },
+      engineer: {
+        QUESTION:
+          'ROLE_TONE(엔지니어|질문): 실무형, 시스템·로그 중심.',
+        INTERROGATE:
+          'ROLE_TONE(엔지니어|심문): 방어적 — 로그·장비·타임스탬프로 맞받아침.',
+        THREAT:
+          'ROLE_TONE(엔지니어|위협): 스트레스·자기 보존 — 함선이 나를 필요로 한다는 점을 짧게.'
+      },
+      navigator: {
+        QUESTION:
+          'ROLE_TONE(네비게이터|질문): 불확실해도 협조; 항로·알리바이.',
+        INTERROGATE:
+          'ROLE_TONE(네비게이터|심문): 흔들림이 드러나게, 말이 약간 끊겨도 됨 — 차트·시계에 붙일 것.',
+        THREAT:
+          'ROLE_TONE(네비게이터|위협): 불안·압박; 공황 속 사소한 말끝이 어긋날 수 있음(과장 금지).'
+      },
+      pilot: {
+        QUESTION: 'ROLE_TONE(파일럿|질문): 직설·직관, 짧게.',
+        INTERROGATE:
+          'ROLE_TONE(파일럿|심문): 짜증·대립 — 계기·압력·진동.',
+        THREAT:
+          'ROLE_TONE(파일럿|위협): 격한 두려움·맞받아침 — 1인칭, 고백 금지.'
+      }
+    }
+  };
+  const pack = M[loc][r] && M[loc][r][intent];
+  return pack || '';
+}
+
+function buildCaptainTonePromptAppendix(intent, locale, focusRole) {
+  const rules = applyResponseStyleRules(intent, focusRole, locale);
+  const guide = getRoleToneGuide(focusRole, intent, locale);
+  return [rules, guide].filter(Boolean).join('\n');
+}
+
 function buildDialogueSystemPrompt(kind, locale, promptOpts) {
   promptOpts = promptOpts || {};
   const loc = locale === 'en' ? 'en' : 'ko';
@@ -3657,6 +3885,10 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
         } else {
           qEnS.push('focusTargetRole answers the captain\'s question directly — 2–4 sentences. No other crew.');
         }
+        if (promptOpts.toneTargetRole && promptOpts.captainIntent) {
+          const toneEx = buildCaptainTonePromptAppendix(promptOpts.captainIntent, 'en', promptOpts.toneTargetRole);
+          if (toneEx) qEnS.push(toneEx);
+        }
         qEnS.push('Respond JSON only.');
         return qEnS.join('\n');
       }
@@ -3681,6 +3913,10 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
           'NAME_TARGETING: Only focusTargetRole states their name/callsign/identity. Non-target: one short reaction only — do NOT state, guess, or repeat the target\'s name. Forbidden: "The Doctor\'s name is...", "He is called...", "Her name is..." about the target.',
           'Non-target lines must not answer the name question on behalf of the target.'
         );
+      }
+      if (promptOpts.toneTargetRole && promptOpts.captainIntent) {
+        const toneExM = buildCaptainTonePromptAppendix(promptOpts.captainIntent, 'en', promptOpts.toneTargetRole);
+        if (toneExM) qEn.push(toneExM);
       }
       qEn.push('Respond JSON only.');
       return qEn.join('\n');
@@ -3717,7 +3953,7 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
     }
 
     if (kind === 'THREATEN') {
-      return [
+      const thEn = [
         ...jsonContractEn,
         'ROLE FIELD: captain|doctor|engineer|navigator|pilot only.',
         'SINGLE_SPEAKER_THREAT: Output exactly two blocks: blocks[0]=captain; blocks[1]=focusTargetRole ONLY.',
@@ -3726,9 +3962,14 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
         'focusTargetRole role-specific anchors: doctor — medbay records, biometrics, stress log, vitals, patient state (no abstract-only lines); engineer — logs, access, machine room, security systems; navigator — chart, time window, route judgment; pilot — bridge, gauges, pressure, vibration, helm.',
         'FORBIDDEN in focusTargetRole.text: any personal name from crewPersonalNames; third-person narration about anyone ("X\'s voice", "Y\'s eyes", "they watch"); stage directions; ONLY first-person spoken lines as the threatened crew member.',
         'narration must be empty string for every block.',
-        'Never echo or paraphrase captain.text as the threatened crew line.',
-        'Respond JSON only.'
-      ].join('\n');
+        'Never echo or paraphrase captain.text as the threatened crew line.'
+      ];
+      if (promptOpts.toneTargetRole) {
+        const toneTh = buildCaptainTonePromptAppendix('THREAT', 'en', promptOpts.toneTargetRole);
+        if (toneTh) thEn.push(toneTh);
+      }
+      thEn.push('Respond JSON only.');
+      return thEn.join('\n');
     }
 
     if (kind === 'TAKE_PISTOL') {
@@ -3817,6 +4058,10 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
           'focusTargetRole만 함장 질문에 직접 답함. 2–4문장. 대상의 말을 반복·요약하는 비타깃 멘트 금지(비타깃 블록 없음).'
         );
       }
+      if (promptOpts.toneTargetRole && promptOpts.captainIntent) {
+        const toneKoS = buildCaptainTonePromptAppendix(promptOpts.captainIntent, 'ko', promptOpts.toneTargetRole);
+        if (toneKoS) qKoS.push(toneKoS);
+      }
       qKoS.push('Respond JSON only.');
       return qKoS.join('\n');
     }
@@ -3847,6 +4092,10 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
         'NAME_TARGETING: 이름·호출명·자기소개는 focusTargetRole 블록만 답한다. 비타깃은 한 줄 짧은 반응만 — 대상의 이름·성함·호출명을 대신 말하거나 반복하지 말 것. "닥터 이름은 …" 같은 제3자 서술 금지.',
         '비타깃은 focusTargetKorean을 꼭 넣지 않아도 됨(이름을 말하게 될 때는 생략).'
       );
+    }
+    if (promptOpts.toneTargetRole && promptOpts.captainIntent) {
+      const toneKoM = buildCaptainTonePromptAppendix(promptOpts.captainIntent, 'ko', promptOpts.toneTargetRole);
+      if (toneKoM) qKo.push(toneKoM);
     }
     qKo.push('Respond JSON only.');
     return qKo.join('\n');
@@ -3892,7 +4141,7 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
   }
 
   if (kind === 'THREATEN') {
-    return [
+    const thKo = [
       'USSC Tartarus E1. Korean spoken lines. Output JSON only: {"blocks":[...]} — no markdown.',
       'ROLE FIELD (required): each block.role MUST be exactly one of: captain, doctor, engineer, navigator, pilot — lowercase English only.',
       'NEVER set role to "header", "system", "title", "speaker", or any other string.',
@@ -3905,9 +4154,14 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
       '금지: 「한시우는 …」「조재민은 …」처럼 타인 이름으로 시작하는 제3자 소설체; 「…은 움츠러들며」「…의 눈빛이」「…를 지켜보고」 등 무대 지문. 반드시 위협받은 역할 본인의 1인칭 대사만.',
       'crewPersonalNames 실명 출력 금지. narration은 모든 블록 "".',
       'focusTargetRole는 함장 위협 문장을 복창·인용하지 마라.',
-      'Forbidden: 모두 진정, 신중해야, 침착하게, 우리는 함께, 훈계, 교훈, 빈 위로, 범용 팀워크 멘트.',
-      'Respond JSON only.'
-    ].join('\n');
+      'Forbidden: 모두 진정, 신중해야, 침착하게, 우리는 함께, 훈계, 교훈, 빈 위로, 범용 팀워크 멘트.'
+    ];
+    if (promptOpts.toneTargetRole) {
+      const toneThKo = buildCaptainTonePromptAppendix('THREAT', 'ko', promptOpts.toneTargetRole);
+      if (toneThKo) thKo.push(toneThKo);
+    }
+    thKo.push('Respond JSON only.');
+    return thKo.join('\n');
   }
 
   if (kind === 'TAKE_PISTOL') {
@@ -4023,6 +4277,9 @@ function buildDialogueUserPayload(ctx) {
       'blocks[0]=captain, then doctor, engineer, navigator, pilot (omit dead); role must be captain|doctor|engineer|navigator|pilot only.';
     o.pacing =
       'Each crew 1–2 sentences: role-specific concern only; narration empty; no echo of captain.text.';
+  }
+  if (ctx.captainIntent && (ctx.kind === 'QUESTION' || ctx.kind === 'THREATEN')) {
+    o.captainToneMode = ctx.captainIntent;
   }
   if (ctx.threatTakePistolNoNames) {
     o.crewNameInstruction =
@@ -4150,13 +4407,24 @@ async function tryGenerateLlmDialogueLogs(ctx) {
       console.log('[bot][dialogue] self_defense_intro_opening_blocked role=' + target);
     } catch (e) {}
   }
+  const captainIntent =
+    kind === 'QUESTION' || kind === 'THREATEN'
+      ? inferCaptainIntent(playerText || '', kind)
+      : 'QUESTION';
+  if ((kind === 'QUESTION' || kind === 'THREATEN') && target) {
+    try {
+      console.log('[bot][dialogue] captain_intent=' + captainIntent + ' kind=' + kind + ' target=' + target);
+    } catch (e) {}
+  }
   let system = buildDialogueSystemPrompt(kind, locale, {
     targetedQuestionSideReactionRules,
     targetedNameQuestion: !!targetedNameQuestion,
     targetedQuestionSingleSpeaker,
     isSelfDefenseQuestion,
     isTargetedAccusation,
-    generalTargetedQuestion: generalTargetedQuestionNoName
+    generalTargetedQuestion: generalTargetedQuestionNoName,
+    captainIntent,
+    toneTargetRole: target && ['doctor', 'engineer', 'navigator', 'pilot'].includes(target) ? target : null
   });
   if (kind === 'LORE_QUESTION') {
     system += '\n\n' + getLoreCanonSystemExtension(locale);
@@ -4206,7 +4474,8 @@ async function tryGenerateLlmDialogueLogs(ctx) {
       kind === 'THREATEN' ||
       kind === 'TAKE_PISTOL' ||
       kind === 'CHECK_LOG' ||
-      kind === 'FIND_CLUE'
+      kind === 'FIND_CLUE',
+    captainIntent: kind === 'QUESTION' || kind === 'THREATEN' ? captainIntent : undefined
   });
   let strictRetry =
     locale === 'en'
@@ -4295,6 +4564,29 @@ async function tryGenerateLlmDialogueLogs(ctx) {
       strictRetry +=
         ' NAME_TARGETING: non-target must NOT give the target\'s name or callsign; only focusTargetRole answers the name question.';
     }
+  }
+
+  if (kind === 'QUESTION' && captainIntent) {
+    if (locale === 'ko') {
+      if (captainIntent === 'INTERROGATE') {
+        strictRetry += ' CAPTAIN_INTENT: 심문 톤—포커스 역할은 방어·긴장이 드러나게; 모순은 기록으로 반박.';
+      } else if (captainIntent === 'QUESTION') {
+        strictRetry += ' CAPTAIN_INTENT: 일반 질문—중립·사실 확인; 1~2문장 우선.';
+      }
+    } else {
+      if (captainIntent === 'INTERROGATE') {
+        strictRetry +=
+          ' CAPTAIN_INTENT: INTERROGATE—visible defensive pressure; answer with contradictions vs ship evidence; 2–3 sentences.';
+      } else if (captainIntent === 'QUESTION') {
+        strictRetry += ' CAPTAIN_INTENT: neutral QUESTION—facts first; 1–2 short sentences.';
+      }
+    }
+  }
+  if (kind === 'THREATEN' && captainIntent === 'THREAT') {
+    strictRetry +=
+      locale === 'ko'
+        ? ' THREAT_MODE: 직접 위협—감정은 최대로 짧게; 무죄·유죄 고백 금지.'
+        : ' THREAT_MODE: lethal pressure—strongest short emotion; never confess guilt.';
   }
 
   const maxAttempts = dialogueMaxAttemptsForKind(kind);
@@ -5106,12 +5398,20 @@ function computeToneContext(playerText, opts) {
     /(의심|수상|이상|어색|awkward|strange|suspicious|뭔가|who\s*should|누구.*의심)/i.test(pt) &&
     !suspicionHeavy;
   const threat = /(권총|총|처형|위협|threat|shoot|execute|pistol|쏘|겨누|총구)/i.test(pt);
+  const captainIntent =
+    opts.captainIntent ||
+    (opts.dialogueLlmKind === 'QUESTION' || opts.dialogueLlmKind === 'THREATEN'
+      ? inferCaptainIntent(pt, opts.dialogueLlmKind || '')
+      : 'QUESTION');
   const groupPressure =
     /(자네들|다들|모두|승무원들|승무원\s+중|전원|everyone|all\s+of\s+you)/i.test(pt) &&
     /(의심|범인|누가|말해|증언|alibi|where|why|왜|범인)/i.test(pt);
   const targetedAccusation =
     /(당신이|너는\s*범|you\s*(?:are|'re|’re)\s*the|why\s*you|왜\s*당신|pointing\s*at)/i.test(pt);
   const lateGame = remainingSec != null && remainingSec <= 120;
+  const interrogationTone = captainIntent === 'INTERROGATE';
+  const neutralQuestionTone = captainIntent === 'QUESTION';
+  const threatToneMode = captainIntent === 'THREAT';
   const emotionPeak =
     !!(selfDefense && threat) || suspicionHeavy || (lateGame && (suspicionHeavy || suspicionWeak));
   const suspicion = suspicionHeavy || suspicionWeak || selfDefense;
@@ -5125,6 +5425,10 @@ function computeToneContext(playerText, opts) {
     targetedAccusation,
     lateGame,
     emotionPeak,
+    captainIntent,
+    interrogationTone,
+    neutralQuestionTone,
+    threatToneMode,
     deadRolesCount: opts.deadRolesCount != null ? Number(opts.deadRolesCount) : 0,
     gameOver: !!opts.gameOver
   };
@@ -5137,6 +5441,8 @@ function gatherHighIntensitySceneFlags(ctx) {
   if (ctx.lateGame) o.isLateGame = true;
   if (ctx.emotionPeak) o.isEmotionPeak = true;
   if (ctx.targetedAccusation) o.isTargetedAccusation = true;
+  if (ctx.interrogationTone) o.isInterrogationTone = true;
+  if (ctx.threatToneMode) o.isThreatToneMode = true;
   return o;
 }
 
@@ -6432,6 +6738,10 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
   toneOptsBase.dialogueLlmKind = kind;
   toneOptsBase.threatTargetRole =
     kind === 'THREATEN' && ev0?.target ? String(ev0.target).toLowerCase() : null;
+  toneOptsBase.captainIntent =
+    kind === 'QUESTION' || kind === 'THREATEN'
+      ? inferCaptainIntent(playerText || '', kind)
+      : 'QUESTION';
 
   if (kind === 'LORE_QUESTION') {
     try {
