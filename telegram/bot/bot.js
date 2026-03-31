@@ -3164,7 +3164,8 @@ function canonicalBracketHeaderFromTypeString(s, locale) {
   const raw = String(s || '').trim();
   if (!raw) return null;
   const sys = systemHeader(loc);
-  if (raw === '[시스템]' || raw === '[System]') return sys;
+  if (raw === '[시스템]' || raw === '[System]' || /^\[SYSTEM\]$/i.test(raw)) return sys;
+  if (/^\[HADES\]$/i.test(raw)) return '[HADES]';
 
   let inner = raw;
   if (raw.startsWith('[') && raw.endsWith(']') && raw.length >= 3) {
@@ -7122,7 +7123,15 @@ function toPlayerDisplayLogs(rawEvents, opts = {}) {
     const t = String(ev?.type || '').toUpperCase();
     const role = ev?.role || 'captain';
     const target = ev?.target ? String(ev.target).toLowerCase() : null;
-    const baseKey = [ev?.ts ?? '', t, role, target ?? ''].join('|');
+    const dlgRaw = ev?.dialogue && typeof ev.dialogue === 'string' ? ev.dialogue : '';
+    const dlgSig =
+      t === 'CREW_DIALOGUE' && dlgRaw
+        ? dlgRaw
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 120)
+        : '';
+    const baseKey = [ev?.ts ?? '', t, role, target ?? '', dlgSig].join('|');
 
     if (t === 'QUESTION' && target) {
       const override = String(opts.questionCaptainBodyOverride || '').trim();
@@ -7223,8 +7232,8 @@ function toPlayerDisplayLogs(rawEvents, opts = {}) {
       text =
         locale === 'en'
           ? victimEn
-            ? `${sysHdr} ${victimEn} life signs lost.`
-            : `${sysHdr} Life signs lost.`
+            ? `${sysHdr} ${victimEn} biometric signal lost.`
+            : `${sysHdr} Biometric signal lost.`
           : victimKo
             ? `${sysHdr} ${victimKo} 생체 신호 소실.`
             : `${sysHdr} 생체 신호 소실.`;
@@ -7241,7 +7250,16 @@ function toPlayerDisplayLogs(rawEvents, opts = {}) {
     } else if (t === 'REPAIR' || t === 'WAIT') {
       text = null;
     } else if (ev.dialogue && typeof ev.dialogue === 'string') {
-      const d = ev.dialogue.trim();
+      let d = ev.dialogue.trim();
+      if (
+        locale === 'en' &&
+        t === 'CREW_DIALOGUE' &&
+        d ===
+          '[HADES] Final calculation complete. Fail to remove the overlap in time, and the ship is mine.'
+      ) {
+        d =
+          '[HADES] Final calculation complete. Fail to remove the impostor in time, and the ship becomes mine.';
+      }
       const m = d.match(/^\[([^\]]+)\]\s*(.*)$/);
       const crewBody = m ? m[2].trim() : '';
       if (m && crewBody) {
@@ -7876,19 +7894,20 @@ function timerTensionDialogueLines(locale, gs) {
   const dead = Array.isArray(gs?.dead_roles) ? gs.dead_roles.length : 0;
   const ko6 =
     '[시스템]\n함선 내부 이상 징후 감지. 의료실과 엔진실의 생체 신호가 불안정하다.';
-  const en6 = '[SYSTEM]\nHull anomaly signatures. Medical and engine biometrics are unstable.';
+  const en6 =
+    '[System] Internal anomaly detected. Biometric signals in Medbay and Engine Room are unstable.';
   const ko3Base =
     '[HADES]\n최적 제거 시점이 임박했다. 현재 대응 속도로는 전원 생존이 어렵다.';
   const ko3Dead =
     '[HADES]\n이미 사망자가 있다. 최적 제거 시점이 임박했고, 남은 시간으로는 전원 생존이 어렵다.';
   const en3Base =
-    '[HADES]\nOptimal removal is close. At this pace, full crew survival is unlikely.';
+    '[HADES] Optimal removal window is approaching. With the current response pace, full crew survival is unlikely.';
   const en3Dead =
-    '[HADES]\nThere are already deaths. Optimal removal is close; full survival at this pace is unlikely.';
+    '[HADES] There are already deaths. Optimal removal window is approaching; with the current response pace, full crew survival is unlikely.';
   const ko1 =
     '[HADES]\n최종 계산 완료. 남은 시간 내 중첩체를 제거하지 못하면 함선은 내 것이 된다.';
   const en1 =
-    '[HADES]\nFinal calculation complete. Fail to remove the overlap in time, and the ship is mine.';
+    '[HADES] Final calculation complete. Fail to remove the impostor in time, and the ship becomes mine.';
   if (locale === 'en') {
     return { six: en6, three: dead > 0 ? en3Dead : en3Base, one: en1 };
   }
