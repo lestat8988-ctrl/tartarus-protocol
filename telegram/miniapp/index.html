@@ -729,19 +729,79 @@
       .question-target-btn { padding: 16px; min-height: 48px; }
     }
 
-    /* Result modal (game over) */
-    #result-modal .result-modal-box { border-color: #2aef2a55; }
+    /* Result modal (game over) — 레벨1 런칭: 백드롭·스크롤·가독성만 조정 (CRT 유지) */
+    #result-modal.modal-overlay {
+      z-index: 300;
+      background: rgba(0, 0, 0, 0.94);
+      align-items: center;
+      justify-content: center;
+      padding: max(12px, env(safe-area-inset-top, 0px) + 8px) max(12px, env(safe-area-inset-right, 0px))
+        max(12px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px));
+      overscroll-behavior: contain;
+    }
+    #result-modal .result-modal-box {
+      border-color: #2aef2a55;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      max-height: min(82vh, calc(100vh - 24px));
+      width: 100%;
+      max-width: 380px;
+      padding: 16px 16px 14px;
+      box-sizing: border-box;
+    }
     #result-modal.result-win .result-modal-box { border-color: #2aef2a; }
     #result-modal.result-lose .result-modal-box { border-color: #ef2a2a; }
-    .result-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 12px; text-align: center; }
+    #result-modal .result-modal-body {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-x: hidden;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+      padding-right: 4px;
+      margin-right: -2px;
+    }
+    #result-modal .result-modal-body::-webkit-scrollbar {
+      width: 4px;
+    }
+    #result-modal .result-modal-body::-webkit-scrollbar-thumb {
+      background: rgba(42, 239, 42, 0.25);
+      border-radius: 2px;
+    }
+    #result-modal .result-restart-btn {
+      flex-shrink: 0;
+      margin-top: 12px;
+    }
+    .result-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 10px; text-align: center; }
     .result-win .result-title { color: #4aff4a; }
     .result-lose .result-title { color: #ff4a4a; }
-    .result-desc { font-size: 0.88rem; color: #2aef2a99; margin-bottom: 12px; line-height: 1.5; }
-    .result-outcome-row { font-size: 0.85rem; margin-bottom: 10px; }
-    .result-outcome-label { color: #2aef2a99; margin-right: 6px; }
-    .result-imposter { font-size: 0.9rem; margin-bottom: 8px; }
-    .result-dead { font-size: 0.85rem; color: #ef2a2a99; margin-bottom: 16px; line-height: 1.4; }
-    .result-dead-label { color: #2aef2a99; }
+    .result-desc {
+      font-size: 0.86rem;
+      color: rgba(42, 239, 42, 0.88);
+      margin-bottom: 10px;
+      line-height: 1.55;
+      text-shadow: 0 0 12px rgba(42, 239, 42, 0.08);
+    }
+    #result-modal.result-lose .result-desc {
+      color: rgba(42, 239, 42, 0.9);
+      text-shadow: 0 0 14px rgba(42, 239, 42, 0.12);
+    }
+    .result-outcome-row { font-size: 0.84rem; margin-bottom: 8px; line-height: 1.45; }
+    .result-outcome-label { color: rgba(42, 239, 42, 0.82); margin-right: 6px; }
+    .result-imposter { font-size: 0.88rem; margin-bottom: 6px; line-height: 1.45; }
+    .result-dead {
+      font-size: 0.82rem;
+      color: rgba(255, 95, 95, 0.92);
+      margin-bottom: 0;
+      margin-top: 8px;
+      line-height: 1.5;
+      letter-spacing: 0.02em;
+    }
+    .result-dead-label {
+      color: rgba(42, 239, 42, 0.82);
+      margin-right: 6px;
+    }
     .result-restart-btn {
       width: 100%;
       padding: 14px;
@@ -754,6 +814,24 @@
       font-weight: 600;
       cursor: pointer;
       -webkit-tap-highlight-color: transparent;
+    }
+    body.result-modal-open {
+      overflow: hidden;
+      overscroll-behavior: none;
+    }
+    body.result-modal-open #app {
+      pointer-events: none;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    @media (max-width: 480px) {
+      #result-modal .result-modal-box {
+        max-height: min(80vh, calc(100vh - 20px));
+        padding: 14px 14px 12px;
+      }
+      .result-title { font-size: 1.05rem; margin-bottom: 8px; }
+      .result-desc { font-size: 0.84rem; }
+      .result-dead { font-size: 0.8rem; }
     }
 
     /* 배포·캐시 확인용 — 게임 로직과 무관, 고정 모서리 표시만 */
@@ -915,11 +993,13 @@
   <!-- Result modal (game over) -->
   <div class="modal-overlay" id="result-modal">
     <div class="modal-box result-modal-box">
-      <div class="result-title" id="result-title">--</div>
-      <div class="result-desc" id="result-desc">--</div>
-      <div class="result-outcome-row" id="result-outcome-row" style="display:none;"><span class="result-outcome-label" id="result-outcome-label">--</span><span id="result-outcome-value">--</span></div>
-      <div class="result-imposter" id="result-imposter" style="display:none;"></div>
-      <div class="result-dead" id="result-dead" style="display:none;"></div>
+      <div class="result-modal-body">
+        <div class="result-title" id="result-title">--</div>
+        <div class="result-desc" id="result-desc">--</div>
+        <div class="result-outcome-row" id="result-outcome-row" style="display:none;"><span class="result-outcome-label" id="result-outcome-label">--</span><span id="result-outcome-value">--</span></div>
+        <div class="result-imposter" id="result-imposter" style="display:none;"></div>
+        <div class="result-dead" id="result-dead" style="display:none;"></div>
+      </div>
       <button type="button" class="result-restart-btn" id="result-restart-btn">다시 시작</button>
     </div>
   </div>
@@ -2932,11 +3012,13 @@
           if (!startRequestInFlight) resultRestartBtn.disabled = false;
         }
         if (resultModal) resultModal.classList.add('visible');
+        document.body.classList.add('result-modal-open');
       }
 
       function closeResultModal() {
         var resultModal = document.getElementById('result-modal');
         if (resultModal) resultModal.classList.remove('visible');
+        document.body.classList.remove('result-modal-open');
       }
 
       /**
