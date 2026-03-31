@@ -742,6 +742,29 @@
     .result-imposter { font-size: 0.9rem; margin-bottom: 8px; }
     .result-dead { font-size: 0.85rem; color: #ef2a2a99; margin-bottom: 16px; line-height: 1.4; }
     .result-dead-label { color: #2aef2a99; }
+    .result-death-record {
+      display: none;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(42, 239, 42, 0.18);
+      max-height: min(42vh, 320px);
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    #result-modal.result-lose .result-death-record { border-top-color: rgba(239, 42, 42, 0.22); }
+    .result-death-record-title {
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      color: #2aef2acc;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+    }
+    .result-death-entry { margin-bottom: 10px; }
+    .result-death-entry:last-child { margin-bottom: 0; }
+    .result-death-role { font-size: 0.82rem; font-weight: 600; color: #ef9a9a; margin-bottom: 3px; }
+    .result-death-body { font-size: 0.72rem; color: #b8e8b8cc; line-height: 1.38; margin-bottom: 3px; }
+    .result-death-hades { font-size: 0.68rem; color: #2aef2a88; line-height: 1.35; font-style: italic; }
     .result-restart-btn {
       width: 100%;
       padding: 14px;
@@ -920,6 +943,10 @@
       <div class="result-outcome-row" id="result-outcome-row" style="display:none;"><span class="result-outcome-label" id="result-outcome-label">--</span><span id="result-outcome-value">--</span></div>
       <div class="result-imposter" id="result-imposter" style="display:none;"></div>
       <div class="result-dead" id="result-dead" style="display:none;"></div>
+      <div class="result-death-record" id="result-death-record" style="display:none;" aria-live="polite">
+        <div class="result-death-record-title" id="result-death-record-title"></div>
+        <div id="result-death-record-entries"></div>
+      </div>
       <button type="button" class="result-restart-btn" id="result-restart-btn">다시 시작</button>
     </div>
   </div>
@@ -1424,6 +1451,7 @@
           resultImposterFallback: '(확인 불가)',
           resultDeadLabel: '사망',
           resultDeadPrefix: '사망: ',
+          deathRecordTitle: '사망 기록',
           executeModalTitle: '처형 대상 선택',
           executeModalInstruction: '처형 대상 1명을 선택하십시오. 탄환은 1발뿐입니다.',
           executeNoTargetHint: '처형 대상을 먼저 선택하십시오. (닥터 / 엔지니어 / 네비게이터 / 파일럿)',
@@ -1490,6 +1518,7 @@
           resultImposterFallback: '(unknown)',
           resultDeadLabel: 'Deceased',
           resultDeadPrefix: 'Deceased: ',
+          deathRecordTitle: 'Death records',
           executeModalTitle: 'SELECT TARGET FOR ELIMINATION',
           executeModalInstruction: 'Choose one target. One bullet only. No second chance.',
           executeNoTargetHint: 'Select an execution target first. (Doctor / Engineer / Navigator / Pilot)',
@@ -1554,6 +1583,9 @@
       const restartSection = document.getElementById('restart-section');
       const restartBtn = document.getElementById('restart-btn');
       const resultRestartBtn = document.getElementById('result-restart-btn');
+      const resultDeathRecord = document.getElementById('result-death-record');
+      const resultDeathRecordTitle = document.getElementById('result-death-record-title');
+      const resultDeathRecordEntries = document.getElementById('result-death-record-entries');
       const executeConfirmBtn = document.getElementById('execute-confirm');
       const threatConfirmBtn = document.getElementById('threat-confirm');
       const questionModal = document.getElementById('question-modal');
@@ -2103,6 +2135,9 @@
         if (resultOutcomeValue) resultOutcomeValue.textContent = '--';
         if (resultImposter) { resultImposter.textContent = ''; resultImposter.style.display = 'none'; }
         if (resultDead) { resultDead.innerHTML = ''; resultDead.style.display = 'none'; }
+        if (resultDeathRecord) resultDeathRecord.style.display = 'none';
+        if (resultDeathRecordEntries) resultDeathRecordEntries.innerHTML = '';
+        if (resultDeathRecordTitle) resultDeathRecordTitle.textContent = '';
         if (outcomeBadge) {
           outcomeBadge.classList.remove('visible', 'crew_win', 'impostor_win', 'accuse_failed');
           outcomeBadge.textContent = '';
@@ -2827,6 +2862,77 @@
         return null;
       }
 
+      /** Level 1: deterministic per-role death flavor (ko/en). */
+      var SIGNATURE_DEATH_BY_ROLE = {
+        ko: {
+          doctor: {
+            body:
+              '의료실 격리구역에서 발견되었다. 복부에 비정상적 절개 흔적이 남아 있다. 마지막 바이탈 기록: 극도의 공포 반응.',
+            hades: '의료 기능 손실. 수용 범위.'
+          },
+          engineer: {
+            body:
+              '엔진 냉각 샤프트 주변에서 발견되었다. 사지가 비정상적으로 분리되어 있다. 현장 로그는 19초 전까지 생존을 기록했다.',
+            hades: '엔진 효율 유지. 제거 완료.'
+          },
+          navigator: {
+            body:
+              '항법 콘솔 앞에서 발견되었다. 동일 좌표 입력 흔적이 반복되어 있다. 마지막 시선 기록은 관측창을 향하고 있다.',
+            hades: '항법 자동화 가능. 인력 불필요.'
+          },
+          pilot: {
+            body:
+              '감압실 내부에서 발견되었다. 슈트 전면에 파열 흔적이 남아 있다. 마지막 통신은 3초간의 비명이었다.',
+            hades: '조종 기능 AXIS 이관. 최적화 완료.'
+          }
+        },
+        en: {
+          doctor: {
+            body:
+              'Recovered in medical isolation. Abnormal incision pattern on the abdomen. Last vitals: extreme fear response.',
+            hades: 'Medical function lost. Within tolerance.'
+          },
+          engineer: {
+            body:
+              'Recovered near the engine cooling shaft. Limbs unnaturally separated. Field logs show life until 19 seconds prior.',
+            hades: 'Engine efficiency maintained. Removal complete.'
+          },
+          navigator: {
+            body:
+              'Recovered at the navigation console. Same coordinate entry repeated. Last gaze log fixed on the viewport.',
+            hades: 'Navigation auto-route viable. Crew redundant.'
+          },
+          pilot: {
+            body:
+              'Recovered inside the decompression chamber. Suit faceplate ruptured. Last transmission: three seconds of screaming.',
+            hades: 'Piloting transferred to AXIS. Optimization complete.'
+          }
+        }
+      };
+
+      function normalizeRoleKey(role) {
+        if (role == null || role === undefined) return null;
+        var s = String(role).trim();
+        if (!s) return null;
+        var low = s.toLowerCase();
+        if (low === 'doctor' || low === 'dr') return 'doctor';
+        if (low === 'engineer') return 'engineer';
+        if (low === 'navigator') return 'navigator';
+        if (low === 'pilot') return 'pilot';
+        if (s === '닥터' || s === '의사') return 'doctor';
+        if (s === '엔지니어') return 'engineer';
+        if (s === '네비게이터') return 'navigator';
+        if (s === '파일럿') return 'pilot';
+        return null;
+      }
+
+      function getSignatureDeath(roleKey) {
+        var loc = lang === 'ko' ? 'ko' : 'en';
+        var pack = SIGNATURE_DEATH_BY_ROLE[loc] && SIGNATURE_DEATH_BY_ROLE[loc][roleKey];
+        if (!pack) return null;
+        return { body: pack.body, hades: pack.hades };
+      }
+
       function showResultModal(state) {
         var gs = state.game_state || {};
         var outcome = gs.outcome || 'unknown';
@@ -2883,6 +2989,43 @@
           resultDead.style.display = 'block';
         } else {
           resultDead.style.display = 'none';
+        }
+
+        if (resultDeathRecord && resultDeathRecordTitle && resultDeathRecordEntries) {
+          resultDeathRecordEntries.textContent = '';
+          var seenKeys = {};
+          var anyDeathFlavor = false;
+          if (deadRoles.length > 0) {
+            for (var di = 0; di < deadRoles.length; di++) {
+              var rk = normalizeRoleKey(deadRoles[di]);
+              if (!rk || seenKeys[rk]) continue;
+              var sig = getSignatureDeath(rk);
+              if (!sig) continue;
+              seenKeys[rk] = true;
+              anyDeathFlavor = true;
+              var entry = document.createElement('div');
+              entry.className = 'result-death-entry';
+              var roleLine = document.createElement('div');
+              roleLine.className = 'result-death-role';
+              roleLine.textContent = L[rk] || rk;
+              var bodyLine = document.createElement('div');
+              bodyLine.className = 'result-death-body';
+              bodyLine.textContent = sig.body;
+              var hadesLine = document.createElement('div');
+              hadesLine.className = 'result-death-hades';
+              hadesLine.textContent = 'HADES: ' + sig.hades;
+              entry.appendChild(roleLine);
+              entry.appendChild(bodyLine);
+              entry.appendChild(hadesLine);
+              resultDeathRecordEntries.appendChild(entry);
+            }
+          }
+          if (deadRoles.length > 0 && anyDeathFlavor) {
+            resultDeathRecordTitle.textContent = L.deathRecordTitle || '사망 기록';
+            resultDeathRecord.style.display = 'block';
+          } else {
+            resultDeathRecord.style.display = 'none';
+          }
         }
 
         if (resultRestartBtn) {
