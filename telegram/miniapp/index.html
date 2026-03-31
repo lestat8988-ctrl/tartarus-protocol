@@ -775,9 +775,9 @@
 </head>
 <body>
   <script>
-    console.log('[miniapp-build] poll-trace-v4');
+    console.log('[miniapp-build] rollback-check-02');
   </script>
-  <div id="miniapp-build-marker" class="miniapp-build-marker" aria-hidden="true">build: poll-trace-v4</div>
+  <div id="miniapp-build-marker" class="miniapp-build-marker" aria-hidden="true">build: rollback-check-02</div>
   <div id="app">
     <!-- Intro screen -->
     <div id="intro-screen">
@@ -2565,6 +2565,48 @@
         }
       }
 
+      /** 첫 .html:line in stack (runtime 위치 노출용) */
+      function debugExtractFileLineFromStack(stack) {
+        if (!stack) return '';
+        var m = String(stack).match(/([^/\\]+\.html):(\d+)/);
+        return m ? m[1] + ':' + m[2] : '';
+      }
+
+      /** 모바일용 stack 1~2프레임 요약 */
+      function debugShortStack(stack) {
+        if (!stack) return '';
+        var lines = String(stack).split(/\r?\n/);
+        var out = [];
+        for (var i = 0; i < lines.length && out.length < 2; i++) {
+          var line = lines[i];
+          var m = line.match(/at\s+(?:async\s+)?([^\s()]+)\s+\(([^)]+)\)/);
+          if (m) {
+            var fn = String(m[1] || '').replace(/^.*\./, '');
+            var loc = String(m[2] || '').replace(/^.*\//, '');
+            out.push(fn + ' (' + loc + ')');
+          }
+        }
+        if (out.length) return out.join(' / ').slice(0, 140);
+        return lines.slice(1, 3).map(function(s) { return String(s || '').trim(); }).join(' / ').slice(0, 140);
+      }
+
+      /** fetch 등 기존 한 줄 유지 후 [DEBUG] 위치·stack 추가 (기존 appendLog 제거 없음) */
+      function appendLogDebugLinesFromErr(err, source) {
+        if (!err) return;
+        try {
+          var msg = (err.message != null && err.message !== '') ? String(err.message) : String(err);
+          msg = msg.replace(/\s+/g, ' ').trim();
+          var loc = err.stack ? debugExtractFileLineFromStack(err.stack) : '';
+          if (loc) appendLog('[DEBUG] ' + msg + ' @ ' + loc, true, source);
+          var st = err.stack ? debugShortStack(err.stack) : '';
+          if (st) appendLog('[DEBUG] stack: ' + st, true, source);
+        } catch (e) {}
+      }
+
+      function appendDebugRuntimeError(err, handlerTag) {
+        appendLogDebugLinesFromErr(err, 'handler:' + handlerTag);
+      }
+
       function getL() { return GAME_LABELS[lang] || GAME_LABELS.en; }
 
       function normalizeDeadRoleKey(r) {
@@ -3229,6 +3271,7 @@
               console.log('[miniapp] normalized error message=' + String((err && err.message) || 'catch'));
             } catch (e) {}
             appendLog('Connection failed. Start: node telegram/bot/bot.js', true);
+            appendLogDebugLinesFromErr(err, 'doStart');
           })
           .finally(function() {
             if (startGen !== appRequestGeneration) {
@@ -3336,6 +3379,7 @@
               console.log('[miniapp] normalized error message=' + String((err && err.message) || 'network'));
             } catch (e2) {}
             appendLog('Connection failed: ' + (err.message || 'unknown'), true, 'doMessage');
+            appendLogDebugLinesFromErr(err, 'doMessage');
           })
           .finally(function() {
             scheduleTryReleaseUserActionAfterLogRender(userTurnLockSeq);
@@ -3392,6 +3436,7 @@
           })
           .catch(function(err) {
             appendLog('Connection failed: ' + err.message, true);
+            appendLogDebugLinesFromErr(err, 'postAccuse');
           })
           .finally(function() {
             accuseRequestInFlight = false;
@@ -3445,6 +3490,7 @@
           })
           .catch(function(err) {
             appendLog('Connection failed: ' + err.message, true);
+            appendLogDebugLinesFromErr(err, 'postTakePistol');
           })
           .finally(function() {
             takePistolRequestInFlight = false;
@@ -3498,6 +3544,7 @@
           })
           .catch(function(err) {
             appendLog('Connection failed: ' + err.message, true);
+            appendLogDebugLinesFromErr(err, 'postCollectClue');
           })
           .finally(function() {
             collectClueRequestInFlight = false;
@@ -3554,6 +3601,7 @@
           })
           .catch(function(err) {
             appendLog('Connection failed: ' + err.message, true);
+            appendLogDebugLinesFromErr(err, 'postThreaten');
           })
           .finally(function() {
             threatRequestInFlight = false;
@@ -3637,35 +3685,39 @@
       /** 처형 확정 단일 진입점 — /api/accuse (confirm 버튼·모달 위임만 이 함수 호출) */
       function confirmAccuse() {
         if (accuseRequestInFlight || userActionPending) return;
-        var targetKey = selectedExecuteTarget;
-        if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
-          var sel = executeModal ? executeModal.querySelector('.modal-target-btn.selected') : null;
-          targetKey = sel ? String(sel.getAttribute('data-target') || '').toLowerCase() : '';
-        }
-        if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
-          var warn = document.getElementById('execute-no-target-hint');
-          if (warn) {
-            warn.textContent = (getL().executeNoTargetHint || '').trim();
-            warn.classList.add('visible');
+        try {
+          var targetKey = selectedExecuteTarget;
+          if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
+            var sel = executeModal ? executeModal.querySelector('.modal-target-btn.selected') : null;
+            targetKey = sel ? String(sel.getAttribute('data-target') || '').toLowerCase() : '';
           }
-          return;
+          if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
+            var warn = document.getElementById('execute-no-target-hint');
+            if (warn) {
+              warn.textContent = (getL().executeNoTargetHint || '').trim();
+              warn.classList.add('visible');
+            }
+            return;
+          }
+          if (isRoleDead(targetKey)) {
+            selectedExecuteTarget = null;
+            document.querySelectorAll('.modal-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+            updateExecuteConfirmEnabled();
+            return;
+          }
+          accuseRequestInFlight = true;
+          setAccuseConfirmDisabled(true);
+          var warnEl = document.getElementById('execute-no-target-hint');
+          if (warnEl) warnEl.classList.remove('visible');
+          if (freeInput) {
+            freeInput.value = '';
+            freeInput.blur();
+          }
+          closeExecuteModal();
+          postAccuse(targetKey);
+        } catch (err) {
+          appendDebugRuntimeError(err, 'confirmAccuse');
         }
-        if (isRoleDead(targetKey)) {
-          selectedExecuteTarget = null;
-          document.querySelectorAll('.modal-target-btn').forEach(function(b) { b.classList.remove('selected'); });
-          updateExecuteConfirmEnabled();
-          return;
-        }
-        accuseRequestInFlight = true;
-        setAccuseConfirmDisabled(true);
-        var warnEl = document.getElementById('execute-no-target-hint');
-        if (warnEl) warnEl.classList.remove('visible');
-        if (freeInput) {
-          freeInput.value = '';
-          freeInput.blur();
-        }
-        closeExecuteModal();
-        postAccuse(targetKey);
       }
 
       function openExecuteModal() {
@@ -3699,35 +3751,39 @@
 
       function confirmThreat() {
         if (threatRequestInFlight || userActionPending) return;
-        var targetKey = selectedThreatTarget;
-        if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
-          var sel = threatModal ? threatModal.querySelector('.threat-target-btn.selected') : null;
-          targetKey = sel ? String(sel.getAttribute('data-target') || '').toLowerCase() : '';
-        }
-        if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
-          var w = document.getElementById('threat-no-target-hint');
-          if (w) {
-            w.textContent = (getL().threatNoTargetHint || '').trim();
-            w.classList.add('visible');
+        try {
+          var targetKey = selectedThreatTarget;
+          if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
+            var sel = threatModal ? threatModal.querySelector('.threat-target-btn.selected') : null;
+            targetKey = sel ? String(sel.getAttribute('data-target') || '').toLowerCase() : '';
           }
-          return;
+          if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
+            var w = document.getElementById('threat-no-target-hint');
+            if (w) {
+              w.textContent = (getL().threatNoTargetHint || '').trim();
+              w.classList.add('visible');
+            }
+            return;
+          }
+          if (isRoleDead(targetKey)) {
+            selectedThreatTarget = null;
+            if (threatModal) threatModal.querySelectorAll('.threat-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+            updateThreatConfirmEnabled();
+            return;
+          }
+          threatRequestInFlight = true;
+          if (threatConfirmBtn) threatConfirmBtn.disabled = true;
+          var wh = document.getElementById('threat-no-target-hint');
+          if (wh) wh.classList.remove('visible');
+          if (freeInput) {
+            freeInput.value = '';
+            freeInput.blur();
+          }
+          closeThreatModal();
+          postThreaten(targetKey);
+        } catch (err) {
+          appendDebugRuntimeError(err, 'confirmThreat');
         }
-        if (isRoleDead(targetKey)) {
-          selectedThreatTarget = null;
-          if (threatModal) threatModal.querySelectorAll('.threat-target-btn').forEach(function(b) { b.classList.remove('selected'); });
-          updateThreatConfirmEnabled();
-          return;
-        }
-        threatRequestInFlight = true;
-        if (threatConfirmBtn) threatConfirmBtn.disabled = true;
-        var wh = document.getElementById('threat-no-target-hint');
-        if (wh) wh.classList.remove('visible');
-        if (freeInput) {
-          freeInput.value = '';
-          freeInput.blur();
-        }
-        closeThreatModal();
-        postThreaten(targetKey);
       }
 
       function openThreatModal() {
@@ -3807,30 +3863,34 @@
 
       function confirmQuestion() {
         if (userActionPending || isGameOver) return;
-        var sel = questionModal ? questionModal.querySelector('.question-target-btn.selected') : null;
-        var targetKey = sel ? String(sel.getAttribute('data-target') || '').toLowerCase() : '';
-        if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
-          var w = document.getElementById('question-no-target-hint');
-          if (w) {
-            w.textContent = (getL().questionNoTargetHint || '').trim();
-            w.classList.add('visible');
+        try {
+          var sel = questionModal ? questionModal.querySelector('.question-target-btn.selected') : null;
+          var targetKey = sel ? String(sel.getAttribute('data-target') || '').toLowerCase() : '';
+          if (!targetKey || VALID_ACCUSE_TARGETS.indexOf(targetKey) < 0) {
+            var w = document.getElementById('question-no-target-hint');
+            if (w) {
+              w.textContent = (getL().questionNoTargetHint || '').trim();
+              w.classList.add('visible');
+            }
+            return;
           }
-          return;
+          if (isRoleDead(targetKey)) {
+            selectedQuestionTarget = null;
+            if (questionModal) questionModal.querySelectorAll('.question-target-btn').forEach(function(b) { b.classList.remove('selected'); });
+            updateQuestionConfirmEnabled();
+            return;
+          }
+          console.log('[miniapp] question target=' + targetKey);
+          var msg = buildQuestionMessageForRole(targetKey);
+          if (freeInput) {
+            freeInput.value = '';
+            freeInput.blur();
+          }
+          closeQuestionModal();
+          doMessage(msg);
+        } catch (err) {
+          appendDebugRuntimeError(err, 'confirmQuestion');
         }
-        if (isRoleDead(targetKey)) {
-          selectedQuestionTarget = null;
-          if (questionModal) questionModal.querySelectorAll('.question-target-btn').forEach(function(b) { b.classList.remove('selected'); });
-          updateQuestionConfirmEnabled();
-          return;
-        }
-        console.log('[miniapp] question target=' + targetKey);
-        var msg = buildQuestionMessageForRole(targetKey);
-        if (freeInput) {
-          freeInput.value = '';
-          freeInput.blur();
-        }
-        closeQuestionModal();
-        doMessage(msg);
       }
 
       document.querySelectorAll('.modal-target-btn').forEach(function(btn) {
@@ -3957,22 +4017,26 @@
         btn.addEventListener('click', function() {
           if (isGameOver || userActionPending) return;
           var action = this.dataset.action || '';
-          if (action === 'question') {
-            openQuestionModal();
-          } else if (action === 'cctv') {
-            doMessage(lang === 'ko' ? 'CCTV 로그를 확인한다.' : 'Checking CCTV logs.');
-          } else if (action === 'engine') {
-            doMessage(lang === 'ko' ? '엔진실 로그를 확인한다.' : 'Checking engine room logs.');
-          } else if (action === 'pistol') {
-            postTakePistol();
-          } else if (action === 'clue') {
-            postCollectClue();
-          } else if (action === 'threat') {
-            openThreatModal();
-          } else if (action === 'execute') {
-            openExecuteModal();
-          } else {
-            console.log('[Tartarus MiniApp] action:', action);
+          try {
+            if (action === 'question') {
+              openQuestionModal();
+            } else if (action === 'cctv') {
+              doMessage(lang === 'ko' ? 'CCTV 로그를 확인한다.' : 'Checking CCTV logs.');
+            } else if (action === 'engine') {
+              doMessage(lang === 'ko' ? '엔진실 로그를 확인한다.' : 'Checking engine room logs.');
+            } else if (action === 'pistol') {
+              postTakePistol();
+            } else if (action === 'clue') {
+              postCollectClue();
+            } else if (action === 'threat') {
+              openThreatModal();
+            } else if (action === 'execute') {
+              openExecuteModal();
+            } else {
+              console.log('[Tartarus MiniApp] action:', action);
+            }
+          } catch (err) {
+            appendDebugRuntimeError(err, 'actionPanel:' + (action || '?'));
           }
         });
       });
@@ -4004,6 +4068,34 @@
       if (resultModalEl) resultModalEl.addEventListener('click', function(e) {
         if (e.target === resultModalEl) closeResultModal();
       });
+
+      /** 미처리 런타임 오류 → 인게임 로그에 위치·stack (짧게) */
+      if (typeof window !== 'undefined') {
+        window.addEventListener('error', function(ev) {
+          try {
+            var er = ev && ev.error;
+            var msg = (er && er.message) ? String(er.message) : String((ev && ev.message) || '');
+            msg = msg.replace(/\s+/g, ' ').trim();
+            var fn = ev && ev.filename ? String(ev.filename).replace(/^.*\//, '') : '';
+            var loc = fn && ev.lineno != null ? fn + ':' + ev.lineno : debugExtractFileLineFromStack(er && er.stack);
+            appendLog('[DEBUG] ' + msg + (loc ? ' @ ' + loc : ''), true, 'window.error');
+            var st = er && er.stack ? debugShortStack(er.stack) : '';
+            if (st) appendLog('[DEBUG] stack: ' + st, true, 'window.error');
+          } catch (e) {}
+        }, true);
+        window.addEventListener('unhandledrejection', function(ev) {
+          try {
+            var r = ev && ev.reason;
+            var er = r && r instanceof Error ? r : null;
+            var msg = er ? String(er.message) : String(r != null ? r : '');
+            msg = msg.replace(/\s+/g, ' ').trim();
+            var loc = er && er.stack ? debugExtractFileLineFromStack(er.stack) : '';
+            appendLog('[DEBUG] ' + msg + (loc ? ' @ ' + loc : ''), true, 'unhandledrejection');
+            var st = er && er.stack ? debugShortStack(er.stack) : '';
+            if (st) appendLog('[DEBUG] stack: ' + st, true, 'unhandledrejection');
+          } catch (e) {}
+        });
+      }
     })();
   </script>
 </body>
