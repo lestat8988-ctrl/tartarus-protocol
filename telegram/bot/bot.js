@@ -7480,8 +7480,50 @@ const KO_GIVEN_NAMES = [
   '성민',
   '나연'
 ];
-const EN_GIVEN_NAMES = ['Alex', 'Jordan', 'Sam', 'Riley', 'Casey', 'Morgan', 'Quinn', 'Drew', 'Jamie', 'Taylor'];
-const EN_FAMILY_NAMES = ['Park', 'Kim', 'Lee', 'Choi', 'Jung', 'Han', 'Lim', 'Kang', 'Oh', 'Yoon'];
+const EN_GIVEN_NAMES = [
+  'Ethan',
+  'Noah',
+  'Liam',
+  'Owen',
+  'Lucas',
+  'Mason',
+  'Caleb',
+  'Adrian',
+  'Maya',
+  'Lena',
+  'Chloe',
+  'Nora',
+  'Hazel',
+  'Stella',
+  'Iris',
+  'Ava',
+  'Jordan',
+  'Casey',
+  'Riley',
+  'Taylor',
+  'Morgan',
+  'Avery'
+];
+const EN_FAMILY_NAMES = [
+  'Cole',
+  'Reed',
+  'Blake',
+  'Hayes',
+  'Brooks',
+  'Carter',
+  'Bennett',
+  'Foster',
+  'Parker',
+  'Ward',
+  'Bailey',
+  'Hart',
+  'Rhodes',
+  'Ellis',
+  'Dawson',
+  'Quinn',
+  'Sawyer',
+  'Mercer'
+];
 
 function hashStringToSeed(s) {
   let h = 2166136261;
@@ -7531,7 +7573,7 @@ function generateStableCrewPersonalNames(matchId) {
         break;
       }
     }
-    out[role] = { ko: koFull || '김민호', en: enFull || 'Alex Kim' };
+    out[role] = { ko: koFull || '김민호', en: enFull || 'Ethan Cole' };
   }
   return out;
 }
