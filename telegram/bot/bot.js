@@ -1662,6 +1662,28 @@ function isOffTopicNonLoreQuestion(raw) {
   return false;
 }
 
+/**
+ * 집단 마커 없이 이름만 묻는 문장 — group_question / name (buildGroupNameQuestionCrewEvents 재사용).
+ */
+function isStandaloneCrewNameGroupQuestion(raw) {
+  const t = String(raw || '').trim();
+  if (!t) return false;
+  if (containsLoreCanonSubject(raw)) return false;
+  if (/(범인|의심|임포|하데스|액시스|HADES|AXIS|로그|log)/i.test(t)) return false;
+  if (
+    /^(what\s+are\s+your\s+names|tell\s+me\s+your\s+names|state\s+your\s+names)\s*\??\s*$/i.test(t) ||
+    /^names\s*\??\s*$/i.test(t)
+  ) {
+    return true;
+  }
+  if (
+    /(이름이\s*무엇인가[?？]?|이름이\s*뭐|이름을\s*말해봐|각자\s*이름을\s*말해라|모두\s*이름을\s*말해라|이름\s*말해봐|성함이\s*무엇)/.test(t)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /** classifyMiniappFreeText 와 동일 — 외부에서 kind 조회용 */
 function classifyMiniappMessageKind(text, parsed) {
   return classifyMiniappFreeText(text, parsed);
@@ -1766,6 +1788,14 @@ function classifyMiniappFreeText(text, parsed, localeOpt) {
       console.log('[bot][intent] final kind=suspicion_question');
     } catch (e) {}
     return { kind: 'suspicion_question', parsed: effParsed };
+  }
+
+  if (isStandaloneCrewNameGroupQuestion(raw)) {
+    try {
+      console.log('[bot][intent] standalone name question -> group_question name');
+      console.log('[bot][classify] final kind=group_question sub=name');
+    } catch (e) {}
+    return { kind: 'group_question', parsed: effParsed, groupSubkind: 'name' };
   }
 
   if (isOffTopicNonLoreQuestion(raw)) {
@@ -3706,8 +3736,16 @@ async function resolveMiniappFreeClassification(text, locale) {
   let parsed = applyQuestionLikeIntentGuard(raw, intentParser.parse(raw));
   const route = await maybeResolveAmbiguousFreeInputRoute(raw, locale, parsed);
   if (route.applied && route.cls) {
-    if (route.cls.parsed && typeof route.cls.parsed === 'object') Object.assign(parsed, route.cls.parsed);
-    return { cls: route.cls, parsed, route };
+    let cls = route.cls;
+    if (cls.kind === 'free_input_clarification' && isStandaloneCrewNameGroupQuestion(raw)) {
+      try {
+        console.log('[bot][intent] route override clarification -> group_question name');
+        console.log('[bot][classify] final kind=group_question sub=name');
+      } catch (e) {}
+      cls = { kind: 'group_question', parsed: { ...parsed }, groupSubkind: 'name' };
+    }
+    if (cls.parsed && typeof cls.parsed === 'object') Object.assign(parsed, cls.parsed);
+    return { cls, parsed, route };
   }
   if (route.shadowClsReuse) {
     const cls = route.shadowClsReuse;
@@ -7918,11 +7956,23 @@ async function handleTextMessage(playerId, text, opts = {}) {
   if (cls.kind === 'free_input_clarification') {
     const line =
       cls.clarificationText || defaultFreeInputClarificationLine(locale);
-    const rawEvents = [{ type: 'CREW_DIALOGUE', role: 'system', dialogue: line }];
-    let recentDisplay = dedupeDisplayLogs(toPlayerDisplayLogs(rawEvents, { locale }), locale);
+    const rawEv = { type: 'CREW_DIALOGUE', role: 'system', dialogue: line };
+    try {
+      await matchStore.appendEvent(matchId, rawEv);
+      console.log('[bot][free_input_clarification] appended event match_id=' + String(matchId));
+    } catch (e) {
+      try {
+        console.warn('[bot][free_input_clarification] appendEvent warn ' + String(e?.message || e));
+      } catch (e2) {}
+    }
+    const matchAfter = await matchStore.getMatch(matchId);
+    let recentDisplay = dedupeDisplayLogs(
+      toPlayerDisplayLogs(matchAfter?.events || [], { locale }),
+      locale
+    );
     recentDisplay = mergePrependedTensionDisplayLogs(tensionTg, recentDisplay, locale);
     let reply = recentDisplay.map((e) => e.type).filter(Boolean).join('\n') || '…';
-    const timerCl = ep1Engine.getTimerStatus(match, now);
+    const timerCl = ep1Engine.getTimerStatus(matchAfter || match, now);
     const remCl = Math.max(0, Math.floor(timerCl.remaining_sec ?? 0));
     const mCl = Math.floor(remCl / 60);
     const sCl = remCl % 60;
@@ -8600,21 +8650,41 @@ async function processMessageApi(playerId, text, opts = {}) {
   if (cls.kind === 'free_input_clarification') {
     const line =
       cls.clarificationText || defaultFreeInputClarificationLine(locale);
-    const rawEvents = [{ type: 'CREW_DIALOGUE', role: 'system', dialogue: line }];
-    let newDisplayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(rawEvents, { locale }), locale);
-    newDisplayLogs = mergePrependedTensionDisplayLogs(tension, newDisplayLogs, locale);
-    const timerCl = ep1Engine.getTimerStatus(match, now);
+    const rawEv = { type: 'CREW_DIALOGUE', role: 'system', dialogue: line };
+    try {
+      await matchStore.appendEvent(matchId, rawEv);
+      console.log('[bot][free_input_clarification] appended event match_id=' + String(matchId));
+    } catch (e) {
+      try {
+        console.warn('[bot][free_input_clarification] appendEvent warn ' + String(e?.message || e));
+      } catch (e2) {}
+    }
+    const matchAfterCl = await matchStore.getMatch(matchId);
+    let mergedDisplay = dedupeDisplayLogs(
+      toPlayerDisplayLogs(matchAfterCl?.events || [], { locale }),
+      locale
+    );
+    mergedDisplay = mergePrependedTensionDisplayLogs(tension, mergedDisplay, locale);
+    try {
+      console.log(
+        '[bot][free_input_clarification] merged events len=' +
+          String((matchAfterCl?.events || []).length) +
+          ' display len=' +
+          String(mergedDisplay.length)
+      );
+    } catch (e) {}
+    const timerCl = ep1Engine.getTimerStatus(matchAfterCl || match, now);
     const remCl = Math.max(0, Math.floor(timerCl.remaining_sec ?? 0));
-    const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
+    const summaryText = summaryFromDisplayLogs(mergedDisplay, locale);
     return withMeta({
       ok: true,
       summary: summaryText,
       remaining_sec: remCl,
       game_over: false,
       outcome: null,
-      events: newDisplayLogs,
-      recent_events: newDisplayLogs,
-      match_state: { ...match.game_state }
+      events: mergedDisplay,
+      recent_events: mergedDisplay,
+      match_state: { ...(matchAfterCl?.game_state || match.game_state) }
     });
   }
 
