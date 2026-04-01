@@ -7798,6 +7798,212 @@ function dedupeDisplayLogs(displayLogs, locale) {
   return normalizePlayerFacingDisplayLogs(final, loc);
 }
 
+/** group_question + name 응답 표시용 — match events 미수정 */
+function isNameQuestionObserveBodyLine(t, loc) {
+  const s = normalizeDisplayLine(t);
+  if (!s) return false;
+  if (loc === 'en') {
+    return /^(?:observes|observe)\s+the\s+bridge/i.test(s) || /^the\s+bridge\.?$/i.test(s);
+  }
+  return /교량을\s*관찰했다\.?/i.test(s);
+}
+
+function isNameQuestionObserveSingleLine(t, loc) {
+  const s = normalizeDisplayLine(t);
+  if (!s) return false;
+  if (loc === 'en') return /^The captain observes the bridge\.?$/i.test(s);
+  return /함장이\s*교량을\s*관찰했다\.?/i.test(s);
+}
+
+function isNameQuestionClarificationBodyLine(t, loc) {
+  const s = normalizeDisplayLine(t);
+  if (!s) return false;
+  if (loc === 'en') {
+    return (
+      /Please clarify the target/i.test(s) ||
+      /AXIS,\s*HADES,\s*a log check/i.test(s) ||
+      /specific crew question/i.test(s)
+    );
+  }
+  return (
+    /뜻한 대상을 한 번만 더/i.test(s) ||
+    /AXIS,\s*HADES/i.test(s) ||
+    /특정\s*승무원\s*질문/i.test(s) ||
+    /구분이\s*필요합니다/i.test(s)
+  );
+}
+
+function isNameQuestionClarificationLine(t, loc) {
+  const s = normalizeDisplayLine(t);
+  if (!s) return false;
+  if (isNameQuestionClarificationBodyLine(s, loc)) return true;
+  if (loc === 'en') return /^\[System\]\s*Please clarify/i.test(s);
+  return /\[시스템\]\s*뜻한 대상/i.test(s);
+}
+
+function isNameQuestionHadesHeaderLine(t) {
+  const s = normalizeDisplayLine(t);
+  return /^\[HADES\]$/i.test(s) || s === '[HADES]';
+}
+
+function isNameQuestionTensionOrStaleNoiseLine(t, loc) {
+  const s = normalizeDisplayLine(t);
+  if (!s) return false;
+  if (isNameQuestionHadesHeaderLine(t)) return true;
+  if (/\[HADES\]/i.test(s) && s.length > 8) return true;
+  if (loc === 'en') {
+    return (
+      /Internal anomaly detected/i.test(s) ||
+      /Biometric signals in Medbay/i.test(s) ||
+      /Optimal removal window is approaching/i.test(s) ||
+      /There are already deaths/i.test(s) ||
+      /Final calculation complete/i.test(s) ||
+      /Fail to remove the impostor/i.test(s)
+    );
+  }
+  return (
+    /내부 이상 징후 감지/i.test(s) ||
+    /생체 신호가 불안정/i.test(s) ||
+    /최적 제거 시점이 임박/i.test(s) ||
+    /이미 사망자가 있다/i.test(s) ||
+    /최종 계산 완료/i.test(s) ||
+    /중첩체를 제거하지 못하면/i.test(s)
+  );
+}
+
+function isNameQuestionSystemBiometricBodyLine(t, loc) {
+  const s = normalizeDisplayLine(t);
+  if (!s) return false;
+  if (loc === 'en') {
+    return /Biometric signals in Medbay|Internal anomaly detected/i.test(s);
+  }
+  return /내부 이상 징후|생체 신호가 불안정/i.test(s);
+}
+
+/**
+ * group_question + groupSubkind=name 응답의 표시용 logs만 정리 (저장 이벤트 불변).
+ * @param {object[]} logs
+ * @param {'en'|'ko'} locale
+ * @returns {object[]}
+ */
+function sanitizeNameQuestionDisplayLogs(logs, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  if (!logs || !logs.length) return logs;
+  const capH = captainHeader(loc);
+  const sysH = systemHeader(loc);
+  const roleHdrs = getLlmRoleHeaders(loc);
+  const crewHeaders = ['doctor', 'engineer', 'navigator', 'pilot'].map((r) => roleHdrs[r]);
+
+  let removedObserve = 0;
+  let removedClarification = 0;
+  let removedOther = 0;
+  const beforeLen = logs.length;
+
+  const stripped = [];
+  let i = 0;
+  while (i < logs.length) {
+    const t = String(logs[i]?.type || '').trim();
+    const tNext = i + 1 < logs.length ? String(logs[i + 1]?.type || '').trim() : '';
+
+    if (t === capH && tNext && isNameQuestionObserveBodyLine(tNext, loc)) {
+      removedObserve += 2;
+      i += 2;
+      continue;
+    }
+    if (t === capH && tNext && isNameQuestionClarificationBodyLine(tNext, loc)) {
+      removedClarification += 2;
+      i += 2;
+      continue;
+    }
+    if (t === sysH && tNext && isNameQuestionClarificationBodyLine(tNext, loc)) {
+      removedClarification += 2;
+      i += 2;
+      continue;
+    }
+    if (t === sysH && tNext && isNameQuestionSystemBiometricBodyLine(tNext, loc)) {
+      removedOther += 2;
+      i += 2;
+      continue;
+    }
+    if (isNameQuestionHadesHeaderLine(t) && tNext && !/^\[/.test(tNext)) {
+      removedOther += 2;
+      i += 2;
+      continue;
+    }
+
+    if (isNameQuestionObserveSingleLine(t, loc)) {
+      removedObserve++;
+      i++;
+      continue;
+    }
+    if (isNameQuestionClarificationLine(t, loc)) {
+      removedClarification++;
+      i++;
+      continue;
+    }
+    if (isNameQuestionTensionOrStaleNoiseLine(t, loc)) {
+      removedOther++;
+      i++;
+      continue;
+    }
+
+    stripped.push(logs[i]);
+    i++;
+  }
+
+  const capStart = stripped.findIndex(
+    (item, idx) => String(item?.type || '').trim() === capH && idx + 1 < stripped.length
+  );
+  if (capStart < 0) {
+    try {
+      console.log(
+        '[bot][name_question_sanitize] before=' +
+          beforeLen +
+          ' after=' +
+          stripped.length +
+          ' removed_observe=' +
+          removedObserve +
+          ' removed_clarification=' +
+          removedClarification +
+          ' removed_other=' +
+          removedOther +
+          ' (no captain header; strip-only)'
+      );
+    } catch (e) {}
+    return stripped;
+  }
+
+  const out = [stripped[capStart], stripped[capStart + 1]];
+  let j = capStart + 2;
+  let lastCrewIdx = -1;
+  while (j < stripped.length - 1) {
+    const h = String(stripped[j]?.type || '').trim();
+    const bi = crewHeaders.indexOf(h);
+    if (bi < 0) break;
+    if (bi <= lastCrewIdx) break;
+    lastCrewIdx = bi;
+    out.push(stripped[j], stripped[j + 1]);
+    j += 2;
+  }
+
+  try {
+    console.log(
+      '[bot][name_question_sanitize] before=' +
+        beforeLen +
+        ' after=' +
+        out.length +
+        ' removed_observe=' +
+        removedObserve +
+        ' removed_clarification=' +
+        removedClarification +
+        ' removed_other=' +
+        removedOther
+    );
+  } catch (e) {}
+
+  return out;
+}
+
 /**
  * /start 처리
  * @param {string} playerId - telegram user id
@@ -8069,6 +8275,9 @@ async function handleTextMessage(playerId, text, opts = {}) {
       gameOver: !!gsToneG.game_over
     });
     recentDisplay = mergePrependedTensionDisplayLogs(tensionTg, recentDisplay, locale);
+    if (sub === 'name') {
+      recentDisplay = sanitizeNameQuestionDisplayLogs(recentDisplay, locale);
+    }
     let reply = recentDisplay.map((e) => e.type).filter(Boolean).join('\n') || '…';
     const m = Math.floor(rem / 60);
     const sec = rem % 60;
@@ -8795,6 +9004,9 @@ async function processMessageApi(playerId, text, opts = {}) {
       gameOver: !!gsToneG.game_over
     });
     newDisplayLogs = mergePrependedTensionDisplayLogs(tension, newDisplayLogs, locale);
+    if (sub === 'name') {
+      newDisplayLogs = sanitizeNameQuestionDisplayLogs(newDisplayLogs, locale);
+    }
     const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
     return withMeta({
       ok: true,
