@@ -1631,6 +1631,37 @@ function isGameplayInterrogative(raw) {
   return isGameplayCrewQuestionPattern(raw);
 }
 
+/**
+ * 음식/날씨/일상 등 함선 세계관과 무관한 질문 — lore_question 오분류 방지(ko/en).
+ */
+function isOffTopicNonLoreQuestion(raw) {
+  const t = String(raw || '').trim();
+  if (!t) return false;
+  if (containsLoreCanonSubject(raw)) return false;
+  if (/\bHADES\b|하데스|\bAXIS\b|액시스|HORIZON|호라이즌|phase\s*shock|위상\s*충격|중첩체|tartarus|impostor|임포|승무원\s*전원/i.test(t)) {
+    return false;
+  }
+  const lower = t.toLowerCase();
+  if (
+    /(what\s+is\s+for\s+dinner|what's\s+for\s+dinner|what\s+are\s+we\s+having|what\s+are\s+we\s+eating|how\s*'s\s+the\s+weather|how\s+is\s+the\s+weather|what'?s\s+the\s+weather|weather\s+like|what'?s\s+for\s+(lunch|breakfast|dinner))/i.test(
+      lower
+    )
+  ) {
+    return true;
+  }
+  if (/(저녁\s*메뉴|오늘\s*저녁|점심\s*메뉴|날씨\s*어때|날씨가\s*어떠|기온|식사\s*메뉴|밥\s*뭐)/.test(t)) {
+    return true;
+  }
+  if (
+    /(저녁|점심|아침|메뉴|날씨|식사)/.test(t) &&
+    /(무엇|뭐|어때|어떻|뭔)/.test(t) &&
+    !/(하데스|액시스|호라이즌|중첩|임포|범인)/.test(t)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 /** classifyMiniappFreeText 와 동일 — 외부에서 kind 조회용 */
 function classifyMiniappMessageKind(text, parsed) {
   return classifyMiniappFreeText(text, parsed);
@@ -1639,8 +1670,10 @@ function classifyMiniappMessageKind(text, parsed) {
 /**
  * miniapp 자유입력 분류 — check_log → role_opinion → targeted → state_query → mapped → group → suspicion → lore → brief/mapped
  * lore_question은 gameplay·집단 심문보다 뒤에 판정. intent=question/unknown에서도 정의형 lore가 brief로 새지 않게 가드.
+ * @param {string} [localeOpt] - 'en'일 때만 영문 clarification; 생략 시 ko(기존 동작).
  */
-function classifyMiniappFreeText(text, parsed) {
+function classifyMiniappFreeText(text, parsed, localeOpt) {
+  const loc = localeOpt === 'en' ? 'en' : 'ko';
   const raw = String(text || '').trim();
   const lower = raw.toLowerCase();
   try {
@@ -1733,6 +1766,17 @@ function classifyMiniappFreeText(text, parsed) {
       console.log('[bot][intent] final kind=suspicion_question');
     } catch (e) {}
     return { kind: 'suspicion_question', parsed: effParsed };
+  }
+
+  if (isOffTopicNonLoreQuestion(raw)) {
+    try {
+      console.log('[bot][classify] off-topic non-lore guard -> final kind=free_input_clarification');
+    } catch (e) {}
+    return {
+      kind: 'free_input_clarification',
+      parsed: effParsed,
+      clarificationText: defaultFreeInputClarificationLine(loc)
+    };
   }
 
   if (isLoreQuestion(raw)) {
@@ -1861,6 +1905,15 @@ function shouldRunAmbiguousFreeInputProbe(normalizedText, locale, shadowCls) {
 }
 
 function mapFreeInputRouteJsonToCls(j, normalizedText, guardedParsed, locale) {
+  void locale;
+  const routeReasonRaw = String(j?.routeReason || '').toLowerCase();
+  if (routeReasonRaw === 'crew_names_inquiry') {
+    try {
+      console.log('[bot][intent] route map crew_names_inquiry -> group_question name');
+      console.log('[bot][classify] final kind=group_question sub=name');
+    } catch (e) {}
+    return { kind: 'group_question', parsed: { ...guardedParsed }, groupSubkind: 'name' };
+  }
   const tt = String(j?.targetType || '').toLowerCase();
   const confRaw = parseFloat(j?.confidence);
   const confidence = Number.isFinite(confRaw) ? Math.min(1, Math.max(0, confRaw)) : 0;
@@ -3529,7 +3582,7 @@ function buildFreeInputRouteLlmPrompt(locale, normalizedText, shadowKind) {
 async function maybeResolveAmbiguousFreeInputRoute(rawText, locale, guardedParsed) {
   const originalInput = String(rawText || '');
   const normalizedText = normalizeFreeInputForRouting(originalInput);
-  const shadowCls = classifyMiniappFreeText(normalizedText, guardedParsed);
+  const shadowCls = classifyMiniappFreeText(normalizedText, guardedParsed, locale);
   if (shadowCls.kind === 'state_query') {
     return buildEmptyFreeInputRouteResult(normalizedText, originalInput, shadowCls);
   }
@@ -3661,7 +3714,7 @@ async function resolveMiniappFreeClassification(text, locale) {
     if (cls.parsed && typeof cls.parsed === 'object') Object.assign(parsed, cls.parsed);
     return { cls, parsed, route };
   }
-  const cls = classifyMiniappFreeText(raw, parsed);
+  const cls = classifyMiniappFreeText(raw, parsed, locale);
   if (cls.parsed && typeof cls.parsed === 'object') Object.assign(parsed, cls.parsed);
   return { cls, parsed, route };
 }
