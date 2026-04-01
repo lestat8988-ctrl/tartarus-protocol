@@ -408,6 +408,7 @@ function attachFreePromptConsumedMetadata(result, didConsume) {
 /** match_events / 로그용 짧은 kind 문자열 */
 function getIntentLogKindForPayload(cls, parsed) {
   if (!cls) return 'unknown';
+  if (cls.kind === 'free_input_clarification') return 'free_input_clarification';
   if (cls.kind === 'state_query') return 'state_query:' + String(cls.subtype || '');
   if (cls.kind === 'mapped') {
     const it = String(parsed?.intent_type || 'unknown').toLowerCase();
@@ -437,6 +438,30 @@ function logIntentPromptDecision(cls, parsed, consumesFreePrompt) {
   console.log(
     '[bot][intent] message kind=' + kind + ' consumes_free_prompt=' + (consumesFreePrompt ? 'true' : 'false')
   );
+}
+
+function serializeFreeInputRouteForMeta(route) {
+  if (!route || typeof route !== 'object') return null;
+  return {
+    applied: !!route.applied,
+    modelUsed: route.modelUsed != null ? String(route.modelUsed) : 'none',
+    routeReason: route.routeReason != null ? String(route.routeReason) : '',
+    targetType: route.targetType != null ? route.targetType : null,
+    targetRole: route.targetRole != null ? route.targetRole : null,
+    confidence: typeof route.confidence === 'number' ? route.confidence : null,
+    needsClarification: !!route.needsClarification,
+    fallbackUsed: !!route.fallbackUsed,
+    normalizedText: route.normalizedText != null ? String(route.normalizedText).slice(0, 500) : null
+  };
+}
+
+/** processMessageApi → dbPersist 재사용용 — 분류 재호출 금지 */
+function buildFreeInputIntentMetaSnapshot(cls, parsed, text, route) {
+  return {
+    message_kind: getIntentLogKindForPayload(cls, parsed),
+    consumes_free_prompt: shouldConsumeFreePromptForMessageKind(cls, parsed, text),
+    route: serializeFreeInputRouteForMeta(route)
+  };
 }
 
 async function enrichResultWithEntitlement(result, playerId) {
@@ -815,16 +840,17 @@ async function dbPersistAfterMessageResult(playerId, locale, inputText, result) 
     let messageKind = 'unknown';
     let consumesFreePrompt = false;
     try {
-      const parsed = applyQuestionLikeIntentGuard(
-        String(inputText || ''),
-        intentParser.parse(String(inputText || ''))
-      );
-      const cls = classifyMiniappFreeText(String(inputText || ''), parsed);
-      messageKind = getIntentLogKindForPayload(cls, parsed);
-      consumesFreePrompt = shouldConsumeFreePromptForMessageKind(cls, parsed, inputText);
+      const meta = result && result.free_input_intent_meta;
+      if (meta && typeof meta === 'object') {
+        messageKind =
+          meta.message_kind != null && meta.message_kind !== ''
+            ? String(meta.message_kind)
+            : 'unknown';
+        consumesFreePrompt = !!meta.consumes_free_prompt;
+      }
     } catch (e) {
       try {
-        console.warn('[bot][intent] dbPersist message intent parse warn ' + String(e?.message || e));
+        console.warn('[bot][intent] dbPersist free_input_intent_meta read warn ' + String(e?.message || e));
       } catch (e2) {}
     }
     const persistKind = consumesFreePrompt ? 'lore_question' : messageKind;
@@ -1015,6 +1041,13 @@ const LOG = process.env.BOT_LOG !== '0';
  * 키 없음/호출 실패/JSON·검증 실패 → maybeDialogueLogsFromLlmOrDeterministic가 deterministic 유지
  */
 const TELEGRAM_DIALOGUE_MODEL = process.env.TELEGRAM_DIALOGUE_MODEL || 'gpt-4o-mini';
+/** 자유입력 라우팅 전용 — TELEGRAM_DIALOGUE_MODEL 과 무관. 미설정 시 mini(규칙+선택적 mini 모델)로 기존과 동일. */
+const FREE_INPUT_PARSE_MODE_RAW = String(process.env.FREE_INPUT_PARSE_MODE || 'mini').trim().toLowerCase();
+const FREE_INPUT_PARSE_MODE =
+  FREE_INPUT_PARSE_MODE_RAW === 'hybrid' ? 'hybrid' : FREE_INPUT_PARSE_MODE_RAW === '4o' ? '4o' : 'mini';
+const FREE_INPUT_PARSE_MODEL_MINI = process.env.FREE_INPUT_PARSE_MODEL_MINI || 'gpt-4o-mini';
+const FREE_INPUT_PARSE_MODEL_4O = process.env.FREE_INPUT_PARSE_MODEL_4O || 'gpt-4o';
+const FREE_INPUT_ROUTE_TIMEOUT_MS = 8000;
 const TELEGRAM_DIALOGUE_TIMEOUT_MS = Math.min(
   Math.max(parseInt(process.env.TELEGRAM_DIALOGUE_TIMEOUT_MS || '10000', 10) || 10000, 4000),
   60000
@@ -1755,6 +1788,148 @@ function classifyMiniappFreeText(text, parsed) {
   }
 
   return { kind: 'mapped', parsed: effParsed };
+}
+
+/** 자유입력 라우팅 전용 정규화 — 의미 왜곡 없이 공백·문장부호·영문 케이스만 정리 */
+function normalizeFreeInputForRouting(text) {
+  let s = String(text || '').trim();
+  s = s.replace(/\s+/g, ' ');
+  s = s.replace(/([?!.])\1+/g, '$1');
+  s = s.replace(/[?!.]{3,}/g, (m) => m[0]);
+  const hasHangul = /[\uAC00-\uD7A3]/.test(s);
+  if (!hasHangul) s = s.toLowerCase();
+  return s.trim();
+}
+
+function defaultFreeInputClarificationLine(locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const sys = systemHeader(loc);
+  if (loc === 'en') {
+    return (
+      sys +
+      ' Please clarify the target once more. I need to know whether you mean AXIS, HADES, a log check, or a specific crew question.'
+    );
+  }
+  return (
+    sys +
+    ' 뜻한 대상을 한 번만 더 정확히 적어 주세요. AXIS, HADES, 로그 확인, 혹은 특정 승무원 질문인지 구분이 필요합니다.'
+  );
+}
+
+function normalizeRouteRoleKeyForFreeInput(raw) {
+  if (raw == null) return null;
+  const t = String(raw).toLowerCase().trim();
+  if (t === 'doctor' || t === '닥터' || t === '의사') return 'doctor';
+  if (t === 'engineer' || t === '엔지니어') return 'engineer';
+  if (t === 'navigator' || t === '네비게이터') return 'navigator';
+  if (t === 'pilot' || t === '파일럿') return 'pilot';
+  return null;
+}
+
+/**
+ * 짧은·오타·애매 입력만 LLM 라우팅 후보로 본다. 4o 모드는 항상 후보.
+ * 기존 classify 결과(shadow)와 결합 — lore 오분류·unknown lore 위험을 줄인다.
+ */
+function shouldRunAmbiguousFreeInputProbe(normalizedText, locale, shadowCls) {
+  void locale;
+  const n = String(normalizedText || '').trim();
+  if (!n) return false;
+  const lower = n.toLowerCase();
+  const wc = n.split(/\s+/).filter(Boolean).length;
+  const shortLen = n.length <= 32;
+  const oneOrTwoTokens = wc <= 2;
+  const qm = /[?？]/.test(n);
+  const typoHadesLike = /(아네스|하네스|hadis|하네스\?)/i.test(n) && !/\bHADES\b|하데스/i.test(n);
+  const noCrew = !detectCrewRoleForGameplayQuestion(n);
+  const noStrongCanon =
+    !containsLoreCanonSubject(n) && !/\bHADES\b|하데스|\bAXIS\b|액시스|HORIZON|호라이즌|phase\s*shock|위상\s*충격/i.test(n);
+  const shadowRiskLore =
+    shadowCls &&
+    shadowCls.kind === 'lore_question' &&
+    shortLen &&
+    noStrongCanon &&
+    (oneOrTwoTokens || qm);
+  const offTopicHint =
+    /(저녁|메뉴|배고|날씨|dinner|lunch|weather|how\s+are\s+you)/i.test(lower) && !containsLoreCanonSubject(n);
+  return (
+    typoHadesLike ||
+    offTopicHint ||
+    (shortLen && qm && noCrew && noStrongCanon) ||
+    (oneOrTwoTokens && qm && noStrongCanon && noCrew) ||
+    shadowRiskLore
+  );
+}
+
+function mapFreeInputRouteJsonToCls(j, normalizedText, guardedParsed, locale) {
+  const tt = String(j?.targetType || '').toLowerCase();
+  const confRaw = parseFloat(j?.confidence);
+  const confidence = Number.isFinite(confRaw) ? Math.min(1, Math.max(0, confRaw)) : 0;
+  const needsClar = !!j?.needsClarification;
+  const role = normalizeRouteRoleKeyForFreeInput(j?.targetRole);
+  const clarifyCls = {
+    kind: 'free_input_clarification',
+    parsed: { ...guardedParsed },
+    clarificationText: defaultFreeInputClarificationLine(locale)
+  };
+  if (needsClar || tt === 'unclear' || tt === '') return clarifyCls;
+  if (confidence < 0.45 && tt !== 'system') return clarifyCls;
+  const n = String(normalizedText || '');
+  if (tt === 'lore') {
+    if (n.length < 18 && !containsLoreCanonSubject(n) && !/\bHADES\b|하데스|\bAXIS\b|액시스/i.test(n)) {
+      return clarifyCls;
+    }
+    return { kind: 'lore_question', parsed: { ...guardedParsed } };
+  }
+  if (tt === 'crew') {
+    if (!role) return clarifyCls;
+    const selfDefQ = isSelfDefenseQuestionContext(n);
+    return {
+      kind: 'targeted_question',
+      parsed: {
+        ...guardedParsed,
+        intent_type: 'question',
+        target: role,
+        isSelfDefenseQuestion: selfDefQ,
+        isTargetedAccusation: selfDefQ
+      },
+      crewGameplayTargetRole: role,
+      isSelfDefenseQuestion: selfDefQ,
+      isTargetedAccusation: selfDefQ
+    };
+  }
+  if (tt === 'system') {
+    if (/(로그|log|기록|check|show\s+log|records)/i.test(n)) {
+      const tr = extractTargetRoleFromText(n);
+      return {
+        kind: 'mapped',
+        parsed: {
+          ...guardedParsed,
+          intent_type: 'check_log',
+          target: tr || guardedParsed.target || null
+        }
+      };
+    }
+    return clarifyCls;
+  }
+  return clarifyCls;
+}
+
+function buildEmptyFreeInputRouteResult(normalizedText, originalInput, shadowClsReuse) {
+  return {
+    applied: false,
+    targetType: null,
+    targetRole: null,
+    confidence: 0,
+    needsClarification: false,
+    clarificationText: null,
+    modelUsed: 'none',
+    routeReason: 'skip',
+    fallbackUsed: false,
+    normalizedText,
+    originalInput,
+    cls: null,
+    shadowClsReuse: shadowClsReuse || null
+  };
 }
 
 function buildStateQueryDialogueLine(match, subtype, locale, now) {
@@ -3297,6 +3472,198 @@ function extractJsonObjectFromLlmText(raw) {
   } catch (_) {
     return null;
   }
+}
+
+async function callFreeInputRouteParseJson({ system, user, model, timeoutMs }) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error('no_api_key');
+  const m = String(model || FREE_INPUT_PARSE_MODEL_MINI).trim() || 'gpt-4o-mini';
+  const timeout =
+    timeoutMs != null && Number.isFinite(timeoutMs)
+      ? Math.min(Math.max(timeoutMs, 4000), 30000)
+      : FREE_INPUT_ROUTE_TIMEOUT_MS;
+  const client = new OpenAI({ apiKey, timeout, maxRetries: 0 });
+  const body = {
+    model: m,
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: user }
+    ],
+    temperature: 0.12,
+    max_tokens: 420,
+    response_format: { type: 'json_object' }
+  };
+  const completion = await client.chat.completions.create(body);
+  const content = completion?.choices?.[0]?.message?.content;
+  const raw = content != null ? String(content) : '';
+  const obj = extractJsonObjectFromLlmText(raw);
+  if (!obj || typeof obj !== 'object') throw new Error('route_json_parse_failed');
+  return obj;
+}
+
+function buildFreeInputRouteLlmPrompt(locale, normalizedText, shadowKind) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  return (
+    'You only ROUTE captain free text for USSC Tartarus. Do NOT answer the question.\n' +
+    'Return a single JSON object with keys: targetType (crew|lore|system|unclear), targetRole (doctor|engineer|navigator|pilot|null), confidence (0-1), needsClarification (boolean), routeReason (short English id).\n' +
+    'Rules:\n' +
+    '- lore: clear canon ask (HADES, AXIS, Project HORIZON, phase shock, ship backstory, gravity drive, Neptune experiment, awakened crew, nested entity / impostor as in-world term).\n' +
+    '- crew: clear question to a specific crew role (doctor/engineer/navigator/pilot), alibi, suspicion to one role, name to one role.\n' +
+    '- system: log check / records request (e.g. show logs, check doctor sector).\n' +
+    '- unclear: typos like "아네스?" for HADES, ultra-short ambiguous fragments, off-topic (food, weather), or anything that would wrongly burn a lore lookup.\n' +
+    '- If ambiguous or risky, set needsClarification true and targetType unclear (or needsClarification true with low confidence).\n' +
+    '- Locale: ' +
+    loc +
+    '.\n' +
+    'ShadowClassifierHint (non-authoritative): ' +
+    String(shadowKind || 'unknown') +
+    '.\n' +
+    'NormalizedText: ' +
+    JSON.stringify(normalizedText)
+  );
+}
+
+/**
+ * 애매한 자유입력만 LLM으로 분류 보정. 실패 시 기존 classifyMiniappFreeText 로 복귀(applied:false).
+ */
+async function maybeResolveAmbiguousFreeInputRoute(rawText, locale, guardedParsed) {
+  const originalInput = String(rawText || '');
+  const normalizedText = normalizeFreeInputForRouting(originalInput);
+  const shadowCls = classifyMiniappFreeText(normalizedText, guardedParsed);
+  if (shadowCls.kind === 'state_query') {
+    return buildEmptyFreeInputRouteResult(normalizedText, originalInput, shadowCls);
+  }
+
+  const ambiguous = shouldRunAmbiguousFreeInputProbe(normalizedText, locale, shadowCls);
+  const invokeLlm =
+    FREE_INPUT_PARSE_MODE === '4o' || (FREE_INPUT_PARSE_MODE === 'hybrid' && ambiguous);
+  if (!invokeLlm) {
+    return buildEmptyFreeInputRouteResult(normalizedText, originalInput, shadowCls);
+  }
+
+  if (!process.env.OPENAI_API_KEY) {
+    return buildEmptyFreeInputRouteResult(normalizedText, originalInput, shadowCls);
+  }
+
+  let modelPrimary =
+    FREE_INPUT_PARSE_MODE === '4o'
+      ? FREE_INPUT_PARSE_MODEL_4O
+      : FREE_INPUT_PARSE_MODE === 'hybrid' && ambiguous
+        ? FREE_INPUT_PARSE_MODEL_4O
+        : FREE_INPUT_PARSE_MODEL_MINI;
+  let modelFallback = FREE_INPUT_PARSE_MODEL_MINI;
+  if (modelPrimary === modelFallback) modelFallback = modelPrimary;
+
+  const sys = buildFreeInputRouteLlmPrompt(locale, normalizedText, shadowCls.kind);
+  const userMsg = 'Classify JSON only.';
+
+  const logRoute = (extra) => {
+    try {
+      console.log(
+        '[bot][free-input-route] ' +
+          JSON.stringify({
+            originalInput: originalInput.slice(0, 200),
+            normalizedText: normalizedText.slice(0, 200),
+            modelUsed: extra.modelUsed,
+            routeReason: extra.routeReason,
+            targetType: extra.targetType,
+            targetRole: extra.targetRole,
+            confidence: extra.confidence,
+            needsClarification: extra.needsClarification,
+            fallbackUsed: extra.fallbackUsed,
+            applied: extra.applied
+          })
+      );
+    } catch (e) {}
+  };
+
+  let j = null;
+  let used = modelPrimary;
+  let fallbackUsed = false;
+  try {
+    j = await callFreeInputRouteParseJson({
+      system: sys,
+      user: userMsg,
+      model: modelPrimary,
+      timeoutMs: FREE_INPUT_ROUTE_TIMEOUT_MS
+    });
+  } catch (e1) {
+    try {
+      console.log('[bot][free-input-route] primary failed=' + String(e1?.message || e1));
+    } catch (e) {}
+    if (modelPrimary !== modelFallback) {
+      try {
+        j = await callFreeInputRouteParseJson({
+          system: sys,
+          user: userMsg,
+          model: modelFallback,
+          timeoutMs: FREE_INPUT_ROUTE_TIMEOUT_MS
+        });
+        used = modelFallback;
+        fallbackUsed = true;
+      } catch (e2) {
+        try {
+          console.log('[bot][free-input-route] fallback failed=' + String(e2?.message || e2));
+        } catch (e) {}
+        return buildEmptyFreeInputRouteResult(normalizedText, originalInput, shadowCls);
+      }
+    } else {
+      return buildEmptyFreeInputRouteResult(normalizedText, originalInput, shadowCls);
+    }
+  }
+
+  if (!j) return buildEmptyFreeInputRouteResult(normalizedText, originalInput, shadowCls);
+  const cls = mapFreeInputRouteJsonToCls(j, normalizedText, guardedParsed, locale);
+  const tt = String(j.targetType || '').toLowerCase();
+  const role = normalizeRouteRoleKeyForFreeInput(j.targetRole);
+  const confRaw = parseFloat(j.confidence);
+  const confidence = Number.isFinite(confRaw) ? Math.min(1, Math.max(0, confRaw)) : 0;
+  const needsClar = !!j.needsClarification;
+  const reason = String(j.routeReason || 'llm').slice(0, 120);
+
+  logRoute({
+    modelUsed: used,
+    routeReason: reason,
+    targetType: tt,
+    targetRole: role,
+    confidence,
+    needsClarification: needsClar,
+    fallbackUsed,
+    applied: true
+  });
+
+  return {
+    applied: true,
+    targetType: tt || null,
+    targetRole: role,
+    confidence,
+    needsClarification: needsClar,
+    clarificationText: cls.kind === 'free_input_clarification' ? cls.clarificationText || null : null,
+    modelUsed: used,
+    routeReason: reason,
+    fallbackUsed,
+    normalizedText,
+    originalInput,
+    cls
+  };
+}
+
+async function resolveMiniappFreeClassification(text, locale) {
+  const raw = String(text || '');
+  let parsed = applyQuestionLikeIntentGuard(raw, intentParser.parse(raw));
+  const route = await maybeResolveAmbiguousFreeInputRoute(raw, locale, parsed);
+  if (route.applied && route.cls) {
+    if (route.cls.parsed && typeof route.cls.parsed === 'object') Object.assign(parsed, route.cls.parsed);
+    return { cls: route.cls, parsed, route };
+  }
+  if (route.shadowClsReuse) {
+    const cls = route.shadowClsReuse;
+    if (cls.parsed && typeof cls.parsed === 'object') Object.assign(parsed, cls.parsed);
+    return { cls, parsed, route };
+  }
+  const cls = classifyMiniappFreeText(raw, parsed);
+  if (cls.parsed && typeof cls.parsed === 'object') Object.assign(parsed, cls.parsed);
+  return { cls, parsed, route };
 }
 
 function koreanHeavyEnoughForDialogue(texts, minRatio) {
@@ -7463,11 +7830,9 @@ async function handleTextMessage(playerId, text, opts = {}) {
   const tensionTg = await persistTimerTensionForMatch(matchId, match, locale, tensionNowTg);
   match = tensionTg.match || match;
 
-  const parsed = applyQuestionLikeIntentGuard(text, intentParser.parse(text));
-  const cls = classifyMiniappFreeText(text, parsed);
-  if (cls.parsed && typeof cls.parsed === 'object') {
-    Object.assign(parsed, cls.parsed);
-  }
+  const resolvedTg = await resolveMiniappFreeClassification(text, locale);
+  const cls = resolvedTg.cls;
+  let parsed = resolvedTg.parsed;
   const now = opts.now;
 
   if (cls.kind === 'state_query') {
@@ -7495,6 +7860,21 @@ async function handleTextMessage(playerId, text, opts = {}) {
   if (match.game_state?.game_over) {
     log('GAME_OVER', 'blocked', { playerId, matchId, outcome: match.game_state.outcome });
     return 'Game over. Outcome: ' + (match.game_state.outcome || 'unknown') + '. Send /start for new game.';
+  }
+
+  if (cls.kind === 'free_input_clarification') {
+    const line =
+      cls.clarificationText || defaultFreeInputClarificationLine(locale);
+    const rawEvents = [{ type: 'CREW_DIALOGUE', role: 'system', dialogue: line }];
+    let recentDisplay = dedupeDisplayLogs(toPlayerDisplayLogs(rawEvents, { locale }), locale);
+    recentDisplay = mergePrependedTensionDisplayLogs(tensionTg, recentDisplay, locale);
+    let reply = recentDisplay.map((e) => e.type).filter(Boolean).join('\n') || '…';
+    const timerCl = ep1Engine.getTimerStatus(match, now);
+    const remCl = Math.max(0, Math.floor(timerCl.remaining_sec ?? 0));
+    const mCl = Math.floor(remCl / 60);
+    const sCl = remCl % 60;
+    reply += '\n⏱ ' + mCl + ':' + String(sCl).padStart(2, '0') + ' left';
+    return reply;
   }
 
   const consumesFreePromptTg = shouldConsumeFreePromptForMessageKind(cls, parsed, text);
@@ -8106,11 +8486,11 @@ async function processMessageApi(playerId, text, opts = {}) {
   const tension = await persistTimerTensionForMatch(matchId, match, locale, tensionNow);
   match = tension.match || match;
 
-  const parsed = applyQuestionLikeIntentGuard(text, intentParser.parse(text));
-  const cls = classifyMiniappFreeText(text, parsed);
-  if (cls.parsed && typeof cls.parsed === 'object') {
-    Object.assign(parsed, cls.parsed);
-  }
+  const resolvedApi = await resolveMiniappFreeClassification(text, locale);
+  const cls = resolvedApi.cls;
+  let parsed = resolvedApi.parsed;
+  const freeInputIntentMeta = buildFreeInputIntentMetaSnapshot(cls, parsed, text, resolvedApi.route);
+  const withMeta = (o) => (o && typeof o === 'object' ? { ...o, free_input_intent_meta: freeInputIntentMeta } : o);
   const now = opts.now;
 
   if (cls.kind === 'state_query') {
@@ -8142,7 +8522,7 @@ async function processMessageApi(playerId, text, opts = {}) {
       const evs = match?.events || [];
       if (evs.some((e) => e && e.type === 'TIMEOUT')) ret.is_timeout = true;
     }
-    return ret;
+    return withMeta(ret);
   }
 
   if (match.game_state?.game_over) {
@@ -8161,7 +8541,28 @@ async function processMessageApi(playerId, text, opts = {}) {
     attachActualImposterIfGameOverResult(ret, match);
     const evs = match?.events || [];
     if (evs.some((e) => e && e.type === 'TIMEOUT')) ret.is_timeout = true;
-    return ret;
+    return withMeta(ret);
+  }
+
+  if (cls.kind === 'free_input_clarification') {
+    const line =
+      cls.clarificationText || defaultFreeInputClarificationLine(locale);
+    const rawEvents = [{ type: 'CREW_DIALOGUE', role: 'system', dialogue: line }];
+    let newDisplayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(rawEvents, { locale }), locale);
+    newDisplayLogs = mergePrependedTensionDisplayLogs(tension, newDisplayLogs, locale);
+    const timerCl = ep1Engine.getTimerStatus(match, now);
+    const remCl = Math.max(0, Math.floor(timerCl.remaining_sec ?? 0));
+    const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
+    return withMeta({
+      ok: true,
+      summary: summaryText,
+      remaining_sec: remCl,
+      game_over: false,
+      outcome: null,
+      events: newDisplayLogs,
+      recent_events: newDisplayLogs,
+      match_state: { ...match.game_state }
+    });
   }
 
   const consumesFreePromptApi = shouldConsumeFreePromptForMessageKind(cls, parsed, text);
@@ -8181,14 +8582,16 @@ async function processMessageApi(playerId, text, opts = {}) {
       const timer = ep1Engine.getTimerStatus(match, now);
       const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
       const evBlock = mergePrependedTensionDisplayLogs(tension, [], locale);
-      return buildEntitlementBlockedResponse(locale, 'daily_free_prompt_limit_reached', pr.entitlement, {
-        remaining_sec: rem,
-        game_over: false,
-        outcome: null,
-        events: evBlock,
-        recent_events: evBlock,
-        match_state: { ...match.game_state }
-      });
+      return withMeta(
+        buildEntitlementBlockedResponse(locale, 'daily_free_prompt_limit_reached', pr.entitlement, {
+          remaining_sec: rem,
+          game_over: false,
+          outcome: null,
+          events: evBlock,
+          recent_events: evBlock,
+          match_state: { ...match.game_state }
+        })
+      );
     }
     freePromptConsumedThisApi = true;
     loreFreePromptUsedAfterConsume = pr.entitlement != null ? pr.entitlement.daily_free_prompt_used : null;
@@ -8229,7 +8632,7 @@ async function processMessageApi(playerId, text, opts = {}) {
     }
     newDisplayLogs = mergePrependedTensionDisplayLogs(tension, newDisplayLogs, locale);
     const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
-    return {
+    return withMeta({
       ok: true,
       summary: summaryText,
       remaining_sec: rem,
@@ -8238,7 +8641,7 @@ async function processMessageApi(playerId, text, opts = {}) {
       events: newDisplayLogs,
       recent_events: newDisplayLogs,
       match_state: updated?.game_state || {}
-    };
+    });
   }
 
   if (cls.kind === 'group_question') {
@@ -8270,7 +8673,7 @@ async function processMessageApi(playerId, text, opts = {}) {
     });
     newDisplayLogs = mergePrependedTensionDisplayLogs(tension, newDisplayLogs, locale);
     const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
-    return {
+    return withMeta({
       ok: true,
       summary: summaryText,
       remaining_sec: rem,
@@ -8279,7 +8682,7 @@ async function processMessageApi(playerId, text, opts = {}) {
       events: newDisplayLogs,
       recent_events: newDisplayLogs,
       match_state: updated?.game_state || {}
-    };
+    });
   }
 
   if (cls.kind === 'suspicion_question') {
@@ -8308,7 +8711,7 @@ async function processMessageApi(playerId, text, opts = {}) {
     });
     newDisplayLogs = mergePrependedTensionDisplayLogs(tension, newDisplayLogs, locale);
     const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
-    return {
+    return withMeta({
       ok: true,
       summary: summaryText,
       remaining_sec: rem,
@@ -8317,7 +8720,7 @@ async function processMessageApi(playerId, text, opts = {}) {
       events: newDisplayLogs,
       recent_events: newDisplayLogs,
       match_state: updated?.game_state || {}
-    };
+    });
   }
 
   if (cls.kind === 'lore_question') {
@@ -8355,7 +8758,7 @@ async function processMessageApi(playerId, text, opts = {}) {
           );
         } catch (e) {}
         return attachFreePromptConsumedMetadata(
-          {
+          withMeta({
             ok: true,
             summary: summaryTextUnk,
             remaining_sec: remUnk,
@@ -8364,7 +8767,7 @@ async function processMessageApi(playerId, text, opts = {}) {
             events: newDisplayLogsUnk,
             recent_events: newDisplayLogsUnk,
             match_state: updatedUnk?.game_state || {}
-          },
+          }),
           freePromptConsumedThisApi
         );
       }
@@ -8384,7 +8787,7 @@ async function processMessageApi(playerId, text, opts = {}) {
         );
       } catch (e) {}
       return attachFreePromptConsumedMetadata(
-        {
+        withMeta({
           ok: true,
           summary: summaryText,
           remaining_sec: rem,
@@ -8393,7 +8796,7 @@ async function processMessageApi(playerId, text, opts = {}) {
           events: newDisplayLogs,
           recent_events: newDisplayLogs,
           match_state: updated?.game_state || {}
-        },
+        }),
         freePromptConsumedThisApi
       );
     } catch (err) {
@@ -8414,7 +8817,7 @@ async function processMessageApi(playerId, text, opts = {}) {
         );
       } catch (e3) {}
       return attachFreePromptConsumedMetadata(
-        {
+        withMeta({
           ok: true,
           blocked: false,
           summary: fbSum,
@@ -8425,7 +8828,7 @@ async function processMessageApi(playerId, text, opts = {}) {
           recent_events: mergePrependedTensionDisplayLogs(tension, [], locale),
           match_state: mFb?.game_state || {},
           lore_pipeline_error_fallback: true
-        },
+        }),
         freePromptConsumedThisApi
       );
     }
@@ -8453,7 +8856,7 @@ async function processMessageApi(playerId, text, opts = {}) {
     const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
     newDisplayLogs = mergePrependedTensionDisplayLogs(tension, newDisplayLogs, locale);
     const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
-    return {
+    return withMeta({
       ok: true,
       summary: summaryText,
       remaining_sec: rem,
@@ -8462,7 +8865,7 @@ async function processMessageApi(playerId, text, opts = {}) {
       events: newDisplayLogs,
       recent_events: newDisplayLogs,
       match_state: updated?.game_state || {}
-    };
+    });
   }
 
   if (cls.kind === 'targeted_question') {
@@ -8487,7 +8890,7 @@ async function processMessageApi(playerId, text, opts = {}) {
 
   const action = { actor: 'captain', role: 'captain', action: parsed.intent_type, target: parsed.target };
   const result = await ep1Engine.applyAction(match, action, opts);
-  if (!result.ok) return { ok: false, error: result.error || 'unknown' };
+  if (!result.ok) return withMeta({ ok: false, error: result.error || 'unknown' });
 
   await matchStore.updateMatch(matchId, { ...result.next_state, turn: (match.turn || 1) + 1 });
   let eventsForStoreApi = result.events || [];
@@ -8567,7 +8970,7 @@ async function processMessageApi(playerId, text, opts = {}) {
     const evs = result.events || updated?.events || [];
     if (evs.some((e) => e && e.type === 'TIMEOUT')) ret.is_timeout = true;
   }
-  return ret;
+  return withMeta(ret);
 }
 
 const ACCUSE_API_TARGETS = new Set(['doctor', 'engineer', 'navigator', 'pilot']);
