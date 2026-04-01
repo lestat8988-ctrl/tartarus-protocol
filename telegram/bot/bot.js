@@ -1671,6 +1671,16 @@ function isStandaloneCrewNameGroupQuestion(raw) {
   if (containsLoreCanonSubject(raw)) return false;
   if (/(범인|의심|임포|하데스|액시스|HADES|AXIS|로그|log)/i.test(t)) return false;
   if (
+    /^이름이[?？]\s*$/.test(t) ||
+    /^이름은[?？]\s*$/.test(t) ||
+    /^이름[?？]\s*$/.test(t)
+  ) {
+    return true;
+  }
+  if (/^name\s*\?\s*$/i.test(t) || /^your\s+name\s*\?\s*$/i.test(t) || /^your\s+names\s*\?\s*$/i.test(t)) {
+    return true;
+  }
+  if (
     /^(what\s+are\s+your\s+names|tell\s+me\s+your\s+names|state\s+your\s+names)\s*\??\s*$/i.test(t) ||
     /^names\s*\??\s*$/i.test(t)
   ) {
@@ -1794,6 +1804,9 @@ function classifyMiniappFreeText(text, parsed, localeOpt) {
     try {
       console.log('[bot][intent] standalone name question -> group_question name');
       console.log('[bot][classify] final kind=group_question sub=name');
+      if (/^이름이[?？]\s*$/.test(String(raw || '').trim())) {
+        console.log('[bot][classify] short name cue input="이름이?" final cls.kind=group_question');
+      }
     } catch (e) {}
     return { kind: 'group_question', parsed: effParsed, groupSubkind: 'name' };
   }
@@ -1888,6 +1901,69 @@ function defaultFreeInputClarificationLine(locale) {
     sys +
     ' 뜻한 대상을 한 번만 더 정확히 적어 주세요. AXIS, HADES, 로그 확인, 혹은 특정 승무원 질문인지 구분이 필요합니다.'
   );
+}
+
+/**
+ * free_input_clarification 표시용 — 동일 기본 clarification 문구가 반복되면 1회만 노출 (이벤트 저장 불변).
+ * @param {object[]} logs
+ * @param {'en'|'ko'} locale
+ * @returns {object[]}
+ */
+function compactClarificationDisplayLogs(logs, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  if (!logs || !logs.length) return logs;
+  const sysH = systemHeader(loc);
+  const defaultClarNorm = normalizeDisplayLine(defaultFreeInputClarificationLine(loc));
+  const before = logs.length;
+  let removedDuplicates = 0;
+  let seen = false;
+  const out = [];
+  let i = 0;
+  while (i < logs.length) {
+    const t0 = normalizeDisplayLine(String(logs[i]?.type || ''));
+    if (t0 === defaultClarNorm) {
+      if (seen) {
+        removedDuplicates++;
+        i++;
+        continue;
+      }
+      seen = true;
+      out.push(logs[i]);
+      i++;
+      continue;
+    }
+    if (t0 === sysH && i + 1 < logs.length) {
+      const t1 = normalizeDisplayLine(String(logs[i + 1]?.type || ''));
+      const combined = normalizeDisplayLine(sysH + ' ' + t1);
+      const pairMatches =
+        combined === defaultClarNorm ||
+        (t0 === sysH && /^(Please clarify the target|뜻한 대상을 한 번만 더)/i.test(t1));
+      if (pairMatches) {
+        if (seen) {
+          removedDuplicates += 2;
+          i += 2;
+          continue;
+        }
+        seen = true;
+        out.push(logs[i], logs[i + 1]);
+        i += 2;
+        continue;
+      }
+    }
+    out.push(logs[i]);
+    i++;
+  }
+  try {
+    console.log(
+      '[bot][clarification_compact] before=' +
+        before +
+        ' after=' +
+        out.length +
+        ' removed_duplicates=' +
+        removedDuplicates
+    );
+  } catch (e) {}
+  return out;
 }
 
 function normalizeRouteRoleKeyForFreeInput(raw) {
@@ -8177,6 +8253,7 @@ async function handleTextMessage(playerId, text, opts = {}) {
       locale
     );
     recentDisplay = mergePrependedTensionDisplayLogs(tensionTg, recentDisplay, locale);
+    recentDisplay = compactClarificationDisplayLogs(recentDisplay, locale);
     let reply = recentDisplay.map((e) => e.type).filter(Boolean).join('\n') || '…';
     const timerCl = ep1Engine.getTimerStatus(matchAfter || match, now);
     const remCl = Math.max(0, Math.floor(timerCl.remaining_sec ?? 0));
@@ -8874,6 +8951,7 @@ async function processMessageApi(playerId, text, opts = {}) {
       locale
     );
     mergedDisplay = mergePrependedTensionDisplayLogs(tension, mergedDisplay, locale);
+    mergedDisplay = compactClarificationDisplayLogs(mergedDisplay, locale);
     try {
       console.log(
         '[bot][free_input_clarification] merged events len=' +
