@@ -5608,11 +5608,15 @@ function rewriteInterrogateWeakEndings(text, role) {
     /확인해\s*드리겠습니다\.?/,
     /살펴보겠습니다\.?/
   ];
-  const pilotWeakAbstract = [
+  const pilotWeakPatterns = [
     /상황이\s*급변/,
     /상황이\s*복잡/,
     /변수(가|는)?\s*있/,
     /다를\s*수\s*있/,
+    /해석될\s*수\s*있/,
+    /보일\s*수\s*있/,
+    /느껴질\s*수\s*있/,
+    /\S+될\s*수\s*있/,
     /좋지\s*않/
   ];
   const replacements = {
@@ -5636,7 +5640,7 @@ function rewriteInterrogateWeakEndings(text, role) {
         }
       }
       if (r === 'pilot') {
-        for (const re of pilotWeakAbstract) {
+        for (const re of pilotWeakPatterns) {
           if (re.test(sent)) {
             changed = true;
             return false;
