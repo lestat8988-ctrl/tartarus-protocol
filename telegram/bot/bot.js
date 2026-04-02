@@ -1513,7 +1513,7 @@ function containsLoreCanonSubject(raw) {
   return false;
 }
 
-/** 승무원 역할명이 문장에 있으면 첫 매칭 역할 키(doctor|…) 반환 */
+/** 승무원 역할명이 문장에 있으면 문자열에서 가장 앞에 나오는 역할 키(doctor|…) 반환 */
 function detectCrewRoleForGameplayQuestion(raw) {
   const t = String(raw || '');
   const pairs = [
@@ -1525,17 +1525,22 @@ function detectCrewRoleForGameplayQuestion(raw) {
   let best = null;
   let bestIdx = Infinity;
   for (const [re, role] of pairs) {
-    const m = re.exec(t);
-    if (m && m.index < bestIdx) {
-      bestIdx = m.index;
+    const idx = t.search(re);
+    if (typeof idx === 'number' && idx >= 0 && idx < bestIdx) {
+      bestIdx = idx;
       best = role;
     }
+  }
+  if (best != null) {
+    try {
+      console.log('[bot][intent] leading/earliest crew role detected role=' + best);
+    } catch (e) {}
   }
   return best;
 }
 
 /**
- * 자유 입력에서 승무원 타깃 역할 추출 — detectCrewRoleForGameplayQuestion과 동일 우선순위(닥터/의사/엔지니어/네비게이터/파일럿).
+ * 자유 입력에서 승무원 타깃 역할 추출 — detectCrewRoleForGameplayQuestion과 동일(문장에서 가장 앞에 나오는 역할).
  */
 function extractTargetRoleFromText(text) {
   return detectCrewRoleForGameplayQuestion(String(text || ''));
