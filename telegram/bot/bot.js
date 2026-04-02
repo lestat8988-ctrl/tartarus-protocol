@@ -1041,6 +1041,9 @@ const LOG = process.env.BOT_LOG !== '0';
  * 키 없음/호출 실패/JSON·검증 실패 → maybeDialogueLogsFromLlmOrDeterministic가 deterministic 유지
  */
 const TELEGRAM_DIALOGUE_MODEL = process.env.TELEGRAM_DIALOGUE_MODEL || 'gpt-4o-mini';
+/** 자유입력 대사 LLM 테스트: tryGenerateLlmDialogueLogs → callChatCompletionsJson 전용 (clearance 무관). 미설정 시 TELEGRAM_DIALOGUE_MODEL 폴백. */
+const TELEGRAM_DIALOGUE_MODEL_L2 =
+  process.env.TELEGRAM_DIALOGUE_MODEL_L2 || process.env.TELEGRAM_DIALOGUE_MODEL || 'gpt-4o-mini';
 /** 자유입력 라우팅 전용 — TELEGRAM_DIALOGUE_MODEL 과 무관. 미설정 시 mini(규칙+선택적 mini 모델)로 기존과 동일. */
 const FREE_INPUT_PARSE_MODE_RAW = String(process.env.FREE_INPUT_PARSE_MODE || 'mini').trim().toLowerCase();
 const FREE_INPUT_PARSE_MODE =
@@ -1076,7 +1079,7 @@ function isDeepSeekDialogueModel(model) {
 }
 
 function isDialogueLlmConfigured() {
-  const model = TELEGRAM_DIALOGUE_MODEL;
+  const model = TELEGRAM_DIALOGUE_MODEL_L2;
   if (isDeepSeekDialogueModel(model)) return !!process.env.DEEPSEEK_API_KEY;
   return !!process.env.OPENAI_API_KEY;
 }
@@ -4956,7 +4959,7 @@ function buildDialogueUserPayload(ctx) {
 }
 
 async function callChatCompletionsJson({ system, user, timeoutMs, maxTokens }) {
-  const model = TELEGRAM_DIALOGUE_MODEL;
+  const model = TELEGRAM_DIALOGUE_MODEL_L2;
   const useDeepSeek = isDeepSeekDialogueModel(model);
   const apiKey = useDeepSeek ? process.env.DEEPSEEK_API_KEY : process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('no_api_key');
@@ -4986,6 +4989,10 @@ async function callChatCompletionsJson({ system, user, timeoutMs, maxTokens }) {
     body.response_format = { type: 'json_object' };
   }
 
+  try {
+    console.log('[bot][llm] selected_model=' + model + ' postprocess=minimal');
+    console.log('[bot][llm] rewrite_postprocess=disabled guards=enabled');
+  } catch (e) {}
   const completion = await client.chat.completions.create(body);
   const content = completion?.choices?.[0]?.message?.content;
   return content != null ? String(content) : '';
@@ -5957,15 +5964,6 @@ function sanitizeActionResponseHonorificKo(displayLogs, locale, opts) {
     }
     if (awaitingCrewBody && pendingRole && pendingRole !== 'captain' && typ && !typ.startsWith('[')) {
       let line = typ;
-      const rw = rewriteKoActionInformalEndings(line);
-      if (rw.changed) {
-        line = rw.text;
-        try {
-          console.log(
-            '[bot][dialogue] action_informal_ending_rewritten action=' + actionSlug + ' role=' + pendingRole
-          );
-        } catch (e) {}
-      }
       const h = applyHonorificCrewKo(line, pendingRole);
       if (h.changed) {
         line = h.text;
@@ -6056,9 +6054,6 @@ function sanitizeThreatTakePistolDisplayLogs(displayLogs, locale, opts) {
       try {
         console.log('[bot][dialogue] name_leak_blocked action=' + actionSlug + ' role=' + r);
       } catch (e) {}
-    }
-    if (r === 'pilot') {
-      s = replacePilotGenericMoodLine(s, loc);
     }
     if (kind === 'THREATEN' && threatT && r !== 'captain' && r !== threatT) {
       if ((loc === 'ko' && cheerKo.test(s)) || (loc === 'en' && cheerEn.test(s))) {
@@ -7408,66 +7403,15 @@ function applyCharacterToneToDisplayLogs(displayLogs, locale, opts) {
     }
     if (pendingRole && pendingRole !== 'captain' && typeLine) {
       let newLine = typeLine;
-      const { text: w1, changed: c1, selfDefenseApplied, genericRewritten } = rewriteCrewLineForTone(
-        newLine,
-        pendingRole,
-        loc,
-        toneCtx
-      );
-      newLine = w1;
-      if (c1) {
-        try {
-          console.log('[bot][dialogue] character_tone_applied role=' + pendingRole);
-        } catch (e) {}
-      }
-      if (selfDefenseApplied) {
-        try {
-          console.log('[bot][dialogue] self_defense_tone_applied role=' + pendingRole);
-        } catch (e) {}
-      }
-      if (genericRewritten) {
-        try {
-          console.log('[bot][dialogue] generic_response_rewritten role=' + pendingRole);
-        } catch (e) {}
-      }
       if (loc === 'ko') {
         const h1 = applyHonorificCrewKo(newLine, pendingRole);
         newLine = h1.text;
       }
       const st = stabilizeNameQuestionCrewLine(newLine, pendingRole, loc, opts);
       newLine = st.text;
-      if (loc === 'ko' && opts.captainIntent === 'INTERROGATE') {
-        const rw = rewriteInterrogateWeakEndings(newLine, pendingRole);
-        if (rw.changed) {
-          newLine = rw.text;
-          try {
-            console.log('[bot][dialogue] interrogate_weak_ending_rewritten role=' + pendingRole);
-          } catch (e) {}
-        }
-      }
-      if (
-        opts.generalTargetedQuestion &&
-        opts.selfDefenseIsolateRole &&
-        pendingRole === opts.selfDefenseIsolateRole
-      ) {
-        const rw = rewriteGeneralTargetedNoNameIntro(newLine, pendingRole, loc, opts.crewPersonalNames);
-        if (rw.changed) newLine = rw.text;
-      }
       if (opts.dialogueLlmKind === 'CHECK_LOG' && pendingRole === 'pilot') {
         const ck = rewriteCheckLogPilotGeneric(newLine, loc);
         if (ck.changed) newLine = ck.text;
-      }
-      const sdRewrite =
-        !!(opts.isSelfDefenseQuestion || opts.isTargetedAccusation) &&
-        !!opts.targetedQuestionSingleSpeaker &&
-        opts.selfDefenseIsolateRole &&
-        pendingRole === opts.selfDefenseIsolateRole;
-      if (sdRewrite) {
-        const rw = rewriteSelfDefenseOpeningText(newLine, pendingRole, loc, {
-          targetedNameQuestion: opts.targetedNameQuestion,
-          crewPersonalNames: opts.crewPersonalNames
-        });
-        newLine = rw.text;
       }
       out.push({ ...item, type: newLine });
       continue;
