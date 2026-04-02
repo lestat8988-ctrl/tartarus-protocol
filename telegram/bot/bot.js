@@ -1409,9 +1409,9 @@ function detectGroupSubkind(raw) {
 function isUrgentSuspicionQuestion(raw) {
   const t = String(raw || '');
   const hasSuspicion =
-    /(범인|누가\s*범|누굴\s*의심|중첩체\s*누구|누가\s*중첩체|who.*impost|who.*traitor)/i.test(t);
+    /(범인|누가\s*범|누굴\s*의심|누굴\s*쏴|누구를\s*쏴|누구\s*쏴|쏴야|중첩체\s*누구|누가\s*중첩체|who.*impost|who.*traitor|who.*shoot|who.*kill)/i.test(t);
   const hasUrgency =
-    /(1분\s*후|시간\s*없|모두\s*죽|다\s*죽|before\s*we\s*die|time\s*is\s*running|running\s*out)/i.test(t);
+    /(1분\s*후|시간\s*없|모두\s*죽|다\s*죽|죽기\s*전|죽기전|before\s*we\s*die|time\s*is\s*running|running\s*out|no\s*time)/i.test(t);
   return hasSuspicion && hasUrgency;
 }
 
