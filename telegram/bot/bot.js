@@ -1872,9 +1872,17 @@ function classifyMiniappFreeText(text, parsed, localeOpt) {
   if (intent === 'question') {
     if (effParsed.target) {
       const selfDefQ = isSelfDefenseQuestionContext(raw);
-      const tr = String(effParsed.target).toLowerCase();
+      const detectedRole = detectCrewRoleForGameplayQuestion(raw);
+      const tr = detectedRole || String(effParsed.target).toLowerCase();
+      if (detectedRole && detectedRole !== String(effParsed.target || '').toLowerCase()) {
+        try {
+          console.log('[bot][intent] detected role overrides parsed target=' + tr);
+        } catch (e) {}
+      }
       const merged = {
         ...effParsed,
+        intent_type: 'question',
+        target: tr,
         isSelfDefenseQuestion: selfDefQ,
         isTargetedAccusation: selfDefQ
       };
