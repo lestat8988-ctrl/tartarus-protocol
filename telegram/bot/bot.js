@@ -4874,6 +4874,18 @@ function buildDialogueUserPayload(ctx) {
     o.blocksOrder = ctx.targetedQuestionSingleSpeaker
       ? 'blocks[0]=captain, blocks[1]=focusTargetRole ONLY — do not emit doctor/engineer/navigator/pilot except focusTargetRole.'
       : 'blocks[0]=captain, blocks[1]=focusTargetRole, then other crew in crewSpeakingOrder; role must be captain|doctor|engineer|navigator|pilot only.';
+    if (ctx.targetedQuestionSingleSpeaker && ctx.target) {
+      o.targetLockedRole = ctx.target;
+      o.captainQuestionForTarget = String(ctx.playerText || '').trim();
+      o.targetDisplayNameForLocale =
+        loc === 'en'
+          ? ctx.targetEn || ctx.target
+          : ctx.targetKo || ctx.target;
+      o.targetLockInstruction =
+        loc === 'en'
+          ? `You are speaking ONLY as ${ctx.targetEn || ctx.target} (role=${ctx.target}). Do not answer as any other crew member. If the captain mentions another crew member inside the question, still answer only as the assigned target role (${ctx.target}).`
+          : `오직 ${ctx.targetKo || ctx.target} (역할=${ctx.target})로만 말한다. 다른 승무원 역할로 답하지 마라. 함장 질문 속 다른 역할 언급은 참고만 하고, 응답은 지정된 역할(${ctx.target}) 1인칭으로만.`;
+    }
   } else if (ctx.kind === 'LORE_QUESTION') {
     o.pacing =
       'Short lines; captain verbatim question; each alive crew answers the lore question from role lens—no suspicion template.';
@@ -5052,6 +5064,27 @@ async function tryGenerateLlmDialogueLogs(ctx) {
   });
   if (kind === 'LORE_QUESTION') {
     system += '\n\n' + getLoreCanonSystemExtension(locale);
+  }
+  if (
+    kind === 'QUESTION' &&
+    targetedQuestionSingleSpeaker &&
+    target &&
+    ['doctor', 'engineer', 'navigator', 'pilot'].includes(target)
+  ) {
+    try {
+      console.log('[dialogue target-lock]', {
+        matchId: match?.match_id || null,
+        targetRole: target,
+        kind,
+        captainText: (playerText || '').slice(0, 120)
+      });
+    } catch (e) {}
+    const tEn = roleNameEn(target);
+    const tKo = roleNameKo(target);
+    system +=
+      locale === 'en'
+        ? `\n\nTARGET_LOCK (hard): You are speaking ONLY as ${tEn} (role=${target}). Do not answer as any other crew member. If the captain mentions another crew member inside the question, still answer only as the assigned target role (${target}). blocks[1].role must be "${target}".`
+        : `\n\nTARGET_LOCK (절대): 오직 ${tKo} (역할=${target})로만 말한다. 다른 승무원 역할의 1인칭으로 답하지 마라. 함장 질문에 다른 역할(예: 닥터)이 나와도 응답은 지정된 역할(${target})만. blocks[1].role은 반드시 "${target}".`;
   }
   const crewPersonalNames = gs.crew_names || {};
   if (kind === 'QUESTION' && crewPersonalNames && crewPersonalNames.doctor) {
