@@ -5077,6 +5077,93 @@ async function tryGenerateLlmDialogueLogs(ctx) {
       }
     }
   }
+
+  // --- recent dialogue context injection ---
+  let recentContextBlock = '';
+  if ((kind === 'QUESTION' || kind === 'CHECK_LOG') && match?.match_id) {
+    try {
+      const matchId = match.match_id;
+      const allEvents = dbMatchEventsMemory.filter((e) => e.match_id === matchId);
+
+      let crewCtxLines = [];
+      if (target) {
+        const recentInputs = allEvents.filter((e) => {
+          try {
+            if (e.event_type !== 'message_input') return false;
+            const p = typeof e.payload === 'string' ? JSON.parse(e.payload) : e.payload;
+            const mk = String(p?.message_kind || '');
+            const tgt = String(p?.target || p?.role || '').toLowerCase();
+            return (mk === 'targeted_question' || mk === 'role_question') && tgt === String(target).toLowerCase();
+          } catch {
+            return false;
+          }
+        });
+
+        const recentCaptainQuestion = recentInputs.slice(-1);
+        if (recentCaptainQuestion.length) {
+          crewCtxLines.push('[RECENT INTERROGATION]');
+          for (const ev of recentCaptainQuestion) {
+            try {
+              const p = typeof ev.payload === 'string' ? JSON.parse(ev.payload) : ev.payload;
+              if (p?.text) crewCtxLines.push('Captain: ' + String(p.text).slice(0, 200));
+            } catch {}
+          }
+        }
+
+        const recentCrewAnswers = allEvents
+          .filter((e) => {
+            try {
+              if (e.event_type !== 'message_result') return false;
+              const p = typeof e.payload === 'string' ? JSON.parse(e.payload) : e.payload;
+              const summary = String(p?.summary || '').trim();
+              if (!summary || summary === '\u200b') return false;
+              const lower = summary.toLowerCase();
+              return lower.includes(String(target).toLowerCase());
+            } catch {
+              return false;
+            }
+          })
+          .slice(-2);
+
+        for (const ev of recentCrewAnswers) {
+          try {
+            const p = typeof ev.payload === 'string' ? JSON.parse(ev.payload) : ev.payload;
+            if (p?.summary) crewCtxLines.push(String(p.summary).slice(0, 180));
+          } catch {}
+        }
+      }
+
+      const recentResults = allEvents.filter((e) => e.event_type === 'message_result').slice(-3);
+      let globalCtxLines = [];
+      if (recentResults.length) {
+        globalCtxLines.push('[RECENT EVENTS]');
+        for (const ev of recentResults) {
+          try {
+            const p = typeof ev.payload === 'string' ? JSON.parse(ev.payload) : ev.payload;
+            if (p?.summary && String(p.summary).trim() && String(p.summary).trim() !== '\u200b') {
+              globalCtxLines.push('- ' + String(p.summary).slice(0, 150));
+            }
+          } catch {}
+        }
+      }
+
+      const ctxLines = [...crewCtxLines, ...globalCtxLines];
+      if (ctxLines.length) {
+        recentContextBlock = '\n\n' + ctxLines.join('\n');
+        console.log('[dialogue ctx]', {
+          matchId,
+          targetRole: target || null,
+          crewCtxLines,
+          globalCtxLines
+        });
+      }
+    } catch (e) {
+      // ignore context injection failure
+    }
+  }
+  if (recentContextBlock) system += recentContextBlock;
+  // --- recent dialogue context injection end ---
+
   const userBase = buildDialogueUserPayload({
     kind,
     target,
