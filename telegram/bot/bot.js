@@ -3726,6 +3726,10 @@ async function maybeResolveAmbiguousFreeInputRoute(rawText, locale, guardedParse
     return buildEmptyFreeInputRouteResult(normalizedText, originalInput, shadowCls);
   }
 
+  if (shadowCls && shadowCls.kind === 'suspicion_question') {
+    return buildEmptyFreeInputRouteResult(normalizedText, originalInput, shadowCls);
+  }
+
   const ambiguous = shouldRunAmbiguousFreeInputProbe(normalizedText, locale, shadowCls);
   const invokeLlm =
     FREE_INPUT_PARSE_MODE === '4o' || (FREE_INPUT_PARSE_MODE === 'hybrid' && ambiguous);
