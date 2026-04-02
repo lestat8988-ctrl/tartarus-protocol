@@ -1406,6 +1406,15 @@ function detectGroupSubkind(raw) {
   return 'suspicion';
 }
 
+function isUrgentSuspicionQuestion(raw) {
+  const t = String(raw || '');
+  const hasSuspicion =
+    /(범인|누가\s*범|누굴\s*의심|중첩체\s*누구|누가\s*중첩체|who.*impost|who.*traitor)/i.test(t);
+  const hasUrgency =
+    /(1분\s*후|시간\s*없|모두\s*죽|다\s*죽|before\s*we\s*die|time\s*is\s*running|running\s*out)/i.test(t);
+  return hasSuspicion && hasUrgency;
+}
+
 function isStandaloneSuspicionQuestion(raw) {
   const t = String(raw || '').trim();
   if (!t) return false;
@@ -1792,6 +1801,14 @@ function classifyMiniappFreeText(text, parsed, localeOpt) {
     return { kind: 'group_question', parsed: effParsed, groupSubkind: sub };
   }
 
+  if (isUrgentSuspicionQuestion(raw)) {
+    try {
+      console.log('[bot][intent] urgent suspicion question detected');
+      console.log('[bot][intent] final kind=suspicion_question');
+    } catch (e) {}
+    return { kind: 'suspicion_question', parsed: effParsed };
+  }
+
   if (isStandaloneSuspicionQuestion(raw)) {
     try {
       console.log('[bot][intent] suspicion question detected');
@@ -1819,6 +1836,22 @@ function classifyMiniappFreeText(text, parsed, localeOpt) {
       kind: 'free_input_clarification',
       parsed: effParsed,
       clarificationText: defaultFreeInputClarificationLine(loc)
+    };
+  }
+
+  const loreCrewTargetRole = detectCrewRoleForGameplayQuestion(raw);
+  if (loreCrewTargetRole && containsLoreCanonSubject(raw) && isQuestionLikeCaptainText(raw)) {
+    const merged = { ...effParsed, intent_type: 'question', target: loreCrewTargetRole };
+    try {
+      console.log('[bot][intent] targeted lore crew question detected role=' + loreCrewTargetRole);
+      console.log('[bot][intent] final kind=targeted_question');
+    } catch (e) {}
+    return {
+      kind: 'targeted_question',
+      parsed: merged,
+      crewGameplayTargetRole: loreCrewTargetRole,
+      isSelfDefenseQuestion: false,
+      isTargetedAccusation: false
     };
   }
 
