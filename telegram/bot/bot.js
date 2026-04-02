@@ -5597,6 +5597,35 @@ function rewriteKoActionInformalEndings(s) {
   return { text: t, changed: false };
 }
 
+function rewriteInterrogateWeakEndings(text, role) {
+  const r = String(role || '').toLowerCase();
+  let s = String(text || '').trim();
+  if (!s) return { text: s, changed: false };
+  const weakEndings = [
+    /다시\s*확인해\s*보겠습니다\.?\s*$/,
+    /다시\s*말씀드리겠습니다\.?\s*$/,
+    /검토해\s*보겠습니다\.?\s*$/,
+    /확인해\s*드리겠습니다\.?\s*$/,
+    /살펴보겠습니다\.?\s*$/
+  ];
+  const replacements = {
+    doctor: '바이탈·생체 기록이 그 시각을 말합니다.',
+    engineer: '접근 로그·타임스탬프가 증거입니다.',
+    navigator: '차트와 교량 기록이 맞지 않습니까.',
+    pilot: '계기가 그걸 말합니다.'
+  };
+  const rep = replacements[r] || '기록이 말해줍니다.';
+  let changed = false;
+  for (const re of weakEndings) {
+    if (re.test(s)) {
+      s = s.replace(re, rep);
+      changed = true;
+      break;
+    }
+  }
+  return { text: s.trim(), changed };
+}
+
 function maybeThreatTargetSpecificityBoost(s, role, loc, kind, actionSlug) {
   if (kind !== 'THREATEN' || loc !== 'ko') return { text: s, changed: false };
   const r = String(role || '').toLowerCase();
@@ -7374,6 +7403,15 @@ function applyCharacterToneToDisplayLogs(displayLogs, locale, opts) {
       }
       const st = stabilizeNameQuestionCrewLine(newLine, pendingRole, loc, opts);
       newLine = st.text;
+      if (loc === 'ko' && opts.captainIntent === 'INTERROGATE') {
+        const rw = rewriteInterrogateWeakEndings(newLine, pendingRole);
+        if (rw.changed) {
+          newLine = rw.text;
+          try {
+            console.log('[bot][dialogue] interrogate_weak_ending_rewritten role=' + pendingRole);
+          } catch (e) {}
+        }
+      }
       if (
         opts.generalTargetedQuestion &&
         opts.selfDefenseIsolateRole &&
