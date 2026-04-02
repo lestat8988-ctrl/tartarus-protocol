@@ -1783,6 +1783,14 @@ function classifyMiniappFreeText(text, parsed, localeOpt) {
     };
   }
 
+  if (isUrgentSuspicionQuestion(raw)) {
+    try {
+      console.log('[bot][intent] urgent suspicion question detected');
+      console.log('[bot][intent] final kind=suspicion_question');
+    } catch (e) {}
+    return { kind: 'suspicion_question', parsed: effParsed };
+  }
+
   const sq = matchStateQuerySubtype(lower);
   if (sq) return { kind: 'state_query', subtype: sq };
 
@@ -1799,14 +1807,6 @@ function classifyMiniappFreeText(text, parsed, localeOpt) {
       if (sub === 'suspicion') console.log('[bot][intent] suspicion question detected');
     } catch (e) {}
     return { kind: 'group_question', parsed: effParsed, groupSubkind: sub };
-  }
-
-  if (isUrgentSuspicionQuestion(raw)) {
-    try {
-      console.log('[bot][intent] urgent suspicion question detected');
-      console.log('[bot][intent] final kind=suspicion_question');
-    } catch (e) {}
-    return { kind: 'suspicion_question', parsed: effParsed };
   }
 
   if (isStandaloneSuspicionQuestion(raw)) {
