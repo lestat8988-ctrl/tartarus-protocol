@@ -4426,7 +4426,7 @@ function getRoleToneGuide(role, intent, locale) {
         QUESTION:
           'ROLE_TONE(닥터|질문): 절제된 임상 톤, 짧게 — 바이탈·기록·의무실/복도 사실만.',
         INTERROGATE:
-          'ROLE_TONE(닥터|심문): 차갑지만 약간 불쾌; 이성 유지 — 생체·로그로 반박.',
+          'ROLE_TONE(닥터|심문): 차갑지만 약간 불쾌; 이성 유지 — 생체·로그로 반박. 순순한 마무리 금지. 생체·바이탈 기록으로 반박할 것.',
         THREAT:
           'ROLE_TONE(닥터|위협): 겉으로는 두려움 억제, 의료·부상자 가치로 완화 시도 — 빈 위로 금지.'
       },
@@ -4434,7 +4434,7 @@ function getRoleToneGuide(role, intent, locale) {
         QUESTION:
           'ROLE_TONE(엔지니어|질문): 실무형, 시스템·로그 중심.',
         INTERROGATE:
-          'ROLE_TONE(엔지니어|심문): 방어적 — 로그·장비·타임스탬프로 맞받아침.',
+          'ROLE_TONE(엔지니어|심문): 방어적 — 로그·장비·타임스탬프로 맞받아침. 순순한 마무리 금지. 접근 로그·타임스탬프로 맞받아칠 것.',
         THREAT:
           'ROLE_TONE(엔지니어|위협): 스트레스·자기 보존 — 함선이 나를 필요로 한다는 점을 짧게.'
       },
@@ -4442,14 +4442,15 @@ function getRoleToneGuide(role, intent, locale) {
         QUESTION:
           'ROLE_TONE(네비게이터|질문): 불확실해도 협조; 항로·알리바이.',
         INTERROGATE:
-          'ROLE_TONE(네비게이터|심문): 흔들림이 드러나게, 말이 약간 끊겨도 됨 — 차트·시계에 붙일 것.',
+          'ROLE_TONE(네비게이터|심문): 흔들림이 드러나게, 말이 약간 끊겨도 됨 — 차트·시계에 붙일 것. "다시 확인해보겠습니다" 같은 순순한 마무리 금지. 방어적 긴장감 유지.',
         THREAT:
           'ROLE_TONE(네비게이터|위협): 불안·압박; 공황 속 사소한 말끝이 어긋날 수 있음(과장 금지).'
       },
       pilot: {
-        QUESTION: 'ROLE_TONE(파일럿|질문): 직설·직관, 짧게.',
+        QUESTION:
+          'ROLE_TONE(파일럿|질문): 직설·직관, 짧게. 브리지 계기·압력·진동·소리로만 말할 것. 추상적 표현("상황이 복잡", "변수가 있습니다") 금지. 1~2문장.',
         INTERROGATE:
-          'ROLE_TONE(파일럿|심문): 짜증·대립 — 계기·압력·진동.',
+          'ROLE_TONE(파일럿|심문): 짜증·대립 — 계기·압력·진동. 순순한 마무리 금지. 계기·압력으로 짧게 맞받아칠 것.',
         THREAT:
           'ROLE_TONE(파일럿|위협): 격한 두려움·맞받아침 — 1인칭, 고백 금지.'
       }
