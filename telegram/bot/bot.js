@@ -386,14 +386,14 @@ async function consumeFreePromptIfAllowed(userKey, opts = {}) {
 }
 
 /**
- * lore_question만 일일 자유 프롬프트 차갑 대상.
- * group/targeted/suspicion/brief 등 gameplay·오픈 심문은 차갑 없음.
+ * /api/message 직접 텍스트는 기본 차갑. state_query·free_input_clarification만 비차갑.
  */
 function shouldConsumeFreePromptForMessageKind(cls, parsed, text) {
   void parsed;
   void text;
   if (!cls || !cls.kind) return false;
-  return cls.kind === 'lore_question';
+  const nonChargeable = new Set(['state_query', 'free_input_clarification']);
+  return !nonChargeable.has(cls.kind);
 }
 
 /** consumeFreePromptIfAllowed 성공 직후 — 동일 요청에서 entitlement 재차단·ok 누락으로 DB persist 누락 방지 */
