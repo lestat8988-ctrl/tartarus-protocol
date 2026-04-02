@@ -5608,11 +5608,18 @@ function rewriteInterrogateWeakEndings(text, role) {
     /확인해\s*드리겠습니다\.?/,
     /살펴보겠습니다\.?/
   ];
+  const pilotWeakAbstract = [
+    /상황이\s*급변/,
+    /상황이\s*복잡/,
+    /변수(가|는)?\s*있/,
+    /다를\s*수\s*있/,
+    /좋지\s*않/
+  ];
   const replacements = {
     doctor: '바이탈·생체 기록이 그 시각을 말합니다.',
     engineer: '접근 로그·타임스탬프가 증거입니다.',
     navigator: '차트와 교량 기록이 맞지 않습니까.',
-    pilot: '계기가 그걸 말합니다.'
+    pilot: '압력과 진동이 증거입니다.'
   };
   const rep = replacements[r] || '기록이 말해줍니다.';
   let changed = false;
@@ -5626,6 +5633,14 @@ function rewriteInterrogateWeakEndings(text, role) {
         if (re.test(sent)) {
           changed = true;
           return false;
+        }
+      }
+      if (r === 'pilot') {
+        for (const re of pilotWeakAbstract) {
+          if (re.test(sent)) {
+            changed = true;
+            return false;
+          }
         }
       }
       return true;
