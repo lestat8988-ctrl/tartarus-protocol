@@ -378,6 +378,58 @@
       border-width: 1px;
       border-color: #2aef2a28;
     }
+    .tier-card--archived {
+      pointer-events: none;
+      cursor: default;
+    }
+    .tier-beta-label {
+      align-self: flex-start;
+      font-size: 0.62rem;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+      color: #0a120a;
+      background: linear-gradient(90deg, #2aef2a, #6aff6a);
+      padding: 3px 8px;
+      border-radius: 2px;
+      margin-bottom: 2px;
+    }
+    .tier-card-beta-hint {
+      font-size: 0.7rem;
+      opacity: 0.88;
+      margin-top: 6px;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      color: #9dff9d;
+    }
+    .tier-archived-btn {
+      margin-top: 10px;
+      width: 100%;
+      padding: 8px 10px;
+      font-family: inherit;
+      font-size: 0.72rem;
+      background: #111;
+      border: 1px dashed #2aef2a33;
+      color: #2aef2a55;
+      border-radius: 3px;
+      cursor: not-allowed;
+      opacity: 0.85;
+    }
+    .tier-beta-join-btn {
+      margin-top: 10px;
+      width: 100%;
+      padding: 8px 10px;
+      font-family: inherit;
+      font-size: 0.74rem;
+      font-weight: 700;
+      background: #0e2410;
+      border: 1px solid #2aef2a;
+      color: #2aef2a;
+      border-radius: 3px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      box-shadow: 0 0 10px rgba(42, 239, 42, 0.15);
+    }
+    .tier-beta-join-btn:active { background: #153818; }
     .tier-card-head {
       font-weight: 700;
       font-size: 0.85rem;
@@ -999,17 +1051,20 @@
     <section id="clearance-section" class="clearance-section" aria-labelledby="clearance-heading">
       <div class="clearance-heading" id="clearance-heading">SECURITY CLEARANCE LEVEL</div>
       <div class="clearance-tier-grid">
-        <div class="tier-card tier-card--current" data-tier="1" id="tier-card-1">
+        <div class="tier-card tier-card--locked tier-card--archived" data-tier="1" id="tier-card-1">
           <div class="tier-card-head" id="tier-1-head">LEVEL 1</div>
           <div class="tier-card-sub" id="tier-1-sub">STANDARD / FREE</div>
-          <div class="tier-card-badge free" id="tier-1-badge">FREE</div>
+          <div class="tier-card-badge free" id="tier-1-badge" style="display:none">FREE</div>
           <ul class="tier-card-list" id="tier-1-list"></ul>
+          <button type="button" class="tier-archived-btn" id="tier-1-archived" disabled>Archived</button>
         </div>
-        <div class="tier-card tier-card--locked" data-tier="2" id="tier-card-2">
+        <div class="tier-card tier-card--current" data-tier="2" id="tier-card-2">
+          <div class="tier-beta-label" id="tier-2-beta-label">BETA</div>
           <div class="tier-card-head" id="tier-2-head">LEVEL 2</div>
           <div class="tier-card-sub" id="tier-2-sub">ADVANCED</div>
+          <div class="tier-card-beta-hint" id="tier-2-hint">Limited-time free beta access</div>
           <ul class="tier-card-list" id="tier-2-list"></ul>
-          <button type="button" class="tier-soon-btn" id="tier-soon-2" data-tier-soon="2">Coming Soon</button>
+          <button type="button" class="tier-beta-join-btn" id="tier-beta-join">Join Beta</button>
         </div>
         <div class="tier-card tier-card--locked" data-tier="3" id="tier-card-3">
           <div class="tier-card-head" id="tier-3-head">LEVEL 3</div>
@@ -1275,37 +1330,45 @@
 
         var remT = Math.max(0, n.daily_ticket_limit - n.daily_ticket_used);
         var remP = Math.max(0, n.daily_free_prompt_limit - n.daily_free_prompt_used);
-        var lv = n.clearance_level;
-
-        var levelLabel = function(L) {
-          if (L === 1) return ko ? 'LEVEL 1 — STANDARD (FREE)' : 'LEVEL 1 — STANDARD (FREE)';
-          if (L === 2) return ko ? 'LEVEL 2 — ADVANCED' : 'LEVEL 2 — ADVANCED';
-          return ko ? 'LEVEL 3 — NIGHTMARE' : 'LEVEL 3 — NIGHTMARE';
-        };
 
         var i;
         for (i = 1; i <= 3; i++) {
           var card = document.getElementById('tier-card-' + i);
           if (!card) continue;
-          card.classList.remove('tier-card--current', 'tier-card--locked');
-          if (i === lv) card.classList.add('tier-card--current');
-          else card.classList.add('tier-card--locked');
+          card.classList.remove('tier-card--current', 'tier-card--locked', 'tier-card--archived');
+          if (i === 1) {
+            card.classList.add('tier-card--locked', 'tier-card--archived');
+          } else if (i === 2) {
+            card.classList.add('tier-card--current');
+          } else {
+            card.classList.add('tier-card--locked');
+          }
         }
 
         var head1 = document.getElementById('tier-1-head');
         var sub1 = document.getElementById('tier-1-sub');
         var badge1 = document.getElementById('tier-1-badge');
+        var archived1 = document.getElementById('tier-1-archived');
         if (head1) head1.textContent = 'LEVEL 1';
         if (sub1) sub1.textContent = ko ? 'STANDARD / FREE' : 'STANDARD / FREE';
         if (badge1) {
           badge1.textContent = 'FREE';
-          badge1.style.display = lv === 1 ? '' : 'none';
+          badge1.style.display = 'none';
         }
+        if (archived1) archived1.textContent = ko ? '보관됨' : 'Archived';
 
         var head2 = document.getElementById('tier-2-head');
         var sub2 = document.getElementById('tier-2-sub');
+        var hint2 = document.getElementById('tier-2-hint');
+        var betaLab = document.getElementById('tier-2-beta-label');
+        var betaJoin = document.getElementById('tier-beta-join');
         if (head2) head2.textContent = 'LEVEL 2';
         if (sub2) sub2.textContent = 'ADVANCED';
+        if (hint2) {
+          hint2.textContent = ko ? '기간 한정 무료 베타 테스트 중' : 'Limited-time free beta access';
+        }
+        if (betaLab) betaLab.textContent = 'BETA';
+        if (betaJoin) betaJoin.textContent = ko ? '베타 참여' : 'Join Beta';
         var head3 = document.getElementById('tier-3-head');
         var sub3 = document.getElementById('tier-3-sub');
         if (head3) head3.textContent = 'LEVEL 3';
@@ -1315,24 +1378,34 @@
         if (list1) {
           var b1 = ko
             ? [
-                '현재 기본 등급',
+                '보관됨 — 이전 기본 등급 (참고)',
+                '한도·사용량은 하단 상태 표시 참고',
                 '게임 입장권 ' + n.daily_ticket_limit + '회/일',
-                '자유입력 ' + n.daily_free_prompt_limit + '회/일',
-                '기본 조사 권한'
+                '자유입력 ' + n.daily_free_prompt_limit + '회/일'
               ]
             : [
-                'Default clearance tier',
+                'Archived — former default tier (reference)',
+                'See bottom panel for limits and usage',
                 'Entry tickets ' + n.daily_ticket_limit + '/day',
-                'Free prompts ' + n.daily_free_prompt_limit + '/day',
-                'Standard investigation access'
+                'Free prompts ' + n.daily_free_prompt_limit + '/day'
               ];
           list1.innerHTML = b1.map(function(line) { return '<li>' + escapeHtml(line) + '</li>'; }).join('');
         }
         var list2 = document.getElementById('tier-2-list');
         if (list2) {
           var b2 = ko
-            ? ['잠금 해제 예정', '더 높은 입장권 한도', '더 높은 자유입력 한도', '더 복잡한 사건 / 기만성 강화']
-            : ['Unlock pending', 'Higher daily entry cap', 'Higher free-text cap', 'Deeper cases / stronger deception'];
+            ? [
+                '현재 베타 기본 플레이',
+                '게임 입장권 ' + n.daily_ticket_limit + '회/일',
+                '자유입력 ' + n.daily_free_prompt_limit + '회/일',
+                '고급 실험 / 조사 권한'
+              ]
+            : [
+                'Current default beta play',
+                'Entry tickets ' + n.daily_ticket_limit + '/day',
+                'Free prompts ' + n.daily_free_prompt_limit + '/day',
+                'Advanced experimental investigation'
+              ];
           list2.innerHTML = b2.map(function(line) { return '<li>' + escapeHtml(line) + '</li>'; }).join('');
         }
         var list3 = document.getElementById('tier-3-list');
@@ -1343,10 +1416,8 @@
           list3.innerHTML = b3.map(function(line) { return '<li>' + escapeHtml(line) + '</li>'; }).join('');
         }
 
-        var soon2 = document.getElementById('tier-soon-2');
         var soon3 = document.getElementById('tier-soon-3');
         var soonLabel = ko ? '잠금 해제 예정' : 'Coming Soon';
-        if (soon2) soon2.textContent = soonLabel;
         if (soon3) soon3.textContent = soonLabel;
 
         var curLine = document.getElementById('clearance-line-current');
@@ -1356,9 +1427,9 @@
         if (curLine) {
           curLine.innerHTML =
             '<strong>' +
-            (ko ? '현재 보안등급' : 'Current Clearance') +
+            (ko ? '현재 플레이 모드' : 'Current Play Mode') +
             '</strong>: ' +
-            escapeHtml(levelLabel(lv));
+            escapeHtml('ADVANCED BETA');
         }
         if (tLine) {
           tLine.innerHTML =
@@ -3915,6 +3986,21 @@
               ? '상위 보안 등급은 준비 중입니다. (Stars 결제 연동 예정)'
               : 'Higher clearance tiers are coming soon. (Star payment integration planned.)'
           );
+        });
+      })();
+
+      (function wireTierBetaJoin() {
+        var btn = document.getElementById('tier-beta-join');
+        if (!btn) return;
+        btn.addEventListener('click', function(ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          screen = 'game';
+          if (introScreen) introScreen.classList.add('hidden');
+          if (gameScreen) gameScreen.classList.add('visible');
+          renderGameLabels();
+          startGameBriefingScroll();
+          doStart(false);
         });
       })();
 
