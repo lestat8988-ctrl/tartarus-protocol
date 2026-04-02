@@ -1212,7 +1212,7 @@ function matchStateQuerySubtype(lower) {
     return 'game_status';
   }
   if (
-    /(누가\s*죽|사망|죽었|사망자|희생|who\s*(died|dies|is\s*dead)|casualties|dead\s*crew|life\s*signs?\s*lost)/i.test(
+    /(누가\s*죽|사망|죽었|사망자|희생|who\s*(died|dies|is\s*dead)|casualties|dead\s*crew|life\s*signs?\s*lost|누가\s*[가-힣A-Za-z]+\s*를?\s*죽|[가-힣A-Za-z]+를?\s*누가\s*죽|[가-힣A-Za-z]+(?:랑|와)\s*누가\s*같이|[가-힣A-Za-z]+(?:랑|와)\s*같이\s*있었|who\s+killed\s+[a-z]+|who\s+was\s+with\s+[a-z]+)/i.test(
       t
     )
   ) {
