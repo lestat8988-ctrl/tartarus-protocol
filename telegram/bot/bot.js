@@ -7462,7 +7462,7 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
   if (!kind) return deterministicLogs;
   const actionSlug = dialogueActionKindSlug(kind);
   const eventsCount = (rawEvents || []).length;
-  const modelStr = TELEGRAM_DIALOGUE_MODEL;
+  const modelStr = TELEGRAM_DIALOGUE_MODEL_L2;
   const apiProvider = isDeepSeekDialogueModel(modelStr) ? 'deepseek' : 'openai';
 
   const ev0 = rawEvents && rawEvents[0];
