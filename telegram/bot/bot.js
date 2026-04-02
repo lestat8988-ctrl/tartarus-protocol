@@ -5602,11 +5602,11 @@ function rewriteInterrogateWeakEndings(text, role) {
   let s = String(text || '').trim();
   if (!s) return { text: s, changed: false };
   const weakEndings = [
-    /다시\s*확인해\s*보겠습니다\.?\s*$/,
-    /다시\s*말씀드리겠습니다\.?\s*$/,
-    /검토해\s*보겠습니다\.?\s*$/,
-    /확인해\s*드리겠습니다\.?\s*$/,
-    /살펴보겠습니다\.?\s*$/
+    /다시\s*확인해\s*보겠습니다\.?/,
+    /다시\s*말씀드리겠습니다\.?/,
+    /검토해\s*보겠습니다\.?/,
+    /확인해\s*드리겠습니다\.?/,
+    /살펴보겠습니다\.?/
   ];
   const replacements = {
     doctor: '바이탈·생체 기록이 그 시각을 말합니다.',
@@ -5616,14 +5616,28 @@ function rewriteInterrogateWeakEndings(text, role) {
   };
   const rep = replacements[r] || '기록이 말해줍니다.';
   let changed = false;
-  for (const re of weakEndings) {
-    if (re.test(s)) {
-      s = s.replace(re, rep);
-      changed = true;
-      break;
-    }
+
+  const kept = s
+    .split(/[.。]/)
+    .map((sent) => String(sent || '').trim())
+    .filter(Boolean)
+    .filter((sent) => {
+      for (const re of weakEndings) {
+        if (re.test(sent)) {
+          changed = true;
+          return false;
+        }
+      }
+      return true;
+    });
+
+  let out = kept.join('. ').trim();
+  if (!out) out = rep;
+  else {
+    if (!/[.]$/.test(out)) out += '.';
+    out += ' ' + rep;
   }
-  return { text: s.trim(), changed };
+  return { text: out.trim(), changed };
 }
 
 function maybeThreatTargetSpecificityBoost(s, role, loc, kind, actionSlug) {
