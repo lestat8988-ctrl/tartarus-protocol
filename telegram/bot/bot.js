@@ -4342,16 +4342,12 @@ function inferDialogueToneIntent(text, dialogueKind) {
   const t = String(text || '');
   if (!t.trim()) return 'QUESTION';
   if (
-    /(위협|쏴버리|가만\s*안\s*둬|당장\s*말해|죽을\s*수도|권총|총구|겨누|처형하|쏘겠|죽이|threaten|gunpoint|shoot\s*(you|at)|kill\s*you|or\s*else|execute)/i.test(
-      t
-    )
+    /(위협|쏴버리|가만\s*안\s*둬|당장\s*말해|죽을\s*수도|권총|총구|겨누|처형하|쏘겠|죽이|threaten|gunpoint|shoot\s*(you|at)|kill\s*you|or\s*else|execute)/i.test(t)
   ) {
     return 'THREAT';
   }
   if (
-    /(심문|추궁|캐묻|왜\s*그랬지|정확히\s*말해|캐물어보|집요하게|말이\s*바뀌|바뀌고\s*있|거짓말|interrogat|grill\s*you|contradict|story\s*keeps|exact\s*words)/i.test(
-      t
-    )
+    /(심문|추궁|캐묻|왜\s*그랬지|정확히\s*말해|캐물어보|집요하게|말이\s*바뀌|바뀌고\s*있|거짓말|방금\s*한\s*말|아까\s*말|솔직히\s*말해|interrogat|grill\s*you|contradict|story\s*keeps|exact\s*words)/i.test(t)
   ) {
     return 'INTERROGATE';
   }
