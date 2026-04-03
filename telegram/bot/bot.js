@@ -10520,6 +10520,13 @@ function createLocalApiServer() {
             toPlayerDisplayLogs([...(tensionPoll.newRawEvents || []), ...deltaRaw], { locale }),
             locale
           );
+          let recentEventsPayload = recentDisplay;
+          if (gs.captain_phase === 'opening_chat' && gs.opening_sequence_completed !== true) {
+            const openingRaw = (match?.events || []).filter(
+              (e) => e && e.event_source === OPENING_SCRIPT_EVENT_SOURCE
+            );
+            recentEventsPayload = dedupeDisplayLogs(toPlayerDisplayLogs(openingRaw, { locale }), locale);
+          }
           const statePayload = {
             ok: true,
             match_id: matchId,
@@ -10527,7 +10534,7 @@ function createLocalApiServer() {
             game_state: gs,
             match_state: gs,
             events: displayLogs,
-            recent_events: recentDisplay,
+            recent_events: recentEventsPayload,
             game_over: !!gs.game_over
           };
           if (gs.game_over) {
