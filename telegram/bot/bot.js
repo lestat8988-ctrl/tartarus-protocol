@@ -9002,7 +9002,7 @@ function appendOpeningScriptCrewDialogueEvent(matchId, role, dialogue) {
  * Scripted crew channel: status reports + banter, then Sector 7 anomaly.
  * Owen → navigator, Danny → engineer, Marcus → pilot, Yuna → doctor.
  */
-const OPENING_CREW_CHANNEL_EN = [
+const OPENING_CREW_CHANNEL_EN_A = [
   {
     delayMs: 0,
     role: 'system',
@@ -9057,7 +9057,80 @@ const OPENING_CREW_CHANNEL_EN = [
   },
   { delayMs: 620, role: 'navigator', dialogue: '[Owen]\nCommander, awaiting orders.' }
 ];
-const OPENING_CREW_CHANNEL_KO = [
+
+const OPENING_CREW_CHANNEL_EN_B = [
+  {
+    delayMs: 0,
+    role: 'system',
+    dialogue:
+      '[SYSTEM] WARNING: All visual and audio comms offline. PDA arm-unit group channel is the only active link. Maintain contact here.'
+  },
+  {
+    delayMs: 620,
+    role: 'pilot',
+    dialogue:
+      '[Marcus] Bridge stable. Anyone else getting static on the hardlines or is it just my end.'
+  },
+  {
+    delayMs: 620,
+    role: 'engineer',
+    dialogue:
+      '[Danny] Engine room here. Core holding. And yeah — everything\'s dead on my side too. Just us and these PDAs.'
+  },
+  {
+    delayMs: 620,
+    role: 'navigator',
+    dialogue:
+      '[Owen] Navigation online. Corridor plot is clean. Is audio ever coming back or are we doing this the whole leg.'
+  },
+  {
+    delayMs: 620,
+    role: 'doctor',
+    dialogue:
+      "[Yuna] Medbay. Wake checks done. Kits staged. I'd prefer to see faces right now but this will have to do."
+  },
+  {
+    delayMs: 620,
+    role: 'pilot',
+    dialogue: '[Marcus] Wide-field trace is quiet. For now.'
+  },
+  {
+    delayMs: 620,
+    role: 'engineer',
+    dialogue:
+      "[Danny] Engineering standing by. Feels wrong doing status reports by text but here we are."
+  },
+  { delayMs: 620, role: 'pilot', dialogue: '[Marcus] Bridge ready.' },
+  { delayMs: 620, role: 'navigator', dialogue: '[Owen] Hold on.' },
+  {
+    delayMs: 620,
+    role: 'navigator',
+    dialogue: '[Owen] Sector 7. Abnormal thermal signature. That section should be reading cold.'
+  },
+  {
+    delayMs: 620,
+    role: 'engineer',
+    dialogue: "[Danny] Could be a sensor waking up wrong. These arrays have been sitting idle."
+  },
+  {
+    delayMs: 620,
+    role: 'navigator',
+    dialogue: "[Owen] Negative. It's localized and it's holding. This is not noise."
+  },
+  {
+    delayMs: 620,
+    role: 'pilot',
+    dialogue: '[Marcus] Sector 7 is sealed cargo access. Nothing should be generating heat in there.'
+  },
+  {
+    delayMs: 620,
+    role: 'doctor',
+    dialogue: '[Yuna] Confirmed. That compartment was locked under my watch log. It should be dark.'
+  },
+  { delayMs: 620, role: 'navigator', dialogue: '[Owen] Commander, awaiting orders.' }
+];
+
+const OPENING_CREW_CHANNEL_KO_A = [
   {
     delayMs: 0,
     role: 'system',
@@ -9111,11 +9184,80 @@ const OPENING_CREW_CHANNEL_KO = [
   { delayMs: 620, role: 'navigator', dialogue: '[오웬]\n함장님, 지시 바랍니다.' }
 ];
 
+const OPENING_CREW_CHANNEL_KO_B = [
+  {
+    delayMs: 0,
+    role: 'system',
+    dialogue:
+      '[시스템] 경고: 영상·음성 통신 전면 불능. 전 대원 PDA 단체 채널만 활성 상태. 이 채널을 유지하라.'
+  },
+  {
+    delayMs: 620,
+    role: 'pilot',
+    dialogue: '[마커스] 브리지 안정. 하드라인 잡음은 나만 그런 건지 다들 마찬가지인 건지.'
+  },
+  {
+    delayMs: 620,
+    role: 'engineer',
+    dialogue: '[대니] 엔진룸. 코어 유지 중. 이쪽도 전부 죽었다. PDA밖에 없네.'
+  },
+  {
+    delayMs: 620,
+    role: 'navigator',
+    dialogue: '[오웬] 항법 온라인. 회랑 플롯 이상 없음. 음성 통신은 언제 복구되는 거냐.'
+  },
+  {
+    delayMs: 620,
+    role: 'doctor',
+    dialogue: '[유나] 의무실. 기상 점검 완료. 키트 배치됨. 지금 얼굴 보고 싶은데 이게 전부라니.'
+  },
+  { delayMs: 620, role: 'pilot', dialogue: '[마커스] 광역 트레이스 조용하다. 지금은.' },
+  {
+    delayMs: 620,
+    role: 'engineer',
+    dialogue: '[대니] 엔지니어링 대기 중. 문자로 상태 보고하는 게 이상하지만 어쩔 수 없지.'
+  },
+  { delayMs: 620, role: 'pilot', dialogue: '[마커스] 브리지 준비 완료.' },
+  { delayMs: 620, role: 'navigator', dialogue: '[오웬] 잠깐.' },
+  {
+    delayMs: 620,
+    role: 'navigator',
+    dialogue: '[오웬] 섹터 7. 비정상 열 패턴이다. 그 구역은 차가워야 한다.'
+  },
+  {
+    delayMs: 620,
+    role: 'engineer',
+    dialogue: '[대니] 센서가 잠에서 덜 깬 거 아닐까. 이 배열들 오래 놀았으니까.'
+  },
+  {
+    delayMs: 620,
+    role: 'navigator',
+    dialogue: '[오웬] 아니다. 국소적이고 유지되고 있다. 잡음이 아니다.'
+  },
+  {
+    delayMs: 620,
+    role: 'pilot',
+    dialogue: '[마커스] 섹터 7은 봉인 화물 구역이다. 그 안에서 열이 날 게 없다.'
+  },
+  {
+    delayMs: 620,
+    role: 'doctor',
+    dialogue: '[유나] 맞다. 내 감시 로그상 그 봉인은 잠겨 있어야 한다. 어두워야 한다.'
+  },
+  { delayMs: 620, role: 'navigator', dialogue: '[오웬] 함장님, 지시 바랍니다.' }
+];
+
 const openingPlaybackLocks = new Set();
 const openingNoticeThrottle = new Map();
 
 function buildOpeningCrewChannelEvents(locale) {
-  const list = locale === 'en' ? OPENING_CREW_CHANNEL_EN : OPENING_CREW_CHANNEL_KO;
+  const variant = Math.random() < 0.5 ? 'A' : 'B';
+  let list;
+  if (locale === 'en') {
+    list = variant === 'A' ? OPENING_CREW_CHANNEL_EN_A : OPENING_CREW_CHANNEL_EN_B;
+  } else {
+    list = variant === 'A' ? OPENING_CREW_CHANNEL_KO_A : OPENING_CREW_CHANNEL_KO_B;
+  }
   return list.map((e) => ({
     delayMs: e.delayMs,
     role: e.role,
