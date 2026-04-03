@@ -2669,17 +2669,19 @@
       function mapBracketInnerToLogRole(inner) {
         var key = String(inner || '').trim();
         var lower = key.toLowerCase();
+
         if (key === '함장' || lower === 'captain') return 'captain';
         if (key === '닥터' || lower === 'doctor') return 'doctor';
         if (key === '엔지니어' || lower === 'engineer') return 'engineer';
         if (key === '네비게이터' || lower === 'navigator') return 'navigator';
         if (key === '파일럿' || lower === 'pilot') return 'pilot';
         if (key === '시스템' || lower === 'system') return 'system';
-        /* opening_chat crew names (bracket headers) */
+
         if (key === '마커스' || lower === 'marcus') return 'pilot';
         if (key === '대니' || lower === 'danny') return 'engineer';
         if (key === '오웬' || lower === 'owen') return 'navigator';
         if (key === '유나' || lower === 'yuna') return 'doctor';
+
         return null;
       }
 
