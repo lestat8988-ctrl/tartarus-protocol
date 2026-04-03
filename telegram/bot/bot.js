@@ -8530,6 +8530,7 @@ async function handleTextMessage(playerId, text, opts = {}) {
 
   if (cls.kind === 'role_opinion_question') {
     console.log('[bot] message kind=role_opinion_question target=' + parsed.target);
+    await clearPostOpeningWaitingForFirstCommanderInput(matchId);
     await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
     const events = buildRoleOpinionQuestionEvents(match, parsed.target, locale);
     for (const ev of events) await matchStore.appendEvent(matchId, ev);
@@ -8569,6 +8570,7 @@ async function handleTextMessage(playerId, text, opts = {}) {
   if (cls.kind === 'group_question') {
     const sub = cls.groupSubkind || 'suspicion';
     console.log('[bot] message kind=group_question sub=' + sub);
+    await clearPostOpeningWaitingForFirstCommanderInput(matchId);
     await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
     if (sub === 'name') await ensureCrewPersonalNamesPersisted(matchId);
     const matchAfterNames = sub === 'name' ? await matchStore.getMatch(matchId) : match;
@@ -8606,6 +8608,7 @@ async function handleTextMessage(playerId, text, opts = {}) {
 
   if (cls.kind === 'suspicion_question') {
     console.log('[bot] message kind=suspicion_question');
+    await clearPostOpeningWaitingForFirstCommanderInput(matchId);
     await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
     const events = buildOpenQuestionCrewEvents(match, locale);
     for (const ev of events) await matchStore.appendEvent(matchId, ev);
@@ -8637,6 +8640,7 @@ async function handleTextMessage(playerId, text, opts = {}) {
   }
 
   if (cls.kind === 'lore_question') {
+    await clearPostOpeningWaitingForFirstCommanderInput(matchId);
     console.log('[bot] message kind=lore_question');
     try {
       console.log('[bot][route] lore pipeline selected');
@@ -8680,6 +8684,7 @@ async function handleTextMessage(playerId, text, opts = {}) {
     try {
       console.log('[bot][route] crew pipeline selected');
     } catch (e) {}
+    await clearPostOpeningWaitingForFirstCommanderInput(matchId);
     await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
     const events = buildOpenQuestionCrewEvents(match, locale);
     for (const ev of events) await matchStore.appendEvent(matchId, ev);
@@ -8738,6 +8743,7 @@ async function handleTextMessage(playerId, text, opts = {}) {
     ...result.next_state,
     turn: (match.turn || 1) + 1
   });
+  await clearPostOpeningWaitingForFirstCommanderInput(matchId);
   let eventsForStore = result.events || [];
   if (cls.kind === 'targeted_question' && parsed.target) {
     eventsForStore = filterQuestionEventsForTargetedSingleSpeaker(eventsForStore, parsed.target);
@@ -8960,12 +8966,27 @@ function mergePrependedTensionDisplayLogs(tension, displayLogs, locale) {
  * 타이머 구간 경고를 appendEvent + game_state 플래그에 반영.
  * @returns {Promise<{ newRawEvents: object[], match: object, displayLogs: object[] }>}
  */
+/** Cleared on first real commander gameplay input (message/action/accuse), not by polling. */
+async function clearPostOpeningWaitingForFirstCommanderInput(matchId) {
+  try {
+    const m = await matchStore.getMatch(matchId);
+    if (!m) return;
+    const gs0 = m.game_state || {};
+    if (gs0.post_opening_waiting_for_first_commander_input !== true) return;
+    const gs = { ...gs0, post_opening_waiting_for_first_commander_input: false };
+    await matchStore.updateMatch(matchId, { game_state: gs });
+  } catch (e) {}
+}
+
 async function persistTimerTensionForMatch(matchId, match, locale, now) {
   const gs = match?.game_state;
   if (!gs || gs.game_over) {
     return { newRawEvents: [], match, displayLogs: [] };
   }
   if (gs.captain_phase === 'opening_chat' && gs.opening_sequence_completed !== true) {
+    return { newRawEvents: [], match, displayLogs: [] };
+  }
+  if (gs.post_opening_waiting_for_first_commander_input === true) {
     return { newRawEvents: [], match, displayLogs: [] };
   }
   const tNow = now instanceof Date ? now : now != null ? new Date(now) : new Date();
@@ -9320,6 +9341,7 @@ async function finishOpeningChatSuccess(matchId) {
     gs.opening_sequence_completed = true;
     gs.opening_sequence_aborted = false;
     gs.opening_chat_started_at_ms = null;
+    gs.post_opening_waiting_for_first_commander_input = true;
     await matchStore.updateMatch(matchId, { game_state: gs });
     try {
       console.log('[bot][opening_chat] sequence completed matchId=' + matchId);
@@ -9756,6 +9778,7 @@ async function processMessageApi(playerId, text, opts = {}) {
 
   if (cls.kind === 'role_opinion_question') {
     console.log('[bot] message kind=role_opinion_question target=' + parsed.target);
+    await clearPostOpeningWaitingForFirstCommanderInput(matchId);
     await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
     const events = buildRoleOpinionQuestionEvents(match, parsed.target, locale);
     for (const ev of events) await matchStore.appendEvent(matchId, ev);
@@ -9801,6 +9824,7 @@ async function processMessageApi(playerId, text, opts = {}) {
   if (cls.kind === 'group_question') {
     const sub = cls.groupSubkind || 'suspicion';
     console.log('[bot] message kind=group_question sub=' + sub);
+    await clearPostOpeningWaitingForFirstCommanderInput(matchId);
     await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
     if (sub === 'name') await ensureCrewPersonalNamesPersisted(matchId);
     const matchAfterNames = sub === 'name' ? await matchStore.getMatch(matchId) : match;
@@ -9844,6 +9868,7 @@ async function processMessageApi(playerId, text, opts = {}) {
 
   if (cls.kind === 'suspicion_question') {
     console.log('[bot] message kind=suspicion_question');
+    await clearPostOpeningWaitingForFirstCommanderInput(matchId);
     await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
     const events = buildOpenQuestionCrewEvents(match, locale);
     for (const ev of events) await matchStore.appendEvent(matchId, ev);
@@ -9881,6 +9906,7 @@ async function processMessageApi(playerId, text, opts = {}) {
   }
 
   if (cls.kind === 'lore_question') {
+    await clearPostOpeningWaitingForFirstCommanderInput(matchId);
     try {
       const tq = String(text || '')
         .replace(/\\/g, '\\\\')
@@ -9997,6 +10023,7 @@ async function processMessageApi(playerId, text, opts = {}) {
     try {
       console.log('[bot][route] crew pipeline selected');
     } catch (e) {}
+    await clearPostOpeningWaitingForFirstCommanderInput(matchId);
     await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
     const events = buildOpenQuestionCrewEvents(match, locale);
     for (const ev of events) await matchStore.appendEvent(matchId, ev);
@@ -10050,6 +10077,7 @@ async function processMessageApi(playerId, text, opts = {}) {
   if (!result.ok) return withMeta({ ok: false, error: result.error || 'unknown' });
 
   await matchStore.updateMatch(matchId, { ...result.next_state, turn: (match.turn || 1) + 1 });
+  await clearPostOpeningWaitingForFirstCommanderInput(matchId);
   let eventsForStoreApi = result.events || [];
   if (cls.kind === 'targeted_question' && parsed.target) {
     eventsForStoreApi = filterQuestionEventsForTargetedSingleSpeaker(eventsForStoreApi, parsed.target);
@@ -10199,6 +10227,7 @@ async function processAccuseApi(playerId, targetRaw, opts = {}) {
   if (!result.ok) return { ok: false, error: result.error || 'unknown' };
 
   await matchStore.updateMatch(matchId, { ...result.next_state, turn: (match.turn || 1) + 1 });
+  await clearPostOpeningWaitingForFirstCommanderInput(matchId);
   if (result.events?.length > 0) {
     for (const ev of result.events) await matchStore.appendEvent(matchId, ev);
   }
@@ -10314,6 +10343,7 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
   if (!result.ok) return { ok: false, error: result.error || 'unknown' };
 
   await matchStore.updateMatch(matchId, { ...result.next_state, turn: (match.turn || 1) + 1 });
+  await clearPostOpeningWaitingForFirstCommanderInput(matchId);
   if (result.events?.length > 0) {
     for (const ev of result.events) await matchStore.appendEvent(matchId, ev);
   }
