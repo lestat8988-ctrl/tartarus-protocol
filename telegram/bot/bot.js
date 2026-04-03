@@ -8377,6 +8377,9 @@ async function handleStart(playerId, opts = {}) {
       );
     } catch (e) {}
   }
+  if (needNewMatch) {
+    await kickOpeningChatForNewMatch(matchId, loc);
+  }
   const match = await matchStore.getMatch(matchId);
   const timer = ep1Engine.getTimerStatus ? ep1Engine.getTimerStatus(match, opts.now) : { remaining_sec: 420 };
   const mins = Math.floor((timer.remaining_sec || 420) / 60);
@@ -8417,6 +8420,7 @@ async function handleTextMessage(playerId, text, opts = {}) {
     const match = await matchStore.getOrCreateMatch('match_' + playerId + '_' + Date.now(), {});
     matchId = match.match_id;
     await playerStore.setPlayer(playerId, { match_id: matchId, role: 'captain' });
+    await kickOpeningChatForNewMatch(matchId, locale);
   }
 
   let match = await matchStore.getMatch(matchId);
@@ -8426,6 +8430,20 @@ async function handleTextMessage(playerId, text, opts = {}) {
     opts.now instanceof Date ? opts.now : opts.now != null ? new Date(opts.now) : new Date();
   const tensionTg = await persistTimerTensionForMatch(matchId, match, locale, tensionNowTg);
   match = tensionTg.match || match;
+
+  await maybeRecoverStuckOpeningChat(matchId);
+  match = (await matchStore.getMatch(matchId)) || match;
+  if (isOpeningChatLocked(match.game_state || {})) {
+    const throttledOg = shouldThrottleOpeningNotice(playerId, matchId);
+    const noticeOg =
+      locale === 'en'
+        ? '[SYSTEM] Command channel opens after crew status check completes.'
+        : '[시스템] 승무원 상태 확인이 끝난 뒤 지휘 채널이 열립니다.';
+    if (throttledOg) {
+      return '';
+    }
+    return noticeOg;
+  }
 
   const resolvedTg = await resolveMiniappFreeClassification(text, locale);
   const cls = resolvedTg.cls;
@@ -8962,6 +8980,299 @@ async function persistTimerTensionForMatch(matchId, match, locale, now) {
 }
 
 /**
+ * opening_chat phase — scripted playback only.
+ * Do not fake commander input, do not call ep1Engine for crew replies, do not use
+ * tryGenerateLlmDialogueLogs / buildOpenQuestionCrewEvents / applyCharacterToneToDisplayLogs
+ * or any normal free-input crew pipeline. Events are appended only via
+ * appendOpeningScriptCrewDialogueEvent → matchStore.appendEvent.
+ */
+const OPENING_SCRIPT_EVENT_SOURCE = 'opening_script';
+
+function appendOpeningScriptCrewDialogueEvent(matchId, role, dialogue) {
+  return matchStore.appendEvent(matchId, {
+    type: 'CREW_DIALOGUE',
+    role,
+    dialogue,
+    event_source: OPENING_SCRIPT_EVENT_SOURCE,
+    scripted_phase: 'opening_chat'
+  });
+}
+
+/**
+ * Scripted crew channel: status reports + banter, then Sector 7 anomaly.
+ * Owen → navigator, Danny → engineer, Marcus → pilot, Yuna → doctor.
+ */
+const OPENING_CREW_CHANNEL_EN = [
+  {
+    delayMs: 0,
+    role: 'system',
+    dialogue:
+      '[SYSTEM]\nCrew channel opening. Revival confirmed—report readiness by station.'
+  },
+  { delayMs: 620, role: 'pilot', dialogue: '[Marcus]\n[Bridge] Helm stable. Passive sensors nominal.' },
+  {
+    delayMs: 620,
+    role: 'engineer',
+    dialogue: '[Danny]\n[Engine Room] Core idle band holds. No thermal excursions on the boards.'
+  },
+  {
+    delayMs: 620,
+    role: 'navigator',
+    dialogue: '[Owen]\n[Navigation] Fixed solution locked. Corridor plot is clean.'
+  },
+  { delayMs: 620, role: 'doctor', dialogue: '[Yuna]\n[Medbay] Wake checks green. Kits staged.' },
+  { delayMs: 620, role: 'pilot', dialogue: '[Marcus]\nCopy—wide-field trace looks quiet on my side.' },
+  {
+    delayMs: 620,
+    role: 'engineer',
+    dialogue: '[Danny]\nEngineering standing by for load requests.'
+  },
+  { delayMs: 620, role: 'pilot', dialogue: '[Marcus]\nBridge is ready.' },
+  {
+    delayMs: 620,
+    role: 'navigator',
+    dialogue:
+      '[Owen]\n[Sector 7] Abnormal thermal signature detected—this is not baseline.'
+  },
+  {
+    delayMs: 620,
+    role: 'engineer',
+    dialogue: '[Danny]\nSensor glitch? Try recalibrating the array.'
+  },
+  {
+    delayMs: 620,
+    role: 'navigator',
+    dialogue: '[Owen]\nNegative. The gradient is localized. This is not noise.'
+  },
+  {
+    delayMs: 620,
+    role: 'pilot',
+    dialogue:
+      '[Marcus]\nSector 7 maps to sealed cargo access. That hatch should be cold-dead on telemetry.'
+  },
+  {
+    delayMs: 620,
+    role: 'doctor',
+    dialogue: '[Yuna]\nConfirmed—it should have remained sealed under my watch log.'
+  },
+  { delayMs: 620, role: 'navigator', dialogue: '[Owen]\nCommander, awaiting orders.' }
+];
+const OPENING_CREW_CHANNEL_KO = [
+  {
+    delayMs: 0,
+    role: 'system',
+    dialogue:
+      '[시스템]\n승무원 채널 연결. 기상 확인됨—역할별 준비 상태를 보고하라.'
+  },
+  { delayMs: 620, role: 'pilot', dialogue: '[마커스]\n[브리지] 조타 안정. 패시브 센서 정상.' },
+  {
+    delayMs: 620,
+    role: 'engineer',
+    dialogue: '[대니]\n[엔진실] 코어 유휴 대역 유지. 보드상 열 이탈 없음.'
+  },
+  {
+    delayMs: 620,
+    role: 'navigator',
+    dialogue: '[오웬]\n[항해] 고정 해법 확정. 회랑 플롯 이상 없음.'
+  },
+  { delayMs: 620, role: 'doctor', dialogue: '[유나]\n[메드베이] 기상 점검 양호. 키트 배치 완료.' },
+  { delayMs: 620, role: 'pilot', dialogue: '[마커스]\n광역 트레이스는 이쪽도 조용하다.' },
+  {
+    delayMs: 620,
+    role: 'engineer',
+    dialogue: '[대니]\n엔지니어링, 부하 요청 대기 중.'
+  },
+  { delayMs: 620, role: 'pilot', dialogue: '[마커스]\n브리지 준비 완료.' },
+  {
+    delayMs: 620,
+    role: 'navigator',
+    dialogue: '[오웬]\n[섹터 7] 비정상 열 패턴이다. 기준선이 아니다.'
+  },
+  {
+    delayMs: 620,
+    role: 'engineer',
+    dialogue: '[대니]\n센서 글리치 아닐까? 배열 재보정이 필요할 수도.'
+  },
+  {
+    delayMs: 620,
+    role: 'navigator',
+    dialogue: '[오웬]\n아니다. 구간이 국소적이다. 잡음이 아니다.'
+  },
+  {
+    delayMs: 620,
+    role: 'pilot',
+    dialogue: '[마커스]\n섹터 7은 봉인된 화물 접근구다. 텔레메트리상 그 해치는 완전 차단이어야 한다.'
+  },
+  {
+    delayMs: 620,
+    role: 'doctor',
+    dialogue: '[유나]\n맞다. 내 감시 로그상 그 봉인은 열리지 않았어야 한다.'
+  },
+  { delayMs: 620, role: 'navigator', dialogue: '[오웬]\n함장님, 지시 바랍니다.' }
+];
+
+const openingPlaybackLocks = new Set();
+const openingNoticeThrottle = new Map();
+
+function buildOpeningCrewChannelEvents(locale) {
+  const list = locale === 'en' ? OPENING_CREW_CHANNEL_EN : OPENING_CREW_CHANNEL_KO;
+  return list.map((e) => ({
+    delayMs: e.delayMs,
+    role: e.role,
+    dialogue: e.dialogue
+  }));
+}
+
+function delayOpeningMs(ms) {
+  const n = Number(ms);
+  const v = Number.isFinite(n) ? n : 750;
+  return new Promise((r) => setTimeout(r, Math.max(0, Math.min(v, 6000))));
+}
+
+function isOpeningChatLocked(gs) {
+  if (!gs || typeof gs !== 'object') return false;
+  if (gs.opening_sequence_completed) return false;
+  return gs.captain_phase === 'opening_chat';
+}
+
+function shouldThrottleOpeningNotice(playerId, matchId) {
+  const k = String(playerId || '') + '|' + String(matchId || '');
+  const now = Date.now();
+  const last = openingNoticeThrottle.get(k) || 0;
+  if (now - last < 9000) return true;
+  openingNoticeThrottle.set(k, now);
+  return false;
+}
+
+async function failOpenOpeningChat(matchId, err) {
+  try {
+    console.warn('[bot][opening_chat] fail_open', err?.message != null ? String(err.message) : String(err));
+  } catch (e) {}
+  try {
+    const m = await matchStore.getMatch(matchId);
+    const gs = { ...(m?.game_state || {}) };
+    gs.captain_phase = 'playing';
+    gs.opening_sequence_aborted = true;
+    gs.opening_sequence_completed = true;
+    gs.opening_chat_started_at_ms = null;
+    await matchStore.updateMatch(matchId, { game_state: gs });
+  } catch (e2) {
+    try {
+      console.warn('[bot][opening_chat] fail_open persist', e2?.message || e2);
+    } catch (e3) {}
+  }
+}
+
+async function finishOpeningChatSuccess(matchId) {
+  try {
+    const m = await matchStore.getMatch(matchId);
+    const gs = { ...(m?.game_state || {}) };
+    if (gs.opening_sequence_completed) return;
+    gs.captain_phase = 'playing';
+    gs.opening_sequence_completed = true;
+    gs.opening_sequence_aborted = false;
+    gs.opening_chat_started_at_ms = null;
+    await matchStore.updateMatch(matchId, { game_state: gs });
+  } catch (e) {
+    await failOpenOpeningChat(matchId, e);
+  }
+}
+
+async function maybeRecoverStuckOpeningChat(matchId) {
+  try {
+    const m = await matchStore.getMatch(matchId);
+    const gs = m?.game_state || {};
+    if (gs.captain_phase !== 'opening_chat') return;
+    if (gs.opening_sequence_completed) return;
+    const t0 = gs.opening_chat_started_at_ms;
+    if (t0 != null && Date.now() - Number(t0) > 28000) {
+      await failOpenOpeningChat(matchId, new Error('opening_chat_stuck_timeout'));
+    }
+  } catch (e) {
+    try {
+      console.warn('[bot][opening_chat] maybeRecoverStuck', e?.message || e);
+    } catch (e2) {}
+  }
+}
+
+/** Call await on every new-match path before scheduling playback (avoids race with first message). */
+async function persistOpeningChatStateBeforePlayback(matchId) {
+  const m = await matchStore.getMatch(matchId);
+  if (!m) return;
+  const gs0 = m.game_state || {};
+  if (gs0.opening_sequence_completed) return;
+  if (gs0.captain_phase === 'opening_chat' && gs0.opening_sequence_started === true) return;
+  const gs = {
+    ...gs0,
+    captain_phase: 'opening_chat',
+    opening_sequence_started: true,
+    opening_sequence_completed: false,
+    opening_sequence_aborted: false,
+    opening_chat_started_at_ms: Date.now()
+  };
+  await matchStore.updateMatch(matchId, { game_state: gs });
+}
+
+async function scheduleOpeningChatSequence(matchId, locale) {
+  if (openingPlaybackLocks.has(matchId)) return;
+  openingPlaybackLocks.add(matchId);
+  let timeoutId = null;
+  try {
+    const m0 = await matchStore.getMatch(matchId);
+    const gs0 = m0?.game_state || {};
+    if (gs0.opening_sequence_completed || gs0.opening_sequence_aborted) return;
+    if (!gs0.opening_sequence_started || gs0.captain_phase !== 'opening_chat') {
+      await failOpenOpeningChat(matchId, new Error('opening_state_not_primed'));
+      return;
+    }
+
+    const list = buildOpeningCrewChannelEvents(locale);
+    timeoutId = setTimeout(() => {
+      failOpenOpeningChat(matchId, new Error('opening_chat_timeout')).catch(() => {});
+    }, 28500);
+
+    try {
+      for (const ev of list) {
+        await delayOpeningMs(ev.delayMs);
+        const mid = await matchStore.getMatch(matchId);
+        const g = mid?.game_state || {};
+        if (g.opening_sequence_completed || g.captain_phase !== 'opening_chat') break;
+        await appendOpeningScriptCrewDialogueEvent(matchId, ev.role, ev.dialogue);
+      }
+      const mid2 = await matchStore.getMatch(matchId);
+      const g2 = mid2?.game_state || {};
+      if (!g2.opening_sequence_completed && g2.captain_phase === 'opening_chat') {
+        await finishOpeningChatSuccess(matchId);
+      }
+    } catch (e) {
+      await failOpenOpeningChat(matchId, e);
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
+  } finally {
+    openingPlaybackLocks.delete(matchId);
+  }
+}
+
+async function kickOpeningChatForNewMatch(matchId, locale) {
+  try {
+    await persistOpeningChatStateBeforePlayback(matchId);
+  } catch (e) {
+    await failOpenOpeningChat(matchId, e);
+    return;
+  }
+  try {
+    setImmediate(() => {
+      scheduleOpeningChatSequence(matchId, locale).catch((e) => {
+        failOpenOpeningChat(matchId, e).catch(() => {});
+      });
+    });
+  } catch (e) {
+    failOpenOpeningChat(matchId, e).catch(() => {});
+  }
+}
+
+/**
  * API용 /start 상태 반환
  * actual_imposter: game_over=true일 때만 권위 필드에서 정규화. game_over=false면 미포함.
  * @param {string} playerId
@@ -9036,6 +9347,9 @@ async function getStartStateApi(playerId, opts = {}) {
       );
     } catch (e) {}
   }
+  if (needNewMatch) {
+    await kickOpeningChatForNewMatch(matchId, locale);
+  }
   const match = await matchStore.getMatch(matchId);
   const nowStart = opts.now instanceof Date ? opts.now : opts.now != null ? new Date(opts.now) : new Date();
   const tensionStart = await persistTimerTensionForMatch(matchId, match, locale, nowStart);
@@ -9090,6 +9404,7 @@ async function processMessageApi(playerId, text, opts = {}) {
     const match0 = await matchStore.getOrCreateMatch('match_' + playerId + '_' + Date.now(), {});
     matchId = match0.match_id;
     await playerStore.setPlayer(playerId, { match_id: matchId, role: 'captain' });
+    await kickOpeningChatForNewMatch(matchId, locale);
   }
   let match = await matchStore.getMatch(matchId);
   if (!match) return { ok: false, error: 'Match not found' };
@@ -9099,12 +9414,53 @@ async function processMessageApi(playerId, text, opts = {}) {
   const tension = await persistTimerTensionForMatch(matchId, match, locale, tensionNow);
   match = tension.match || match;
 
+  const now = opts.now;
+  await maybeRecoverStuckOpeningChat(matchId);
+  match = (await matchStore.getMatch(matchId)) || match;
+  if (isOpeningChatLocked(match.game_state)) {
+    const timerOg = ep1Engine.getTimerStatus(match, now);
+    const remOg = Math.max(0, Math.floor(timerOg.remaining_sec ?? 0));
+    const gsOg = match.game_state || {};
+    const throttledOg = shouldThrottleOpeningNotice(playerId, matchId);
+    const noticeOg =
+      locale === 'en'
+        ? '[SYSTEM] Command channel opens after crew status check completes.'
+        : '[시스템] 승무원 상태 확인이 끝난 뒤 지휘 채널이 열립니다.';
+    if (throttledOg) {
+      return {
+        ok: true,
+        summary: '',
+        remaining_sec: remOg,
+        game_over: false,
+        outcome: null,
+        events: [],
+        recent_events: [],
+        match_state: { ...gsOg },
+        free_input_intent_meta: { message_kind: 'opening_chat_blocked', consumes_free_prompt: false }
+      };
+    }
+    const rawOg = [{ type: 'CREW_DIALOGUE', role: 'system', dialogue: noticeOg }];
+    let dispOg = dedupeDisplayLogs(toPlayerDisplayLogs(rawOg, { locale }), locale);
+    dispOg = mergePrependedTensionDisplayLogs(tension, dispOg, locale);
+    const sumOg = summaryFromDisplayLogs(dispOg, locale);
+    return {
+      ok: true,
+      summary: sumOg,
+      remaining_sec: remOg,
+      game_over: false,
+      outcome: null,
+      events: dispOg,
+      recent_events: dispOg,
+      match_state: { ...gsOg },
+      free_input_intent_meta: { message_kind: 'opening_chat_blocked', consumes_free_prompt: false }
+    };
+  }
+
   const resolvedApi = await resolveMiniappFreeClassification(text, locale);
   const cls = resolvedApi.cls;
   let parsed = resolvedApi.parsed;
   const freeInputIntentMeta = buildFreeInputIntentMetaSnapshot(cls, parsed, text, resolvedApi.route);
   const withMeta = (o) => (o && typeof o === 'object' ? { ...o, free_input_intent_meta: freeInputIntentMeta } : o);
-  const now = opts.now;
 
   if (cls.kind === 'state_query') {
     const timer = ep1Engine.getTimerStatus(match, now);
@@ -10119,6 +10475,8 @@ function createLocalApiServer() {
             return;
           }
           const deltaRaw = await applyMatchClockTick(matchId);
+          match = await matchStore.getMatch(matchId);
+          await maybeRecoverStuckOpeningChat(matchId);
           match = await matchStore.getMatch(matchId);
           const pollNow = new Date();
           const tensionPoll = await persistTimerTensionForMatch(matchId, match, locale, pollNow);
