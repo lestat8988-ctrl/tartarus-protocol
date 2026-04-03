@@ -9254,6 +9254,7 @@ async function scheduleOpeningChatSequence(matchId, locale) {
           );
         } catch (eLog) {}
       }
+      await delayOpeningMs(1000);
       const mid2 = await matchStore.getMatch(matchId);
       const g2 = mid2?.game_state || {};
       if (!g2.opening_sequence_completed && g2.captain_phase === 'opening_chat') {
