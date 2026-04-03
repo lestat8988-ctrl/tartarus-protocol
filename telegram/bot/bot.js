@@ -9271,11 +9271,14 @@ const OPENING_CREW_CHANNEL_KO_B = [
   { delayMs: 620, role: 'navigator', dialogue: '[네비게이터/오웬] 함장님, 지시 바랍니다.' }
 ];
 
+let _lastOpeningVariant = 'B';
+
 const openingPlaybackLocks = new Set();
 const openingNoticeThrottle = new Map();
 
 function buildOpeningCrewChannelEvents(locale) {
-  const variant = Math.random() < 0.5 ? 'A' : 'B';
+  const variant = _lastOpeningVariant === 'A' ? 'B' : 'A';
+  _lastOpeningVariant = variant;
   let list;
   if (locale === 'en') {
     list = variant === 'A' ? OPENING_CREW_CHANNEL_EN_A : OPENING_CREW_CHANNEL_EN_B;
