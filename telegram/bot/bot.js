@@ -1118,18 +1118,18 @@ function getLlmRoleHeaders(locale) {
   if (locale === 'en') {
     return {
       captain: '[Captain]',
-      doctor: '[Doctor]',
-      engineer: '[Engineer]',
-      navigator: '[Navigator]',
-      pilot: '[Pilot]'
+      doctor: '[Doctor/Yuna]',
+      engineer: '[Engineer/Danny]',
+      navigator: '[Navigator/Owen]',
+      pilot: '[Pilot/Marcus]'
     };
   }
   return {
     captain: '[함장]',
-    doctor: '[닥터]',
-    engineer: '[엔지니어]',
-    navigator: '[네비게이터]',
-    pilot: '[파일럿]'
+    doctor: '[닥터/유나]',
+    engineer: '[엔지니어/대니]',
+    navigator: '[네비게이터/오웬]',
+    pilot: '[파일럿/마커스]'
   };
 }
 
@@ -9009,53 +9009,53 @@ const OPENING_CREW_CHANNEL_EN_A = [
     dialogue:
       '[SYSTEM]\nCrew channel opening. Revival confirmed—report readiness by station.'
   },
-  { delayMs: 620, role: 'pilot', dialogue: '[Marcus]\n[Bridge] Helm stable. Passive sensors nominal.' },
+  { delayMs: 620, role: 'pilot', dialogue: '[Pilot/Marcus]\n[Bridge] Helm stable. Passive sensors nominal.' },
   {
     delayMs: 620,
     role: 'engineer',
-    dialogue: '[Danny]\n[Engine Room] Core idle band holds. No thermal excursions on the boards.'
+    dialogue: '[Engineer/Danny]\n[Engine Room] Core idle band holds. No thermal excursions on the boards.'
   },
   {
     delayMs: 620,
     role: 'navigator',
-    dialogue: '[Owen]\n[Navigation] Fixed solution locked. Corridor plot is clean.'
+    dialogue: '[Navigator/Owen]\n[Navigation] Fixed solution locked. Corridor plot is clean.'
   },
-  { delayMs: 620, role: 'doctor', dialogue: '[Yuna]\n[Medbay] Wake checks green. Kits staged.' },
-  { delayMs: 620, role: 'pilot', dialogue: '[Marcus]\nCopy—wide-field trace looks quiet on my side.' },
+  { delayMs: 620, role: 'doctor', dialogue: '[Doctor/Yuna]\n[Medbay] Wake checks green. Kits staged.' },
+  { delayMs: 620, role: 'pilot', dialogue: '[Pilot/Marcus]\nCopy—wide-field trace looks quiet on my side.' },
   {
     delayMs: 620,
     role: 'engineer',
-    dialogue: '[Danny]\nEngineering standing by for load requests.'
+    dialogue: '[Engineer/Danny]\nEngineering standing by for load requests.'
   },
-  { delayMs: 620, role: 'pilot', dialogue: '[Marcus]\nBridge is ready.' },
+  { delayMs: 620, role: 'pilot', dialogue: '[Pilot/Marcus]\nBridge is ready.' },
   {
     delayMs: 620,
     role: 'navigator',
     dialogue:
-      '[Owen]\n[Sector 7] Abnormal thermal signature detected—this is not baseline.'
+      '[Navigator/Owen]\n[Sector 7] Abnormal thermal signature detected—this is not baseline.'
   },
   {
     delayMs: 620,
     role: 'engineer',
-    dialogue: '[Danny]\nSensor glitch? Try recalibrating the array.'
+    dialogue: '[Engineer/Danny]\nSensor glitch? Try recalibrating the array.'
   },
   {
     delayMs: 620,
     role: 'navigator',
-    dialogue: '[Owen]\nNegative. The gradient is localized. This is not noise.'
+    dialogue: '[Navigator/Owen]\nNegative. The gradient is localized. This is not noise.'
   },
   {
     delayMs: 620,
     role: 'pilot',
     dialogue:
-      '[Marcus]\nSector 7 maps to sealed cargo access. That hatch should be cold-dead on telemetry.'
+      '[Pilot/Marcus]\nSector 7 maps to sealed cargo access. That hatch should be cold-dead on telemetry.'
   },
   {
     delayMs: 620,
     role: 'doctor',
-    dialogue: '[Yuna]\nConfirmed—it should have remained sealed under my watch log.'
+    dialogue: '[Doctor/Yuna]\nConfirmed—it should have remained sealed under my watch log.'
   },
-  { delayMs: 620, role: 'navigator', dialogue: '[Owen]\nCommander, awaiting orders.' }
+  { delayMs: 620, role: 'navigator', dialogue: '[Navigator/Owen]\nCommander, awaiting orders.' }
 ];
 
 const OPENING_CREW_CHANNEL_EN_B = [
@@ -9069,65 +9069,65 @@ const OPENING_CREW_CHANNEL_EN_B = [
     delayMs: 620,
     role: 'pilot',
     dialogue:
-      '[Marcus] Bridge stable. Anyone else getting static on the hardlines or is it just my end.'
+      '[Pilot/Marcus] Bridge stable. Anyone else getting static on the hardlines or is it just my end.'
   },
   {
     delayMs: 620,
     role: 'engineer',
     dialogue:
-      '[Danny] Engine room here. Core holding. And yeah — everything\'s dead on my side too. Just us and these PDAs.'
+      '[Engineer/Danny] Engine room here. Core holding. And yeah — everything\'s dead on my side too. Just us and these PDAs.'
   },
   {
     delayMs: 620,
     role: 'navigator',
     dialogue:
-      '[Owen] Navigation online. Corridor plot is clean. Is audio ever coming back or are we doing this the whole leg.'
+      '[Navigator/Owen] Navigation online. Corridor plot is clean. Is audio ever coming back or are we doing this the whole leg.'
   },
   {
     delayMs: 620,
     role: 'doctor',
     dialogue:
-      "[Yuna] Medbay. Wake checks done. Kits staged. I'd prefer to see faces right now but this will have to do."
+      "[Doctor/Yuna] Medbay. Wake checks done. Kits staged. I'd prefer to see faces right now but this will have to do."
   },
   {
     delayMs: 620,
     role: 'pilot',
-    dialogue: '[Marcus] Wide-field trace is quiet. For now.'
+    dialogue: '[Pilot/Marcus] Wide-field trace is quiet. For now.'
   },
   {
     delayMs: 620,
     role: 'engineer',
     dialogue:
-      "[Danny] Engineering standing by. Feels wrong doing status reports by text but here we are."
+      "[Engineer/Danny] Engineering standing by. Feels wrong doing status reports by text but here we are."
   },
-  { delayMs: 620, role: 'pilot', dialogue: '[Marcus] Bridge ready.' },
-  { delayMs: 620, role: 'navigator', dialogue: '[Owen] Hold on.' },
+  { delayMs: 620, role: 'pilot', dialogue: '[Pilot/Marcus] Bridge ready.' },
+  { delayMs: 620, role: 'navigator', dialogue: '[Navigator/Owen] Hold on.' },
   {
     delayMs: 620,
     role: 'navigator',
-    dialogue: '[Owen] Sector 7. Abnormal thermal signature. That section should be reading cold.'
+    dialogue: '[Navigator/Owen] Sector 7. Abnormal thermal signature. That section should be reading cold.'
   },
   {
     delayMs: 620,
     role: 'engineer',
-    dialogue: "[Danny] Could be a sensor waking up wrong. These arrays have been sitting idle."
+    dialogue: "[Engineer/Danny] Could be a sensor waking up wrong. These arrays have been sitting idle."
   },
   {
     delayMs: 620,
     role: 'navigator',
-    dialogue: "[Owen] Negative. It's localized and it's holding. This is not noise."
+    dialogue: "[Navigator/Owen] Negative. It's localized and it's holding. This is not noise."
   },
   {
     delayMs: 620,
     role: 'pilot',
-    dialogue: '[Marcus] Sector 7 is sealed cargo access. Nothing should be generating heat in there.'
+    dialogue: '[Pilot/Marcus] Sector 7 is sealed cargo access. Nothing should be generating heat in there.'
   },
   {
     delayMs: 620,
     role: 'doctor',
-    dialogue: '[Yuna] Confirmed. That compartment was locked under my watch log. It should be dark.'
+    dialogue: '[Doctor/Yuna] Confirmed. That compartment was locked under my watch log. It should be dark.'
   },
-  { delayMs: 620, role: 'navigator', dialogue: '[Owen] Commander, awaiting orders.' }
+  { delayMs: 620, role: 'navigator', dialogue: '[Navigator/Owen] Commander, awaiting orders.' }
 ];
 
 const OPENING_CREW_CHANNEL_KO_A = [
@@ -9137,51 +9137,51 @@ const OPENING_CREW_CHANNEL_KO_A = [
     dialogue:
       '[시스템]\n승무원 채널 연결. 기상 확인됨—역할별 준비 상태를 보고하라.'
   },
-  { delayMs: 620, role: 'pilot', dialogue: '[마커스]\n[브리지] 조타 안정. 패시브 센서 정상.' },
+  { delayMs: 620, role: 'pilot', dialogue: '[파일럿/마커스]\n[브리지] 조타 안정. 패시브 센서 정상.' },
   {
     delayMs: 620,
     role: 'engineer',
-    dialogue: '[대니]\n[엔진실] 코어 유휴 대역 유지. 보드상 열 이탈 없음.'
+    dialogue: '[엔지니어/대니]\n[엔진실] 코어 유휴 대역 유지. 보드상 열 이탈 없음.'
   },
   {
     delayMs: 620,
     role: 'navigator',
-    dialogue: '[오웬]\n[항해] 고정 해법 확정. 회랑 플롯 이상 없음.'
+    dialogue: '[네비게이터/오웬]\n[항해] 고정 해법 확정. 회랑 플롯 이상 없음.'
   },
-  { delayMs: 620, role: 'doctor', dialogue: '[유나]\n[메드베이] 기상 점검 양호. 키트 배치 완료.' },
-  { delayMs: 620, role: 'pilot', dialogue: '[마커스]\n광역 트레이스는 이쪽도 조용하다.' },
+  { delayMs: 620, role: 'doctor', dialogue: '[닥터/유나]\n[메드베이] 기상 점검 양호. 키트 배치 완료.' },
+  { delayMs: 620, role: 'pilot', dialogue: '[파일럿/마커스]\n광역 트레이스는 이쪽도 조용하다.' },
   {
     delayMs: 620,
     role: 'engineer',
-    dialogue: '[대니]\n엔지니어링, 부하 요청 대기 중.'
+    dialogue: '[엔지니어/대니]\n엔지니어링, 부하 요청 대기 중.'
   },
-  { delayMs: 620, role: 'pilot', dialogue: '[마커스]\n브리지 준비 완료.' },
+  { delayMs: 620, role: 'pilot', dialogue: '[파일럿/마커스]\n브리지 준비 완료.' },
   {
     delayMs: 620,
     role: 'navigator',
-    dialogue: '[오웬]\n[섹터 7] 비정상 열 패턴이다. 기준선이 아니다.'
+    dialogue: '[네비게이터/오웬]\n[섹터 7] 비정상 열 패턴이다. 기준선이 아니다.'
   },
   {
     delayMs: 620,
     role: 'engineer',
-    dialogue: '[대니]\n센서 글리치 아닐까? 배열 재보정이 필요할 수도.'
+    dialogue: '[엔지니어/대니]\n센서 글리치 아닐까? 배열 재보정이 필요할 수도.'
   },
   {
     delayMs: 620,
     role: 'navigator',
-    dialogue: '[오웬]\n아니다. 구간이 국소적이다. 잡음이 아니다.'
+    dialogue: '[네비게이터/오웬]\n아니다. 구간이 국소적이다. 잡음이 아니다.'
   },
   {
     delayMs: 620,
     role: 'pilot',
-    dialogue: '[마커스]\n섹터 7은 봉인된 화물 접근구다. 텔레메트리상 그 해치는 완전 차단이어야 한다.'
+    dialogue: '[파일럿/마커스]\n섹터 7은 봉인된 화물 접근구다. 텔레메트리상 그 해치는 완전 차단이어야 한다.'
   },
   {
     delayMs: 620,
     role: 'doctor',
-    dialogue: '[유나]\n맞다. 내 감시 로그상 그 봉인은 열리지 않았어야 한다.'
+    dialogue: '[닥터/유나]\n맞다. 내 감시 로그상 그 봉인은 열리지 않았어야 한다.'
   },
-  { delayMs: 620, role: 'navigator', dialogue: '[오웬]\n함장님, 지시 바랍니다.' }
+  { delayMs: 620, role: 'navigator', dialogue: '[네비게이터/오웬]\n함장님, 지시 바랍니다.' }
 ];
 
 const OPENING_CREW_CHANNEL_KO_B = [
@@ -9194,57 +9194,57 @@ const OPENING_CREW_CHANNEL_KO_B = [
   {
     delayMs: 620,
     role: 'pilot',
-    dialogue: '[마커스] 브리지 안정. 하드라인 잡음은 나만 그런 건지 다들 마찬가지인 건지.'
+    dialogue: '[파일럿/마커스] 브리지 안정. 하드라인 잡음은 나만 그런 건지 다들 마찬가지인 건지.'
   },
   {
     delayMs: 620,
     role: 'engineer',
-    dialogue: '[대니] 엔진룸. 코어 유지 중. 이쪽도 전부 죽었다. PDA밖에 없네.'
+    dialogue: '[엔지니어/대니] 엔진룸. 코어 유지 중. 이쪽도 전부 죽었다. PDA밖에 없네.'
   },
   {
     delayMs: 620,
     role: 'navigator',
-    dialogue: '[오웬] 항법 온라인. 회랑 플롯 이상 없음. 음성 통신은 언제 복구되는 거냐.'
+    dialogue: '[네비게이터/오웬] 항법 온라인. 회랑 플롯 이상 없음. 음성 통신은 언제 복구되는 거냐.'
   },
   {
     delayMs: 620,
     role: 'doctor',
-    dialogue: '[유나] 의무실. 기상 점검 완료. 키트 배치됨. 지금 얼굴 보고 싶은데 이게 전부라니.'
+    dialogue: '[닥터/유나] 의무실. 기상 점검 완료. 키트 배치됨. 지금 얼굴 보고 싶은데 이게 전부라니.'
   },
-  { delayMs: 620, role: 'pilot', dialogue: '[마커스] 광역 트레이스 조용하다. 지금은.' },
+  { delayMs: 620, role: 'pilot', dialogue: '[파일럿/마커스] 광역 트레이스 조용하다. 지금은.' },
   {
     delayMs: 620,
     role: 'engineer',
-    dialogue: '[대니] 엔지니어링 대기 중. 문자로 상태 보고하는 게 이상하지만 어쩔 수 없지.'
+    dialogue: '[엔지니어/대니] 엔지니어링 대기 중. 문자로 상태 보고하는 게 이상하지만 어쩔 수 없지.'
   },
-  { delayMs: 620, role: 'pilot', dialogue: '[마커스] 브리지 준비 완료.' },
-  { delayMs: 620, role: 'navigator', dialogue: '[오웬] 잠깐.' },
+  { delayMs: 620, role: 'pilot', dialogue: '[파일럿/마커스] 브리지 준비 완료.' },
+  { delayMs: 620, role: 'navigator', dialogue: '[네비게이터/오웬] 잠깐.' },
   {
     delayMs: 620,
     role: 'navigator',
-    dialogue: '[오웬] 섹터 7. 비정상 열 패턴이다. 그 구역은 차가워야 한다.'
+    dialogue: '[네비게이터/오웬] 섹터 7. 비정상 열 패턴이다. 그 구역은 차가워야 한다.'
   },
   {
     delayMs: 620,
     role: 'engineer',
-    dialogue: '[대니] 센서가 잠에서 덜 깬 거 아닐까. 이 배열들 오래 놀았으니까.'
+    dialogue: '[엔지니어/대니] 센서가 잠에서 덜 깬 거 아닐까. 이 배열들 오래 놀았으니까.'
   },
   {
     delayMs: 620,
     role: 'navigator',
-    dialogue: '[오웬] 아니다. 국소적이고 유지되고 있다. 잡음이 아니다.'
+    dialogue: '[네비게이터/오웬] 아니다. 국소적이고 유지되고 있다. 잡음이 아니다.'
   },
   {
     delayMs: 620,
     role: 'pilot',
-    dialogue: '[마커스] 섹터 7은 봉인 화물 구역이다. 그 안에서 열이 날 게 없다.'
+    dialogue: '[파일럿/마커스] 섹터 7은 봉인 화물 구역이다. 그 안에서 열이 날 게 없다.'
   },
   {
     delayMs: 620,
     role: 'doctor',
-    dialogue: '[유나] 맞다. 내 감시 로그상 그 봉인은 잠겨 있어야 한다. 어두워야 한다.'
+    dialogue: '[닥터/유나] 맞다. 내 감시 로그상 그 봉인은 잠겨 있어야 한다. 어두워야 한다.'
   },
-  { delayMs: 620, role: 'navigator', dialogue: '[오웬] 함장님, 지시 바랍니다.' }
+  { delayMs: 620, role: 'navigator', dialogue: '[네비게이터/오웬] 함장님, 지시 바랍니다.' }
 ];
 
 const openingPlaybackLocks = new Set();
