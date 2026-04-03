@@ -9146,6 +9146,9 @@ function shouldThrottleOpeningNotice(playerId, matchId) {
 
 async function failOpenOpeningChat(matchId, err) {
   try {
+    console.log('[bot][opening_chat] fail_open matchId=' + matchId);
+  } catch (e0) {}
+  try {
     console.warn('[bot][opening_chat] fail_open', err?.message != null ? String(err.message) : String(err));
   } catch (e) {}
   try {
@@ -9173,6 +9176,9 @@ async function finishOpeningChatSuccess(matchId) {
     gs.opening_sequence_aborted = false;
     gs.opening_chat_started_at_ms = null;
     await matchStore.updateMatch(matchId, { game_state: gs });
+    try {
+      console.log('[bot][opening_chat] sequence completed matchId=' + matchId);
+    } catch (e2) {}
   } catch (e) {
     await failOpenOpeningChat(matchId, e);
   }
@@ -9226,18 +9232,27 @@ async function scheduleOpeningChatSequence(matchId, locale) {
       return;
     }
 
+    try {
+      console.log('[bot][opening_chat] sequence started matchId=' + matchId);
+    } catch (e0) {}
     const list = buildOpeningCrewChannelEvents(locale);
     timeoutId = setTimeout(() => {
       failOpenOpeningChat(matchId, new Error('opening_chat_timeout')).catch(() => {});
     }, 28500);
 
     try {
-      for (const ev of list) {
+      for (let i = 0; i < list.length; i++) {
+        const ev = list[i];
         await delayOpeningMs(ev.delayMs);
         const mid = await matchStore.getMatch(matchId);
         const g = mid?.game_state || {};
         if (g.opening_sequence_completed || g.captain_phase !== 'opening_chat') break;
         await appendOpeningScriptCrewDialogueEvent(matchId, ev.role, ev.dialogue);
+        try {
+          console.log(
+            '[bot][opening_chat] event appended idx=' + i + ' role=' + ev.role + ' matchId=' + matchId
+          );
+        } catch (eLog) {}
       }
       const mid2 = await matchStore.getMatch(matchId);
       const g2 = mid2?.game_state || {};
@@ -9261,6 +9276,9 @@ async function kickOpeningChatForNewMatch(matchId, locale) {
     await failOpenOpeningChat(matchId, e);
     return;
   }
+  try {
+    console.log('[bot][opening_chat] primed matchId=' + matchId);
+  } catch (e0) {}
   try {
     setImmediate(() => {
       scheduleOpeningChatSequence(matchId, locale).catch((e) => {
@@ -10485,6 +10503,19 @@ function createLocalApiServer() {
           const gs = match?.game_state || {};
           let displayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(match?.events || [], { locale }), locale);
           displayLogs = ensureInitialSystemDisplayLogs(displayLogs, match, locale);
+          if (gs.captain_phase === 'opening_chat') {
+            let visibleOpeningCount = 0;
+            const evsOpen = match?.events || [];
+            for (let oi = 0; oi < evsOpen.length; oi++) {
+              const eo = evsOpen[oi];
+              if (eo && eo.event_source === OPENING_SCRIPT_EVENT_SOURCE) visibleOpeningCount++;
+            }
+            try {
+              console.log(
+                '[bot][opening_chat] state_visible count=' + visibleOpeningCount + ' matchId=' + matchId
+              );
+            } catch (eVis) {}
+          }
           const recentDisplay = dedupeDisplayLogs(
             toPlayerDisplayLogs([...(tensionPoll.newRawEvents || []), ...deltaRaw], { locale }),
             locale
