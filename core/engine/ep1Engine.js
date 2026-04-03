@@ -191,12 +191,10 @@ async function applyAction(matchState, action, opts = {}) {
     };
   }
 
-  // 3.6. QUESTION 처리 (베르셀 성공본처럼 함장 question + 크루 4명 반응 시퀀스)
+  // 3.6. QUESTION 처리 — 대상 1인 응답만 (버튼 /api/action)
   if (actFinal === 'QUESTION' && action.target) {
     const target = String(action.target).toLowerCase();
-    const crewOrder = ['doctor', 'engineer', 'navigator', 'pilot'];
-    const aliveCrew = crewOrder.filter((r) => !deadRoles.includes(r));
-    const events = buildCrewReactionEvents('QUESTION', target, aliveCrew);
+    const events = buildTargetOnlyQuestionEvents(target);
     const summary = `Captain questioned ${action.target}.`;
     return {
       ok: true,
@@ -395,6 +393,31 @@ function buildCheckLogEvents(target, aliveCrew, turn) {
     }
   }
 
+  return events;
+}
+
+/**
+ * QUESTION: 함장 이벤트 + 질문 대상 1인의 CREW_DIALOGUE만.
+ * @param {string} target - doctor | engineer | navigator | pilot
+ * @returns {object[]}
+ */
+function buildTargetOnlyQuestionEvents(target) {
+  const t = String(target || '').toLowerCase();
+  const lines = {
+    doctor:
+      '[닥터/유나] 그때 저는 의무실에서 승무원 생체 신호를 확인하고 있었습니다. 기록에 남아 있습니다.',
+    engineer:
+      '[엔지니어/대니] 그 시간대 저는 엔진실에서 코어 점검 중이었습니다. 접근 기록으로 확인할 수 있습니다.',
+    navigator:
+      '[네비게이터/오웬] 저는 항로 재계산과 교량 데이터 검토 중이었습니다. 네비 로그를 확인해 보십시오.',
+    pilot:
+      '[파일럿/마커스] 그때는 브리지에서 계기판과 압력 밴드를 점검하고 있었습니다.'
+  };
+  const dialogue = lines[t];
+  const events = [{ type: 'QUESTION', role: 'captain', target: t }];
+  if (dialogue) {
+    events.push({ type: 'CREW_DIALOGUE', role: t, dialogue });
+  }
   return events;
 }
 
@@ -614,10 +637,10 @@ function isThreatenIntent(intent_type) {
   return key === 'threaten' || key === 'threat' || key === 'intimidate';
 }
 
-/** 명시 API·텍스트 계열: collect_clue, find_clue → FIND_CLUE */
+/** 명시 API·텍스트 계열: collect_clue, find_clue, clue → FIND_CLUE */
 function isCollectClueIntent(intent_type) {
   const key = normalizeIntentToken(intent_type);
-  return key === 'collect_clue' || key === 'find_clue';
+  return key === 'collect_clue' || key === 'find_clue' || key === 'clue';
 }
 
 /** 권총 획득으로 들어오는 intent/action 토큰 (take_pistol, pistol, gun pickup 등) */
@@ -650,6 +673,8 @@ function intentToAction(intent_type, target) {
   const map = {
     question: 'QUESTION',
     check_log: 'CHECK_LOG',
+    cctv: 'CHECK_LOG',
+    engine: 'CHECK_LOG',
     accuse_hint: 'SUSPECT',
     accuse: 'ACCUSE',
     observe: 'OBSERVE',
