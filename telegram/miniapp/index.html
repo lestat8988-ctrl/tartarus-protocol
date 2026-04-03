@@ -4057,6 +4057,64 @@
           });
       }
 
+      function postAction(actionName, targetOpt) {
+        if (isGameOver || userActionPending) return;
+        try {
+          console.log('[miniapp][action] endpoint=/api/action action=', actionName, 'target=', targetOpt || '');
+        } catch (eLog) {}
+        var userTurnLockSeq = beginCaptainUserActionLock();
+        var playerId = getPlayerId();
+        logMiniappApiLang('/api/action');
+        fetch(API_BASE + '/api/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            playerId: playerId,
+            action: actionName,
+            target: targetOpt || null,
+            lang: getLangForApi()
+          })
+        })
+          .then(readFetchJsonResponse)
+          .then(function(meta) {
+            var data = meta.json || {};
+            if (!meta.okHttp) {
+              appendLog(normalizeApiErrorFromMeta(meta), true, 'postAction');
+              return;
+            }
+            if (isBlockedResponse(data)) {
+              if (data.block_reason === 'daily_free_prompt_limit_reached') {
+                showEntitlementPromptBlocked(data);
+              } else if (data.block_reason === 'daily_ticket_limit_reached') {
+                showEntitlementStartBlocked(data);
+              } else {
+                showEntitlementPromptBlocked(data);
+              }
+              return;
+            }
+            if (data.ok) {
+              hideEntitlementPromptHint();
+              var st = { remaining_sec: data.remaining_sec, game_state: data.match_state };
+              if (data.actual_imposter) st.actual_imposter = data.actual_imposter;
+              if (data.is_timeout) st.is_timeout = data.is_timeout;
+              updateStatus(st, { forApiMessage: true });
+              applyEntitlementFromResponse(data);
+              if (data.game_over) stopStatePolling();
+              appendSummaryOrEvents(data);
+            } else {
+              var em = normalizeNonBlockedErrorMessage(data);
+              appendLog(em || normalizeApiErrorFromMeta(meta), true, 'postAction');
+            }
+          })
+          .catch(function(err) {
+            appendLog('Connection failed: ' + (err.message || 'unknown'), true, 'postAction');
+            appendLogDebugLinesFromErr(err, 'postAction');
+          })
+          .finally(function() {
+            scheduleTryReleaseUserActionAfterLogRender(userTurnLockSeq);
+          });
+      }
+
       /** 위협 — 타깃 선택 후 POST /api/action threaten (비처형); threatRequestInFlight는 confirmThreat에서 선설정 */
       function postThreaten(targetKey) {
         if (isGameOver) {
@@ -4338,16 +4396,6 @@
         if (threatConfirmBtn) threatConfirmBtn.disabled = true;
       }
 
-      function buildQuestionMessageForRole(roleKey) {
-        var L = getL();
-        var rk = String(roleKey || '').toLowerCase();
-        var name = L[rk] || rk;
-        if (lang === 'ko') {
-          return name + ', 그때 어디 있었지?';
-        }
-        return name + ', where were you then?';
-      }
-
       function openQuestionModal() {
         if (isGameOver || userActionPending) return;
         if (questionModalUnlockTimer) {
@@ -4401,13 +4449,12 @@
             return;
           }
           console.log('[miniapp] question target=' + targetKey);
-          var msg = buildQuestionMessageForRole(targetKey);
           if (freeInput) {
             freeInput.value = '';
             freeInput.blur();
           }
           closeQuestionModal();
-          doMessage(msg);
+          postAction('question', targetKey);
         } catch (err) {
           appendDebugRuntimeError(err, 'confirmQuestion');
         }
@@ -4541,9 +4588,9 @@
             if (action === 'question') {
               openQuestionModal();
             } else if (action === 'cctv') {
-              doMessage(lang === 'ko' ? 'CCTV 로그를 확인한다.' : 'Checking CCTV logs.');
+              postAction('cctv');
             } else if (action === 'engine') {
-              doMessage(lang === 'ko' ? '엔진실 로그를 확인한다.' : 'Checking engine room logs.');
+              postAction('engine');
             } else if (action === 'pistol') {
               postTakePistol();
             } else if (action === 'clue') {
