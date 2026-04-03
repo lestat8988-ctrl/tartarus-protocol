@@ -2675,6 +2675,11 @@
         if (key === '네비게이터' || lower === 'navigator') return 'navigator';
         if (key === '파일럿' || lower === 'pilot') return 'pilot';
         if (key === '시스템' || lower === 'system') return 'system';
+        /* opening_chat crew names (bracket headers) */
+        if (key === '마커스' || lower === 'marcus') return 'pilot';
+        if (key === '대니' || lower === 'danny') return 'engineer';
+        if (key === '오웬' || lower === 'owen') return 'navigator';
+        if (key === '유나' || lower === 'yuna') return 'doctor';
         return null;
       }
 
