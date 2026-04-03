@@ -10264,25 +10264,32 @@ async function processAccuseApi(playerId, targetRaw, opts = {}) {
  * take_pistol / collect_clue → 엔진 TAKE_PISTOL / FIND_CLUE 분기.
  * 응답 형태는 processMessageApi / processAccuseApi와 동일.
  * @param {string} playerId
- * @param {string} actionRaw - e.g. take_pistol | collect_clue | threaten (+ target)
+ * @param {string} actionRaw - ep1Engine.intentToAction after alias resolve: question, pistol, threat, clue, execute→accuse, cctv|engine→check_log, …
  * @param {string} [targetRaw] - optional
  * @param {object} [opts] - { now? }
  * @returns {Promise<object>}
  */
 async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
   const locale = opts.locale === 'en' ? 'en' : 'ko';
-  const actionKey = String(actionRaw || '').toLowerCase().trim();
-  const actionPayloadByKey = {
-    take_pistol: { actor: 'captain', role: 'captain', action: 'take_pistol' },
-    collect_clue: { actor: 'captain', role: 'captain', action: 'collect_clue' },
-    threaten: { actor: 'captain', role: 'captain', action: 'threaten' }
-  };
-  if (!actionPayloadByKey[actionKey]) {
-    return { ok: false, error: 'Unsupported action' };
-  }
+  const rawKey = String(actionRaw || '').toLowerCase().trim();
+  const resolvedActionKey =
+    rawKey === 'execute'
+      ? 'accuse'
+      : rawKey === 'cctv'
+        ? 'check_log'
+        : rawKey === 'engine'
+          ? 'check_log'
+          : rawKey === 'clue'
+            ? 'find_clue'
+            : rawKey;
 
-  if (actionKey === 'threaten') {
-    const t = String(targetRaw || '').toLowerCase().trim();
+  const targetNorm =
+    targetRaw != null && String(targetRaw).trim() !== '' ? String(targetRaw).toLowerCase().trim() : null;
+
+  const mapped = ep1Engine.intentToAction(resolvedActionKey, targetNorm);
+
+  if (mapped.action === 'THREATEN') {
+    const t = targetNorm || '';
     if (!ACCUSE_API_TARGETS.has(t)) {
       return { ok: false, error: 'target required (doctor|engineer|navigator|pilot)' };
     }
@@ -10290,6 +10297,13 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
       console.log('[bot][intent] message kind=mapped:threaten');
     } catch (e) {}
   }
+
+  const action = {
+    actor: 'captain',
+    role: 'captain',
+    action: mapped.action,
+    target: mapped.target
+  };
 
   let player = await playerStore.getPlayer(playerId);
   let matchId = player?.match_id;
@@ -10338,10 +10352,6 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
     return ret;
   }
 
-  const action = { ...actionPayloadByKey[actionKey] };
-  if (targetRaw != null && String(targetRaw).trim() !== '') {
-    action.target = String(targetRaw).toLowerCase().trim();
-  }
   const result = await ep1Engine.applyAction(match, action, opts);
   if (!result.ok) return { ok: false, error: result.error || 'unknown' };
 
@@ -10356,18 +10366,23 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
   const deterministicLogs = dedupeDisplayLogs(toPlayerDisplayLogs(result.events || [], { locale }), locale);
   const clueEv = (result.events || []).find((e) => e && String(e.type).toUpperCase() === 'FIND_CLUE');
   const clueTextFromEvent = clueEv && clueEv.clue_text ? String(clueEv.clue_text) : undefined;
+  const actU = String(mapped.action || '').toUpperCase();
   const actionHint =
-    actionKey === 'threaten'
+    actU === 'THREATEN'
       ? locale === 'en'
         ? `[threaten action] target=${String(targetRaw || '').toLowerCase()}`
         : `[위협 action] target=${String(targetRaw || '').toLowerCase()}`
-      : actionKey === 'take_pistol'
+      : actU === 'TAKE_PISTOL'
         ? locale === 'en'
           ? `[take_pistol action]`
           : `[권총 획득 action]`
-        : locale === 'en'
+      : actU === 'FIND_CLUE'
+        ? locale === 'en'
           ? `[collect_clue action]`
-          : `[단서수집 action]`;
+          : `[단서수집 action]`
+        : locale === 'en'
+          ? `[${actU.toLowerCase()} action]`
+          : `[${actU.toLowerCase()} action]`;
   let newDisplayLogs = dedupeDisplayLogs(
     await maybeDialogueLogsFromLlmOrDeterministic({
       rawEvents: result.events || [],
