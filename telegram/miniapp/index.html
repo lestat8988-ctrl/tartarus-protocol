@@ -1767,6 +1767,8 @@
       var lastKnownMatchId = null;
       /** recent_events 배치 단위 중복 렌더 방지 (message·state 공통) */
       var lastRenderedRecentEventsSig = '';
+      /** opening_chat: 전체 events 스냅샷 서명 — 동일 스냅샷이면 로그 재구성 생략 */
+      var lastOpeningSnapshotSig = '';
       var recentEventsDedupeOptInLogged = false;
       var startRequestInFlight = false;
       var accuseRequestInFlight = false;
@@ -2111,15 +2113,42 @@
             /* 배경 폴링: userActionPending·잠금 시퀀스에 관여하지 않음 */
             updateStatus(st, { forApiMessage: true, fromPoll: true });
             applyEntitlementFromResponse(data);
-            if (data.recent_events && data.recent_events.length) {
-              appendRecentEventsIfFresh(
-                {
-                  match_id: data.match_id,
-                  recent_events: data.recent_events,
-                  remaining_sec: data.remaining_sec
-                },
-                'state'
-              );
+            var capPhasePoll =
+              (data.match_state && data.match_state.captain_phase) ||
+              (data.game_state && data.game_state.captain_phase) ||
+              '';
+            var evCountPoll = data.events && data.events.length ? data.events.length : 0;
+            var recentCountPoll = data.recent_events && data.recent_events.length ? data.recent_events.length : 0;
+            if (capPhasePoll === 'opening_chat') {
+              var openPoll = replaceLogFromOpeningEventsSnapshot(data.events || [], data.match_id);
+              try {
+                console.log(
+                  '[miniapp][opening_chat] polling phase=',
+                  capPhasePoll,
+                  'events=',
+                  evCountPoll,
+                  'recent=',
+                  recentCountPoll
+                );
+                console.log(
+                  '[miniapp][opening_chat] rendered_count=',
+                  openPoll.rendered,
+                  'changed=',
+                  openPoll.changed
+                );
+              } catch (eDbg) {}
+            } else {
+              lastOpeningSnapshotSig = '';
+              if (data.recent_events && data.recent_events.length) {
+                appendRecentEventsIfFresh(
+                  {
+                    match_id: data.match_id,
+                    recent_events: data.recent_events,
+                    remaining_sec: data.remaining_sec
+                  },
+                  'state'
+                );
+              }
             }
             if (isTerminalState(st) || gs.game_over) {
               stopStatePolling();
@@ -2164,6 +2193,7 @@
       function clearGameLogPanelAndState() {
         lastAppendedLogNorm = null;
         lastRenderedRecentEventsSig = '';
+        lastOpeningSnapshotSig = '';
         logInActiveTurn = false;
         lastLogBlockRole = null;
         if (logPanel) logPanel.innerHTML = '';
@@ -2577,15 +2607,42 @@
             }
             updateStatus(st, { forApiMessage: true, fromPoll: true });
             applyEntitlementFromResponse(data);
-            if (data.recent_events && data.recent_events.length) {
-              appendRecentEventsIfFresh(
-                {
-                  match_id: data.match_id,
-                  recent_events: data.recent_events,
-                  remaining_sec: data.remaining_sec
-                },
-                String(reason || 'immediate')
-              );
+            var capPhaseImm =
+              (data.match_state && data.match_state.captain_phase) ||
+              (data.game_state && data.game_state.captain_phase) ||
+              '';
+            var evCountImm = data.events && data.events.length ? data.events.length : 0;
+            var recentCountImm = data.recent_events && data.recent_events.length ? data.recent_events.length : 0;
+            if (capPhaseImm === 'opening_chat') {
+              var openImm = replaceLogFromOpeningEventsSnapshot(data.events || [], data.match_id);
+              try {
+                console.log(
+                  '[miniapp][opening_chat] polling phase=',
+                  capPhaseImm,
+                  'events=',
+                  evCountImm,
+                  'recent=',
+                  recentCountImm
+                );
+                console.log(
+                  '[miniapp][opening_chat] rendered_count=',
+                  openImm.rendered,
+                  'changed=',
+                  openImm.changed
+                );
+              } catch (eDbg2) {}
+            } else {
+              lastOpeningSnapshotSig = '';
+              if (data.recent_events && data.recent_events.length) {
+                appendRecentEventsIfFresh(
+                  {
+                    match_id: data.match_id,
+                    recent_events: data.recent_events,
+                    remaining_sec: data.remaining_sec
+                  },
+                  String(reason || 'immediate')
+                );
+              }
             }
             if (isTerminalState(st) || gs.game_over) stopStatePolling();
           })
@@ -3473,12 +3530,69 @@
         rebindDeadlineFromServerState(state);
       }
 
+      /**
+       * 서버 display log(recent_events·events) 한 줄 — type 우선(본문), 없으면 text/dialogue/message, 마지막 role.
+       * raw match 이벤트는 target 접미사 유지.
+       */
+      function displayLogLineFromEvent(ev) {
+        if (!ev) return '';
+        var t = ev.type != null ? String(ev.type).replace(/\s+/g, ' ').trim() : '';
+        var text = ev.text != null ? String(ev.text).replace(/\s+/g, ' ').trim() : '';
+        var dlg = ev.dialogue != null ? String(ev.dialogue).replace(/\s+/g, ' ').trim() : '';
+        var msg = ev.message != null ? String(ev.message).replace(/\s+/g, ' ').trim() : '';
+        var roleFb = ev.role != null ? String(ev.role).trim() : '';
+        var base = t || text || dlg || msg || roleFb;
+        if (!base) return '';
+        if (ev.target != null && ev.target !== '') {
+          return (base + ' -> ' + String(ev.target)).replace(/\s+/g, ' ').trim();
+        }
+        return base;
+      }
+
+      function buildOpeningSnapshotSig(events, matchId) {
+        var mid = matchId != null ? String(matchId) : String(lastKnownMatchId || '');
+        if (!events || !events.length) return 'open|' + mid + '|n:0|j:';
+        var parts = [];
+        var i;
+        for (i = 0; i < events.length; i++) {
+          parts.push(displayLogLineFromEvent(events[i]));
+        }
+        return 'open|' + mid + '|n:' + parts.length + '|j:' + parts.join('\u0001');
+      }
+
       function applyEvents(events) {
-        if (!events || !events.length) return;
+        if (!events || !events.length) return 0;
+        var n = 0;
         events.forEach(function(ev) {
-          var label = String((ev.type || ev.role || '') + (ev.target ? ' -> ' + ev.target : '')).trim();
-          if (label) appendLog(label, false, 'applyEvents');
+          var label = displayLogLineFromEvent(ev);
+          if (label) {
+            appendLog(label, false, 'applyEvents');
+            n++;
+          }
         });
+        return n;
+      }
+
+      /** opening_chat: events 전체 스냅샷 동기화 — 서명 동일 시 DOM 유지. */
+      function replaceLogFromOpeningEventsSnapshot(events, matchId) {
+        var sig = buildOpeningSnapshotSig(events, matchId);
+        if (sig && sig === lastOpeningSnapshotSig) {
+          return { rendered: 0, changed: false };
+        }
+        lastOpeningSnapshotSig = sig;
+        if (!logPanel) {
+          return { rendered: 0, changed: true };
+        }
+        lastAppendedLogNorm = null;
+        lastRenderedRecentEventsSig = '';
+        logInActiveTurn = false;
+        lastLogBlockRole = null;
+        logPanel.innerHTML = '';
+        if (!events || !events.length) {
+          return { rendered: 0, changed: true };
+        }
+        var n = applyEvents(events);
+        return { rendered: n, changed: true };
       }
 
       function appendSummaryOrEvents(data) {
@@ -3623,6 +3737,10 @@
               appendLog(getInitialSystemLogLine(), false);
             } else if (data.events && data.events.length) {
               applyEvents(data.events);
+              var gsStart = data.game_state || {};
+              if (gsStart.captain_phase === 'opening_chat') {
+                lastOpeningSnapshotSig = buildOpeningSnapshotSig(data.events, data.match_id);
+              }
             } else {
               appendLog(getInitialSystemLogLine(), false);
             }
