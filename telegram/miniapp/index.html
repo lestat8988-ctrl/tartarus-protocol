@@ -2665,9 +2665,10 @@
         return /^\s*\[(함장|Captain|CAPTAIN|captain)\]/i.test(String(s || '').trim());
       }
 
-      /** Maps [함장]/[Captain]/… inner tag to data-role key; null = default CRT green log line */
-      function mapBracketInnerToLogRole(inner) {
-        var key = String(inner || '').trim();
+      /** One bracket token (no slash) → data-role; crew names map to role as fallback. */
+      function mapBracketTokenToLogRole(token) {
+        var key = String(token || '').trim();
+        if (!key) return null;
         var lower = key.toLowerCase();
 
         if (key === '함장' || lower === 'captain') return 'captain';
@@ -2682,6 +2683,22 @@
         if (key === '오웬' || lower === 'owen') return 'navigator';
         if (key === '유나' || lower === 'yuna') return 'doctor';
 
+        return null;
+      }
+
+      /** Maps [함장]/[Captain]/[닥터/유나]/… inner tag to data-role key; null = default CRT green log line */
+      function mapBracketInnerToLogRole(inner) {
+        var key = String(inner || '').trim();
+        if (!key) return null;
+        var parts = key.split('/');
+        if (parts.length < 2) {
+          return mapBracketTokenToLogRole(key);
+        }
+        var first = String(parts[0] || '').trim();
+        var second = String(parts[1] || '').trim();
+        var r = mapBracketTokenToLogRole(first);
+        if (r) return r;
+        if (second) return mapBracketTokenToLogRole(second);
         return null;
       }
 
