@@ -5873,12 +5873,18 @@ function rewriteActionResponseNoPersonalNamesLine(text, role, loc, crewPersonalN
 }
 
 /**
- * CHECK_LOG / TAKE_PISTOL / THREATEN / FIND_CLUE: 최종 표시에서 실명·소유격 이름 구문 제거.
+ * CHECK_LOG / TAKE_PISTOL / THREATEN / FIND_CLUE / QUESTION: 최종 표시에서 실명·소유격 이름 구문 제거.
  */
 function sanitizeActionResponseNoPersonalNames(displayLogs, locale, opts) {
   opts = opts || {};
   const kind = opts.dialogueLlmKind;
-  if (kind !== 'CHECK_LOG' && kind !== 'TAKE_PISTOL' && kind !== 'THREATEN' && kind !== 'FIND_CLUE') {
+  if (
+    kind !== 'CHECK_LOG' &&
+    kind !== 'TAKE_PISTOL' &&
+    kind !== 'THREATEN' &&
+    kind !== 'FIND_CLUE' &&
+    kind !== 'QUESTION'
+  ) {
     return displayLogs;
   }
   const loc = locale === 'en' ? 'en' : 'ko';
@@ -5926,12 +5932,18 @@ function sanitizeActionResponseNoPersonalNames(displayLogs, locale, opts) {
 }
 
 /**
- * CHECK_LOG / TAKE_PISTOL / THREATEN / FIND_CLUE: 크루→함장 한국어 존댓말 후처리(반말 종결 교정 + applyHonorificCrewKo).
+ * CHECK_LOG / TAKE_PISTOL / THREATEN / FIND_CLUE / QUESTION: 크루→함장 한국어 존댓말 후처리(반말 종결 교정 + applyHonorificCrewKo).
  */
 function sanitizeActionResponseHonorificKo(displayLogs, locale, opts) {
   opts = opts || {};
   const kind = opts.dialogueLlmKind;
-  if (kind !== 'CHECK_LOG' && kind !== 'TAKE_PISTOL' && kind !== 'THREATEN' && kind !== 'FIND_CLUE') {
+  if (
+    kind !== 'CHECK_LOG' &&
+    kind !== 'TAKE_PISTOL' &&
+    kind !== 'THREATEN' &&
+    kind !== 'FIND_CLUE' &&
+    kind !== 'QUESTION'
+  ) {
     return displayLogs;
   }
   const loc = locale === 'en' ? 'en' : 'ko';
@@ -10383,17 +10395,35 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
         : locale === 'en'
           ? `[${actU.toLowerCase()} action]`
           : `[${actU.toLowerCase()} action]`;
-  let newDisplayLogs = dedupeDisplayLogs(
-    await maybeDialogueLogsFromLlmOrDeterministic({
-      rawEvents: result.events || [],
-      deterministicLogs,
-      match: updated,
-      playerText: actionHint,
-      clueTextFromEvent,
+  let newDisplayLogs;
+  if (actU === 'QUESTION') {
+    let qLogs = dedupeDisplayLogs(deterministicLogs, locale);
+    await ensureCrewPersonalNamesPersisted(matchId);
+    const mNames = await matchStore.getMatch(matchId);
+    const crewPersonalNames = mNames?.game_state?.crew_names || {};
+    qLogs = sanitizeActionResponseNoPersonalNames(qLogs, locale, {
+      dialogueLlmKind: 'QUESTION',
+      crewPersonalNames,
+      threatTargetRole: null
+    });
+    qLogs = sanitizeActionResponseHonorificKo(qLogs, locale, {
+      dialogueLlmKind: 'QUESTION',
+      threatTargetRole: null
+    });
+    newDisplayLogs = dedupeDisplayLogs(qLogs, locale);
+  } else {
+    newDisplayLogs = dedupeDisplayLogs(
+      await maybeDialogueLogsFromLlmOrDeterministic({
+        rawEvents: result.events || [],
+        deterministicLogs,
+        match: updated,
+        playerText: actionHint,
+        clueTextFromEvent,
+        locale
+      }),
       locale
-    }),
-    locale
-  );
+    );
+  }
   newDisplayLogs = mergePrependedTensionDisplayLogs(tensionAct, newDisplayLogs, locale);
   const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
   const recentEvents = newDisplayLogs;
