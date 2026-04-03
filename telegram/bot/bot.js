@@ -8965,6 +8965,9 @@ async function persistTimerTensionForMatch(matchId, match, locale, now) {
   if (!gs || gs.game_over) {
     return { newRawEvents: [], match, displayLogs: [] };
   }
+  if (gs.captain_phase === 'opening_chat' && gs.opening_sequence_completed !== true) {
+    return { newRawEvents: [], match, displayLogs: [] };
+  }
   const tNow = now instanceof Date ? now : now != null ? new Date(now) : new Date();
   const timer = ep1Engine.getTimerStatus ? ep1Engine.getTimerStatus(match, tNow) : { remaining_sec: 420 };
   const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
