@@ -9076,7 +9076,7 @@ function mergePrependedTensionDisplayLogs(tension, displayLogs, locale) {
  * 타이머 구간 경고를 appendEvent + game_state 플래그에 반영.
  * @returns {Promise<{ newRawEvents: object[], match: object, displayLogs: object[] }>}
  */
-/** Cleared on first real commander gameplay input (message/action/accuse), not by polling. */
+/** Cleared on gameplay input (message/action/accuse/processActionApi) or each applyMatchClockTick (state poll) before tension. */
 async function clearPostOpeningWaitingForFirstCommanderInput(matchId) {
   try {
     const m = await matchStore.getMatch(matchId);
@@ -9096,7 +9096,6 @@ async function persistTimerTensionForMatch(matchId, match, locale, now) {
   if (gs.captain_phase === 'opening_chat' && gs.opening_sequence_completed !== true) {
     return { newRawEvents: [], match, displayLogs: [] };
   }
-  // State polling does not clear post_opening_waiting; only gameplay input paths call clearPostOpeningWaitingForFirstCommanderInput — until then tension stays suppressed.
   if (gs.post_opening_waiting_for_first_commander_input === true) {
     return { newRawEvents: [], match, displayLogs: [] };
   }
@@ -10576,6 +10575,7 @@ function getGameTotalSecFromMatch(match) {
  * @returns {Promise<object[]>} 이번 틱에서 새로 추가된 raw 이벤트
  */
 async function applyMatchClockTick(matchId) {
+  await clearPostOpeningWaitingForFirstCommanderInput(matchId);
   const now = new Date();
   const deltaRaw = [];
   const maxSteps = 24;
