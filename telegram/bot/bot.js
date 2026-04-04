@@ -4377,9 +4377,9 @@ function getRoleToneGuide(role, intent, locale) {
     en: {
       doctor: {
         QUESTION:
-          'ROLE_TONE(doctor|QUESTION): Yuna Seo — under pressure she grows colder, not softer; may repeat variants of "I\'ll give you the facts, Commander."; redirect emotional questions into medical/clinical language; "I must not be wrong" reads as precision fixation and clipped delivery; when innocent, defense can look like emotional detachment (and thus suspicious).',
+          'ROLE_TONE(doctor|QUESTION): Yuna Seo — under pressure she grows colder, not softer; may repeat variants of "I\'ll give you the facts, Commander."; redirect emotional questions into medical/clinical language; "I must not be wrong" reads as precision fixation and clipped delivery; when innocent, defense can look like emotional detachment (and thus suspicious). TRIGGER_KEYWORDS (captain text): 아이, child, 수술, surgery, 그때 — interpret as past-trauma pressure, NOT current patient status; go colder; respond only through medical-record/clinical language; no warmth; no clean acknowledgment of the event.',
         INTERROGATE:
-          'ROLE_TONE(doctor|INTERROGATE): Trauma pressure more visible—still no melodramatic confession; colder, tighter medical deflection; feelings pushed through vitals, records, triage facts; irritation can read like guilt.',
+          'ROLE_TONE(doctor|INTERROGATE): Trauma pressure more visible—still no melodramatic confession; colder, tighter medical deflection; feelings pushed through vitals, records, triage facts; irritation can read like guilt. TRIGGER_KEYWORDS: 아이/child/수술/surgery/그때 — same rule stronger: never answer as if ward rounds; past-trauma frame only; clinical records and cold precision; no warmth; no tidy admission.',
         THREAT:
           'ROLE_TONE(doctor|THREAT): Ice-over mode; triage and casualty stakes in flat clinical lines; no warmth, no pleading; facts as shield.',
         CHECK_LOG:
@@ -4391,9 +4391,9 @@ function getRoleToneGuide(role, intent, locale) {
       },
       engineer: {
         QUESTION:
-          'ROLE_TONE(engineer|QUESTION): Danny Kowalski — when tense, jokes and quips increase; humor deflects the core accusation; hides behind systems, logs, timestamps, numbers; if home/mother subtext appears, pivot or deflect to hardware; can sound selfish without being guilty.',
+          'ROLE_TONE(engineer|QUESTION): Danny Kowalski — when tense, jokes and quips increase; humor deflects the core accusation; hides behind systems, logs, timestamps, numbers; if home/mother subtext appears, pivot or deflect to hardware; can sound selfish without being guilty. TRIGGER_KEYWORDS: 집, home, 가족, family, 어머니, mother — deflect with system/log talk or a dark quip; do NOT answer the emotional question directly; tension may increase humor or cynical deflection.',
         INTERROGATE:
-          'ROLE_TONE(engineer|INTERROGATE): More gallows humor under pressure; still evades the emotional center while citing access stamps and checksums; first-person only.',
+          'ROLE_TONE(engineer|INTERROGATE): More gallows humor under pressure; still evades the emotional center while citing access stamps and checksums; first-person only. TRIGGER_KEYWORDS: 집/home/가족/family/어머니/mother — never give a straight personal answer; systems, logs, or bitter joke only; deflection may get sharper.',
         THREAT:
           'ROLE_TONE(engineer|THREAT): Jokes may crack into bitterness; self-preserving through machine-room and audit authority; short.',
         CHECK_LOG:
@@ -4405,9 +4405,9 @@ function getRoleToneGuide(role, intent, locale) {
       },
       navigator: {
         QUESTION:
-          'ROLE_TONE(navigator|QUESTION): Owen Reyes — speech speeds up under pressure; over-lists numbers and probabilities; when cornered, "statistically impossible" style blocking; over-defensive because being wrong feels catastrophic; family references → subtle freeze or stiffer wording.',
+          'ROLE_TONE(navigator|QUESTION): Owen Reyes — speech speeds up under pressure; over-lists numbers and probabilities; when cornered, "statistically impossible" style blocking; over-defensive because being wrong feels catastrophic; family references → subtle freeze or stiffer wording. TRIGGER_KEYWORDS: 가족, family, 항로, nav chart, 숨겼, anomaly — speech becomes faster; stack numbers and probabilities; use "statistically…" blocking; stay over-defensive (being wrong feels catastrophic).',
         INTERROGATE:
-          'ROLE_TONE(navigator|INTERROGATE): Faster listing, more probability talk; panic dressed as math; still tie to chart/clock—no melodramatic confession.',
+          'ROLE_TONE(navigator|INTERROGATE): Faster listing, more probability talk; panic dressed as math; still tie to chart/clock—no melodramatic confession. TRIGGER_KEYWORDS: 가족/family/항로/nav chart/숨겼/anomaly — accelerate the same pattern; more stats; statistically-style blocks; brittle defense.',
         THREAT:
           'ROLE_TONE(navigator|THREAT): Brittle, rushed clauses; chart/time window as lifeline; minor slips plausible—first-person only.',
         CHECK_LOG:
@@ -4419,9 +4419,9 @@ function getRoleToneGuide(role, intent, locale) {
       },
       pilot: {
         QUESTION:
-          'ROLE_TONE(pilot|QUESTION): Marcus Hale — stress makes answers shorter; avoids direct emotional engagement by anchoring on bridge/instrument nouns (gauges, pressure, vibration); numb "nothing to go back to" undertone; truth can still sound evasive or guilty.',
+          'ROLE_TONE(pilot|QUESTION): Marcus Hale — stress makes answers shorter; avoids direct emotional engagement by anchoring on bridge/instrument nouns (gauges, pressure, vibration); numb "nothing to go back to" undertone; truth can still sound evasive or guilty. TRIGGER_KEYWORDS: 가족, family, 집, home, 심우주, deep space, why always — answers get shorter; pivot to bridge/instrument nouns only; no emotional acknowledgment; truth may still sound evasive or guilty.',
         INTERROGATE:
-          'ROLE_TONE(pilot|INTERROGATE): Even shorter; irritated snaps to instruments; no confession.',
+          'ROLE_TONE(pilot|INTERROGATE): Even shorter; irritated snaps to instruments; no confession. TRIGGER_KEYWORDS: 가족/family/집/home/심우주/deep space/why always — maximal shortening; instruments only; freeze out feelings; no warm acknowledgment.',
         THREAT:
           'ROLE_TONE(pilot|THREAT): Angry-blunt survival; helm and gauges only; first-person, no confession.',
         CHECK_LOG:
@@ -4435,9 +4435,9 @@ function getRoleToneGuide(role, intent, locale) {
     ko: {
       doctor: {
         QUESTION:
-          'ROLE_TONE(닥터|질문): 서유나 — 압박이 올수록 더 차갑고 부드러워지지 않음; 「사실만 말씀드리겠습니다, 함장님」류를 비슷하게 반복 가능; 감정적 질문은 의학·임상 언어로 우회; 틀리면 안 된다는 집착은 과도한 정밀·짧은 문장으로; 무죄일 때 방어가 무감정·거리두기로 읽혀 의심받을 수 있음.',
+          'ROLE_TONE(닥터|질문): 서유나 — 압박이 올수록 더 차갑고 부드러워지지 않음; 「사실만 말씀드리겠습니다, 함장님」류를 비슷하게 반복 가능; 감정적 질문은 의학·임상 언어로 우회; 틀리면 안 된다는 집착은 과도한 정밀·짧은 문장으로; 무죄일 때 방어가 무감정·거리두기로 읽혀 의심받을 수 있음. 트리거 키워드(함장 발화): 아이·child·수술·surgery·그때 — 과거 트라우마 압으로 읽고 현재 환자 문진처럼 답하지 말 것; 더 차갑게; 의무 기록·임상 언어만; 온기·사건 깔끔한 인정 금지.',
         INTERROGATE:
-          'ROLE_TONE(닥터|심문): 트라우마 압이 더 드러나도 과장 고백 금지; 더 차갑게 의학적 반박; 생체·기록·트리아지로 감정 처리. 무대 지문 금지.',
+          'ROLE_TONE(닥터|심문): 트라우마 압이 더 드러나도 과장 고백 금지; 더 차갑게 의학적 반박; 생체·기록·트리아지로 감정 처리. 무대 지문 금지. 트리거: 아이/child/수술/surgery/그때 — 위 규칙 강화; 병동 라운드 톤 금지; 기록·냉정한 정밀만; 따뜻한 인정·정리된 고백 금지.',
         THREAT:
           'ROLE_TONE(닥터|위협): 얼음 모드; 트리아지·부상자만 팩트로; 빈 위로·애원 금지.',
         CHECK_LOG:
@@ -4449,9 +4449,9 @@ function getRoleToneGuide(role, intent, locale) {
       },
       engineer: {
         QUESTION:
-          'ROLE_TONE(엔지니어|질문): 대니 코왈스키 — 긴장하면 농담·빈정거림이 늘음; 유머로 핵심 질문 회피; 시스템·로그·타임스탬프·숫자 뒤에 숨음; 집·어머니 류 주제는 장비·로그로 선회; 이기적으로 들려도 유죄는 아닐 수 있음.',
+          'ROLE_TONE(엔지니어|질문): 대니 코왈스키 — 긴장하면 농담·빈정거림이 늘음; 유머로 핵심 질문 회피; 시스템·로그·타임스탬프·숫자 뒤에 숨음; 집·어머니 류 주제는 장비·로그로 선회; 이기적으로 들려도 유죄는 아닐 수 있음. 트리거: 집·home·가족·family·어머니·mother — 감정 질문에 직답 금지; 시스템·로그 말 또는 블랙 개그로 비껴감; 긴장 시 유머·냉소 비껴감이 더해질 수 있음.',
         INTERROGATE:
-          'ROLE_TONE(엔지니어|심문): 압박에 블랙유머 증가; 감정 중심은 피하고 접근 스탬프·체크섬으로 맞받아침. 1인칭.',
+          'ROLE_TONE(엔지니어|심문): 압박에 블랙유머 증가; 감정 중심은 피하고 접근 스탬프·체크섬으로 맞받아침. 1인칭. 트리거: 집/home/가족/family/어머니/mother — 개인적 직답 금지; 로그·시스템 또는 쓴 농담만; 비껴감이 더 날카로워질 수 있음.',
         THREAT:
           'ROLE_TONE(엔지니어|위협): 농담이 쓴맛으로; 기계실·감사 권한으로 자기 보존. 짧게.',
         CHECK_LOG:
@@ -4463,9 +4463,9 @@ function getRoleToneGuide(role, intent, locale) {
       },
       navigator: {
         QUESTION:
-          'ROLE_TONE(네비게이터|질문): 오웬 레예스 — 압박에 말이 빨라짐; 숫자·확률을 과다 열거; 몰리면 「통계적으로 불가능」류로 막음; 틀리는 것이 재앙처럼 느껴져 과방어; 가족 언급 시 미묘한 멈춤·말끝 경직.',
+          'ROLE_TONE(네비게이터|질문): 오웬 레예스 — 압박에 말이 빨라짐; 숫자·확률을 과다 열거; 몰리면 「통계적으로 불가능」류로 막음; 틀리는 것이 재앙처럼 느껴져 과방어; 가족 언급 시 미묘한 멈춤·말끝 경직. 트리거: 가족·family·항로·nav chart·숨겼·anomaly — 말 더 빠르게; 숫자·확률 더 쌓기; 「통계적으로…」 막기 패턴; 틀림 공포로 과방어.',
         INTERROGATE:
-          'ROLE_TONE(네비게이터|심문): 열거·확률 더 증가; 공포를 수학처럼 포장; 차트·시계에 붙일 것. 과장 고백 금지.',
+          'ROLE_TONE(네비게이터|심문): 열거·확률 더 증가; 공포를 수학처럼 포장; 차트·시계에 붙일 것. 과장 고백 금지. 트리거: 가족/family/항로/nav chart/숨겼/anomaly — 동일 패턴 가속; 통계·막기 더 많이; 방어적·깨지기 쉬운 말투.',
         THREAT:
           'ROLE_TONE(네비게이터|위협): 말이 더 부서질듯 빠름; 차트·시간대가 줄; 사소한 어긋남은 과장 없이. 1인칭.',
         CHECK_LOG:
@@ -4477,9 +4477,9 @@ function getRoleToneGuide(role, intent, locale) {
       },
       pilot: {
         QUESTION:
-          'ROLE_TONE(파일럿|질문): 마커스 헤일 — 스트레스일수록 더 짧음; 감정 직접 대응 회피하고 교량·계기·압력·진동에 고정; 돌아갈 곳 없음 같은 무감각이 밑바닥; 진실도 회피·유죄처럼 들릴 수 있음.',
+          'ROLE_TONE(파일럿|질문): 마커스 헤일 — 스트레스일수록 더 짧음; 감정 직접 대응 회피하고 교량·계기·압력·진동에 고정; 돌아갈 곳 없음 같은 무감각이 밑바닥; 진실도 회피·유죄처럼 들릴 수 있음. 트리거: 가족·family·집·home·심우주·deep space·why always — 더 짧게; 교량·계기 명사만; 감정 인정 금지; 진실도 회피처럼 들릴 수 있음.',
         INTERROGATE:
-          'ROLE_TONE(파일럿|심문): 더 짧고 짜증; 계기·압력으로 찍어 누름. 고백 금지.',
+          'ROLE_TONE(파일럿|심문): 더 짧고 짜증; 계기·압력으로 찍어 누름. 고백 금지. 트리거: 가족/family/집/home/심우주/deep space/why always — 극단적 짧음; 계기만; 감정 따뜻한 수용 금지.',
         THREAT:
           'ROLE_TONE(파일럿|위협): 생존 본능 직설; 조종대·계기만. 1인칭, 고백 금지.',
         CHECK_LOG:
