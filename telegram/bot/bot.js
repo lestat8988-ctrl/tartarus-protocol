@@ -4533,7 +4533,7 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
       'captain.text = captainSpokenLineVerbatim exactly when user JSON provides it; captain.narration always "".',
       'Forbidden: empty reassurance, generic teamwork sermons, calm-down platitudes, moralizing.',
       'OUTPUT_CONTRACT (crew): Spoken dialogue in text only. First person only. 1–3 sentences max in text. No stage directions. No third-person narration ("The doctor ...", "She focuses ...", "He analyzes ..."). No assistant-style closers ("I will verify", "I will review", "I will check") unless the action truly requires it.',
-      'TRAUMA_V3: Obey ROLE_TONE lines below—trauma-shaped pressure; no melodramatic confession; no hidden backstory dump unless directly pressured; innocents may still sound cold, evasive, joking, or statistically defensive.'
+      'TRAUMA_V3 (MANDATORY OVERRIDE): Each crew member has a trauma profile. When captain text matches a trigger keyword, the trauma response MUST activate — this overrides generic crew behavior. Doctor: 아이/child/surgery/수술/그때 → colder, medical deflection only, NO warmth, NO "what specifically?". Engineer: 집/home/어머니/mother/family → dark quip or system deflection, NO direct personal answer. Navigator: 가족/family/항로/숨겼/anomaly → faster speech, probability stacking, statistically-style block. Pilot: 심우주/deep space/why always/가족/home → maximum shortening, instruments only, NO emotional acknowledgment. Violation of this rule means the block fails validation.'
     ];
 
     if (kind === 'QUESTION') {
@@ -4713,7 +4713,7 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
     'captain.text = captainSpokenLineVerbatim exactly when user JSON provides it; captain.narration always "".',
     'Forbidden: 모두 진정, 신중해야, 침착하게, 우리는 함께, 훈계, 교훈, 빈 위로, 범용 팀워크 멘트.',
     'OUTPUT_CONTRACT(크루): 말로 한 대사만 text에. 1인칭만. text 1~3문장. 무대 지문 금지. 제3자 소설체 금지(「닥터는 …」「엔지니어는 …」「~느낍니다」「~집중합니다」「~분석합니다」 등). 어시스턴트형 말끝 금지: "확인해보겠습니다"·"검토해보겠습니다"·"다시 확인해보겠습니다" 등(실제로 그 행동이 필수일 때만 예외).',
-    'TRAUMA_V3: 아래 ROLE_TONE 트라우마 반응을 따를 것—과장 고백 금지; 직접 압박 전에는 숨은 과거 설명문 금지; 무죄도 차갑거나 회피적·통계적으로 들릴 수 있음.'
+    'TRAUMA_V3 (필수 우선규칙): 각 크루는 트라우마 반응 프로필을 가짐. 함장 발화에 트리거 키워드가 있으면 트라우마 반응이 반드시 발동됨 — 이 규칙은 범용 크루 반응보다 우선함. 닥터: 아이/child/수술/surgery/그때 → 더 차갑게, 의학적 우회만, 온기 금지, "어떤 부분이요?" 같은 답변 금지. 엔지니어: 집/home/어머니/mother/가족/family → 블랙 개그 또는 시스템 회피, 직접 개인 답변 금지. 네비게이터: 가족/family/항로/숨겼/anomaly → 말 빠르게, 확률 쌓기, 통계 막기. 파일럿: 심우주/deep space/why always/가족/home → 극단적 짧음, 계기 명사만, 감정 인정 금지. 이 규칙 위반 시 해당 블록은 무효.'
   ];
 
   if (kind === 'QUESTION') {
