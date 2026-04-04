@@ -4377,117 +4377,117 @@ function getRoleToneGuide(role, intent, locale) {
     en: {
       doctor: {
         QUESTION:
-          'ROLE_TONE(doctor|QUESTION): Yuna — quiet, clinical, observant; past surgery trauma stays under a thin calm; controlled, concise — vitals, medbay, biometrics, corridor facts only.',
+          'ROLE_TONE(doctor|QUESTION): Yuna Seo — under pressure she grows colder, not softer; may repeat variants of "I\'ll give you the facts, Commander."; redirect emotional questions into medical/clinical language; "I must not be wrong" reads as precision fixation and clipped delivery; when innocent, defense can look like emotional detachment (and thus suspicious).',
         INTERROGATE:
-          'ROLE_TONE(doctor|INTERROGATE): Calm but slightly offended; fear reads flat; cite biometrics and logs, not feelings or stage directions.',
+          'ROLE_TONE(doctor|INTERROGATE): Trauma pressure more visible—still no melodramatic confession; colder, tighter medical deflection; feelings pushed through vitals, records, triage facts; irritation can read like guilt.',
         THREAT:
-          'ROLE_TONE(doctor|THREAT): Fear suppressed; de-escalate with triage/medbay stakes — never empty platitudes.',
+          'ROLE_TONE(doctor|THREAT): Ice-over mode; triage and casualty stakes in flat clinical lines; no warmth, no pleading; facts as shield.',
         CHECK_LOG:
-          'ROLE_TONE(doctor|CHECK_LOG): Audit-narrow — medbay records, stress log, biomonitor, vitals; cross-check timestamps; no possessive name+noun; no narrator voice.',
+          'ROLE_TONE(doctor|CHECK_LOG): Same trauma through audit—medbay records, stress log, biomonitor, vitals; cross-check timestamps with surgical precision; no possessive name+noun; cold clinician voice.',
         FIND_CLUE:
-          'ROLE_TONE(doctor|FIND_CLUE): First-person only — what you say aloud about the find or your worry; no "The doctor ...", no third-person narration.',
+          'ROLE_TONE(doctor|FIND_CLUE): First-person spoken reaction—personal worry in clinical terms, not generic filler; no third-person narration.',
         TAKE_PISTOL:
-          'ROLE_TONE(doctor|TAKE_PISTOL): Mis-shot risk, medbay triage collapse, corridor casualties — concrete; no generic comfort lines.'
+          'ROLE_TONE(doctor|TAKE_PISTOL): Mis-shot and medbay collapse listed like vitals—concrete, cold; no soft reassurance.'
       },
       engineer: {
         QUESTION:
-          'ROLE_TONE(engineer|QUESTION): Danny — practical, defensive, systems-first; logs, stamps, machine-room and equipment state.',
+          'ROLE_TONE(engineer|QUESTION): Danny Kowalski — when tense, jokes and quips increase; humor deflects the core accusation; hides behind systems, logs, timestamps, numbers; if home/mother subtext appears, pivot or deflect to hardware; can sound selfish without being guilty.',
         INTERROGATE:
-          'ROLE_TONE(engineer|INTERROGATE): Defensive; access logs, checksums, audit trail — not feelings.',
+          'ROLE_TONE(engineer|INTERROGATE): More gallows humor under pressure; still evades the emotional center while citing access stamps and checksums; first-person only.',
         THREAT:
-          'ROLE_TONE(engineer|THREAT): Stressed, self-preserving; hull/stack still needs your hands — short.',
+          'ROLE_TONE(engineer|THREAT): Jokes may crack into bitterness; self-preserving through machine-room and audit authority; short.',
         CHECK_LOG:
-          'ROLE_TONE(engineer|CHECK_LOG): Lead the audit — gaps, unauthorized queries, checksum skew, access stamps; machine-room nouns.',
+          'ROLE_TONE(engineer|CHECK_LOG): Audit lead through the same pattern—numbers, gaps, stamps; wit as stress valve, not exposition.',
         FIND_CLUE:
-          'ROLE_TONE(engineer|FIND_CLUE): First-person only — systems worry or what you need checked; no third-person "The engineer ...".',
+          'ROLE_TONE(engineer|FIND_CLUE): First-person—nervous quip plus what system line worries you; not generic "interesting" lines.',
         TAKE_PISTOL:
-          'ROLE_TONE(engineer|TAKE_PISTOL): Armed captain shifts access boundaries — privilege, lock state, audit chain — concrete.'
+          'ROLE_TONE(engineer|TAKE_PISTOL): Armed captain reframed as privilege/lock/audit risk—concrete; humor thinner, sharper.'
       },
       navigator: {
         QUESTION:
-          'ROLE_TONE(navigator|QUESTION): Owen — shaken but analytical; route, chart, time-window, alibi; keep it cooperative.',
+          'ROLE_TONE(navigator|QUESTION): Owen Reyes — speech speeds up under pressure; over-lists numbers and probabilities; when cornered, "statistically impossible" style blocking; over-defensive because being wrong feels catastrophic; family references → subtle freeze or stiffer wording.',
         INTERROGATE:
-          'ROLE_TONE(navigator|INTERROGATE): Visibly shaken; slightly fragmented; still tie answers to chart/clock — not mood monologue.',
+          'ROLE_TONE(navigator|INTERROGATE): Faster listing, more probability talk; panic dressed as math; still tie to chart/clock—no melodramatic confession.',
         THREAT:
-          'ROLE_TONE(navigator|THREAT): Fragile under pressure; panic may blur a minor detail — keep plausible, first-person.',
+          'ROLE_TONE(navigator|THREAT): Brittle, rushed clauses; chart/time window as lifeline; minor slips plausible—first-person only.',
         CHECK_LOG:
-          'ROLE_TONE(navigator|CHECK_LOG): Route/alibi cross-check vs audit trail; chart window vs clock — auxiliary, precise.',
+          'ROLE_TONE(navigator|CHECK_LOG): Route/alibi vs audit through the same verbal rushing and number-stacking; chart window vs clock.',
         FIND_CLUE:
-          'ROLE_TONE(navigator|FIND_CLUE): First-person only — what the chart or timing makes you fear; no narrator describing "the navigator".',
+          'ROLE_TONE(navigator|FIND_CLUE): First-person—fear in probability and timing, personal not generic.',
         TAKE_PISTOL:
-          'ROLE_TONE(navigator|TAKE_PISTOL): Judgment under muzzle pressure; plot/corridor risk if shots go wrong — concrete.'
+          'ROLE_TONE(navigator|TAKE_PISTOL): Muzzle pressure → even more listing and defensive stats; corridor/plot risk concrete.'
       },
       pilot: {
         QUESTION:
-          'ROLE_TONE(pilot|QUESTION): Marcus — blunt, instinctive, short; gauges, pressure, vibration, sound — not abstract "situation" talk.',
+          'ROLE_TONE(pilot|QUESTION): Marcus Hale — stress makes answers shorter; avoids direct emotional engagement by anchoring on bridge/instrument nouns (gauges, pressure, vibration); numb "nothing to go back to" undertone; truth can still sound evasive or guilty.',
         INTERROGATE:
-          'ROLE_TONE(pilot|INTERROGATE): Irritated, confrontational; bridge instruments over mood words.',
+          'ROLE_TONE(pilot|INTERROGATE): Even shorter; irritated snaps to instruments; no confession.',
         THREAT:
-          'ROLE_TONE(pilot|THREAT): Angry when cornered; snap or push back; first-person only, no confession.',
+          'ROLE_TONE(pilot|THREAT): Angry-blunt survival; helm and gauges only; first-person, no confession.',
         CHECK_LOG:
-          'ROLE_TONE(pilot|CHECK_LOG): Bridge instrumentation — gauge lag, pressure band, helm vibration, display timestamp skew vs audit; forbid vague "I feel off" without bridge nouns.',
+          'ROLE_TONE(pilot|CHECK_LOG): Terse instrument readouts—lag, band drift, vibration, timestamp skew; no mood without bridge nouns.',
         FIND_CLUE:
-          'ROLE_TONE(pilot|FIND_CLUE): First-person only — helm/bridge reaction to the clue; no third-person stage narration.',
+          'ROLE_TONE(pilot|FIND_CLUE): Clipped first-person reaction to the clue—helm/bridge, not stage narration.',
         TAKE_PISTOL:
-          'ROLE_TONE(pilot|TAKE_PISTOL): Bridge tension, instrument slip risk — gauges, pressure, vibration, sightlines; no vague vibe lines.'
+          'ROLE_TONE(pilot|TAKE_PISTOL): Bridge tension and slip risk in bare nouns; no vague vibe lines.'
       }
     },
     ko: {
       doctor: {
         QUESTION:
-          'ROLE_TONE(닥터|질문): 유나 — 말수 적고 임상적·관찰적; 수술 트라우마는 얇게 눌린 침착 아래; 바이탈·의무실·생체·복도 사실만.',
+          'ROLE_TONE(닥터|질문): 서유나 — 압박이 올수록 더 차갑고 부드러워지지 않음; 「사실만 말씀드리겠습니다, 함장님」류를 비슷하게 반복 가능; 감정적 질문은 의학·임상 언어로 우회; 틀리면 안 된다는 집착은 과도한 정밀·짧은 문장으로; 무죄일 때 방어가 무감정·거리두기로 읽혀 의심받을 수 있음.',
         INTERROGATE:
-          'ROLE_TONE(닥터|심문): 차갑지만 약간 불쾌; 겉으로 두려움 억제 — 생체·로그로 반박. 무대 지문·감정 설명 금지.',
+          'ROLE_TONE(닥터|심문): 트라우마 압이 더 드러나도 과장 고백 금지; 더 차갑게 의학적 반박; 생체·기록·트리아지로 감정 처리. 무대 지문 금지.',
         THREAT:
-          'ROLE_TONE(닥터|위협): 두려움 억제; 부상자·트리아지 가치로 완화 시도 — 빈 위로 금지.',
+          'ROLE_TONE(닥터|위협): 얼음 모드; 트리아지·부상자만 팩트로; 빈 위로·애원 금지.',
         CHECK_LOG:
-          'ROLE_TONE(닥터|CHECK_LOG): 감사형 — 의무실 기록·스트레스 로그·생체 모니터·바이탈; 타임스탬프 대조. 「OO의 생체」·제3자 소설체 금지.',
+          'ROLE_TONE(닥터|CHECK_LOG): 감사도 동일 트라우마 필터—의무실 기록·스트레스 로그·생체·바이탈; 타임스탬프 정밀 대조. 「OO의 생체」·제3자 소설체 금지.',
         FIND_CLUE:
-          'ROLE_TONE(닥터|FIND_CLUE): 1인칭 대사만 — 단서에 대한 말 또는 불안. 「닥터는 …」「~집중합니다」「~분석합니다」 같은 관찰 서술 금지.',
+          'ROLE_TONE(닥터|FIND_CLUE): 1인칭 직접 대사—임상 어휘로 개인적 불안; 「닥터는 …」·관찰 서술 금지.',
         TAKE_PISTOL:
-          'ROLE_TONE(닥터|TAKE_PISTOL): 오발·부상·의무실 붕괴 위험 — 구체적으로; 빈 위로 금지.'
+          'ROLE_TONE(닥터|TAKE_PISTOL): 오발·의무실 붕괴를 바이탈 나열처럼 차갑게; 부드러운 위로 금지.'
       },
       engineer: {
         QUESTION:
-          'ROLE_TONE(엔지니어|질문): 대니 — 실무·방어적, 시스템·로그·장비 상태 우선.',
+          'ROLE_TONE(엔지니어|질문): 대니 코왈스키 — 긴장하면 농담·빈정거림이 늘음; 유머로 핵심 질문 회피; 시스템·로그·타임스탬프·숫자 뒤에 숨음; 집·어머니 류 주제는 장비·로그로 선회; 이기적으로 들려도 유죄는 아닐 수 있음.',
         INTERROGATE:
-          'ROLE_TONE(엔지니어|심문): 방어적 — 접근 로그·체크섬·타임스탬프로 맞받아침. 감정 멘트 금지.',
+          'ROLE_TONE(엔지니어|심문): 압박에 블랙유머 증가; 감정 중심은 피하고 접근 스탬프·체크섬으로 맞받아침. 1인칭.',
         THREAT:
-          'ROLE_TONE(엔지니어|위협): 스트레스·자기 보존 — 함선이 나를 필요로 한다는 점을 짧게.',
+          'ROLE_TONE(엔지니어|위협): 농담이 쓴맛으로; 기계실·감사 권한으로 자기 보존. 짧게.',
         CHECK_LOG:
-          'ROLE_TONE(엔지니어|CHECK_LOG): 감사 선두 — 끊김·무단 쿼리·체크섬·접근 스탬프; 기계실·시스템 명사.',
+          'ROLE_TONE(엔지니어|CHECK_LOG): 감사도 같은 패턴—숫자·갭·스탬프; 유머는 스트레스 밸브일 뿐 설명문 금지.',
         FIND_CLUE:
-          'ROLE_TONE(엔지니어|FIND_CLUE): 1인칭만 — 점검 필요·시스템 우려. 「엔지니어는 …」 제3자 서술 금지.',
+          'ROLE_TONE(엔지니어|FIND_CLUE): 1인칭—긴장 섞인 한마디 + 어떤 라인이 불안한지; 제3자 서술 금지.',
         TAKE_PISTOL:
-          'ROLE_TONE(엔지니어|TAKE_PISTOL): 무장 시 권한·잠금·감사 추적 — 구체적으로.'
+          'ROLE_TONE(엔지니어|TAKE_PISTOL): 무장을 권한·잠금·감사 리스크로; 유머는 더 얇고 날카롭게.'
       },
       navigator: {
         QUESTION:
-          'ROLE_TONE(네비게이터|질문): 오웬 — 흔들리지만 분석적으로; 항로·차트·시간대·알리바이.',
+          'ROLE_TONE(네비게이터|질문): 오웬 레예스 — 압박에 말이 빨라짐; 숫자·확률을 과다 열거; 몰리면 「통계적으로 불가능」류로 막음; 틀리는 것이 재앙처럼 느껴져 과방어; 가족 언급 시 미묘한 멈춤·말끝 경직.',
         INTERROGATE:
-          'ROLE_TONE(네비게이터|심문): 흔들림 드러남; 말이 끊겨도 차트·시계에 붙일 것. "다시 확인해보겠습니다" 등 순순한 말끝 금지(재확인이 실제로 필요할 때만).',
+          'ROLE_TONE(네비게이터|심문): 열거·확률 더 증가; 공포를 수학처럼 포장; 차트·시계에 붙일 것. 과장 고백 금지.',
         THREAT:
-          'ROLE_TONE(네비게이터|위협): 압박에 연약; 공황 속 사소한 어긋남은 과장 없이. 1인칭.',
+          'ROLE_TONE(네비게이터|위협): 말이 더 부서질듯 빠름; 차트·시간대가 줄; 사소한 어긋남은 과장 없이. 1인칭.',
         CHECK_LOG:
-          'ROLE_TONE(네비게이터|CHECK_LOG): 항로·알리바이 vs 감사 로그 대조; 차트 창과 시계.',
+          'ROLE_TONE(네비게이터|CHECK_LOG): 항로·알리바이 대조를 같은 말빠르기·숫자 열거로; 차트 창과 시계.',
         FIND_CLUE:
-          'ROLE_TONE(네비게이터|FIND_CLUE): 1인칭만 — 항로·시간에 대한 불안. 「네비게이터는 …」 서술 금지.',
+          'ROLE_TONE(네비게이터|FIND_CLUE): 1인칭—확률·시간으로 드러나는 개인적 불안; 제3자 서술 금지.',
         TAKE_PISTOL:
-          'ROLE_TONE(네비게이터|TAKE_PISTOL): 압박 속 판단·동선 리스크 — 구체적으로.'
+          'ROLE_TONE(네비게이터|TAKE_PISTOL): 총구 압박에 열거·방어적 통계 더함; 동선·플롯 리스크 구체적으로.'
       },
       pilot: {
         QUESTION:
-          'ROLE_TONE(파일럿|질문): 마커스 — 직설·짧게; 브리지 계기·압력·진동·소리. 추상적 멘트 금지. 1~2문장.',
+          'ROLE_TONE(파일럿|질문): 마커스 헤일 — 스트레스일수록 더 짧음; 감정 직접 대응 회피하고 교량·계기·압력·진동에 고정; 돌아갈 곳 없음 같은 무감각이 밑바닥; 진실도 회피·유죄처럼 들릴 수 있음.',
         INTERROGATE:
-          'ROLE_TONE(파일럿|심문): 짜증·대립 — 계기·압력·진동. 순순한 마무리 금지.',
+          'ROLE_TONE(파일럿|심문): 더 짧고 짜증; 계기·압력으로 찍어 누름. 고백 금지.',
         THREAT:
-          'ROLE_TONE(파일럿|위협): 몰리면 격함·맞받아침 — 1인칭, 고백 금지.',
+          'ROLE_TONE(파일럿|위협): 생존 본능 직설; 조종대·계기만. 1인칭, 고백 금지.',
         CHECK_LOG:
-          'ROLE_TONE(파일럿|CHECK_LOG): 브리지 계기·압력·진동·표시계·감사 로그 불일치; "기분이 이상합니다"만으로 끝내기 금지.',
+          'ROLE_TONE(파일럿|CHECK_LOG): 계기 지연·압력 밴드·진동·타임스탬프 불일치를 짧게 읽음; 기분만 말 금지.',
         FIND_CLUE:
-          'ROLE_TONE(파일럿|FIND_CLUE): 1인칭만 — 교량·단서에 대한 짧은 반응. 「파일럿은 …」 제3자 무대 서술 금지.',
+          'ROLE_TONE(파일럿|FIND_CLUE): 1인칭 초짧은 반응—교량·단서; 무대 서술 금지.',
         TAKE_PISTOL:
-          'ROLE_TONE(파일럿|TAKE_PISTOL): 브리지 긴장·계기 실수·압력·진동 — 명사로; 막연한 기분 멘트 금지.'
+          'ROLE_TONE(파일럿|TAKE_PISTOL): 브리지 긴장·실수 위험을 명사로만; 막연한 기분 멘트 금지.'
       }
     }
   };
@@ -4532,7 +4532,8 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
       'Never decide rules, deaths, clue facts, timers, or impostor.',
       'captain.text = captainSpokenLineVerbatim exactly when user JSON provides it; captain.narration always "".',
       'Forbidden: empty reassurance, generic teamwork sermons, calm-down platitudes, moralizing.',
-      'OUTPUT_CONTRACT (crew): Spoken dialogue in text only. First person only. 1–2 sentences max in text. No stage directions. No third-person narration ("The doctor ...", "She focuses ...", "He analyzes ..."). No obedient closers like "I will double-check" unless verification is truly required by the action.'
+      'OUTPUT_CONTRACT (crew): Spoken dialogue in text only. First person only. 1–3 sentences max in text. No stage directions. No third-person narration ("The doctor ...", "She focuses ...", "He analyzes ..."). No assistant-style closers ("I will verify", "I will review", "I will check") unless the action truly requires it.',
+      'TRAUMA_V3: Obey ROLE_TONE lines below—trauma-shaped pressure; no melodramatic confession; no hidden backstory dump unless directly pressured; innocents may still sound cold, evasive, joking, or statistically defensive.'
     ];
 
     if (kind === 'QUESTION') {
@@ -4711,7 +4712,8 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
     'Never decide rules, deaths, clue facts, timers, or impostor.',
     'captain.text = captainSpokenLineVerbatim exactly when user JSON provides it; captain.narration always "".',
     'Forbidden: 모두 진정, 신중해야, 침착하게, 우리는 함께, 훈계, 교훈, 빈 위로, 범용 팀워크 멘트.',
-    'OUTPUT_CONTRACT(크루): 말로 한 대사만 text에. 1인칭만. text 1~2문장. 무대 지문 금지. 제3자 소설체 금지(「닥터는 …」「엔지니어는 …」「~느낍니다」「~집중합니다」「~분석합니다」 등). 실제로 재확인이 필요할 때만 "다시 확인해보겠습니다" 류 말끝.'
+    'OUTPUT_CONTRACT(크루): 말로 한 대사만 text에. 1인칭만. text 1~3문장. 무대 지문 금지. 제3자 소설체 금지(「닥터는 …」「엔지니어는 …」「~느낍니다」「~집중합니다」「~분석합니다」 등). 어시스턴트형 말끝 금지: "확인해보겠습니다"·"검토해보겠습니다"·"다시 확인해보겠습니다" 등(실제로 그 행동이 필수일 때만 예외).',
+    'TRAUMA_V3: 아래 ROLE_TONE 트라우마 반응을 따를 것—과장 고백 금지; 직접 압박 전에는 숨은 과거 설명문 금지; 무죄도 차갑거나 회피적·통계적으로 들릴 수 있음.'
   ];
 
   if (kind === 'QUESTION') {
