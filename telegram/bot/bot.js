@@ -4570,6 +4570,7 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
           );
         } else if (generalTargetedQuestion) {
           qEnS.push(
+            'TRAUMA_OVERRIDE: Before answering, check if captain text contains a trauma trigger keyword. If yes, the TRAUMA_V3 mandatory override applies — do NOT answer directly; use trauma deflection pattern instead (doctor: cold medical language; engineer: dark quip or system deflection; navigator: probability stacking; pilot: instruments only, shorter). "Answer directly" applies ONLY if no trigger keyword is present.',
             'GENERAL_TARGETED_QUESTION (NOT a name question, NOT self-defense): answer the captain\'s question directly — 1–3 sentences.',
             'FORBIDDEN: personal name, "I am [Name]", "My name is …", name-first sentence, any crewPersonalNames string in focusTargetRole.text.',
             'FORBIDDEN: opening with role self-intro ("As a doctor I …") instead of answering.',
@@ -4752,6 +4753,7 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
         );
       } else if (generalTargetedQuestion) {
         qKoS.push(
+          'TRAUMA_OVERRIDE: 답하기 전에 함장 발화에 트리거 키워드가 있는지 확인. 있으면 TRAUMA_V3 우선규칙 적용 — 직접 답변 금지; 트라우마 회피 패턴 사용 (닥터: 차가운 의학 언어; 엔지니어: 블랙 개그 또는 시스템 회피; 네비게이터: 확률 쌓기; 파일럿: 계기 명사만, 더 짧게). 트리거 없을 때만 직접 답변.',
           'GENERAL_TARGETED_QUESTION (이름 질문 아님, 자기변호 아님): 함장 질문에 바로 답할 것. 1~3문장.',
           '금지: 실명·성함·crewPersonalNames·"저는 OO입니다"·"OO입니다"로 문장을 열기. 이름 소개·자기소개 금지.',
           '금지: "저는 의사로서/엔지니어로서"로 질문 답변 대신 직무 소개하기.',
