@@ -10375,10 +10375,22 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
 
   const updated = await matchStore.getMatch(matchId);
   const gameOver = result.game_over || updated?.game_state?.game_over;
-  const deterministicLogs = dedupeDisplayLogs(toPlayerDisplayLogs(result.events || [], { locale }), locale);
+  const actU = String(mapped.action || '').toUpperCase();
+  let checkLogCaptainInputLine;
+  if (actU === 'CHECK_LOG' && rawKey === 'cctv') {
+    checkLogCaptainInputLine = locale === 'en' ? 'Checking CCTV logs' : 'CCTV 로그를 확인한다';
+  } else if (actU === 'CHECK_LOG' && rawKey === 'engine') {
+    checkLogCaptainInputLine = locale === 'en' ? 'Checking the engine room' : '엔진실을 확인한다';
+  }
+  const deterministicLogs = dedupeDisplayLogs(
+    toPlayerDisplayLogs(result.events || [], {
+      locale,
+      ...(checkLogCaptainInputLine != null ? { captainInputLine: checkLogCaptainInputLine } : {})
+    }),
+    locale
+  );
   const clueEv = (result.events || []).find((e) => e && String(e.type).toUpperCase() === 'FIND_CLUE');
   const clueTextFromEvent = clueEv && clueEv.clue_text ? String(clueEv.clue_text) : undefined;
-  const actU = String(mapped.action || '').toUpperCase();
   const actionHint =
     actU === 'THREATEN'
       ? locale === 'en'
@@ -10392,9 +10404,11 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
         ? locale === 'en'
           ? `[collect_clue action]`
           : `[단서수집 action]`
-        : locale === 'en'
-          ? `[${actU.toLowerCase()} action]`
-          : `[${actU.toLowerCase()} action]`;
+        : checkLogCaptainInputLine != null
+          ? checkLogCaptainInputLine
+          : locale === 'en'
+            ? `[${actU.toLowerCase()} action]`
+            : `[${actU.toLowerCase()} action]`;
   let newDisplayLogs;
   if (actU === 'QUESTION') {
     let qLogs = dedupeDisplayLogs(deterministicLogs, locale);
