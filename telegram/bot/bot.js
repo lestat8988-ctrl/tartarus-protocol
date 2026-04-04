@@ -9096,6 +9096,7 @@ async function persistTimerTensionForMatch(matchId, match, locale, now) {
   if (gs.captain_phase === 'opening_chat' && gs.opening_sequence_completed !== true) {
     return { newRawEvents: [], match, displayLogs: [] };
   }
+  // State polling does not clear post_opening_waiting; only gameplay input paths call clearPostOpeningWaitingForFirstCommanderInput — until then tension stays suppressed.
   if (gs.post_opening_waiting_for_first_commander_input === true) {
     return { newRawEvents: [], match, displayLogs: [] };
   }
@@ -10437,6 +10438,10 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
   let match = await matchStore.getMatch(matchId);
   if (!match) return { ok: false, error: 'Match not found' };
 
+  await clearPostOpeningWaitingForFirstCommanderInput(matchId);
+  match = await matchStore.getMatch(matchId);
+  if (!match) return { ok: false, error: 'Match not found' };
+
   const tensionNowAct =
     opts.now instanceof Date ? opts.now : opts.now != null ? new Date(opts.now) : new Date();
   const tensionAct = await persistTimerTensionForMatch(matchId, match, locale, tensionNowAct);
@@ -10466,7 +10471,6 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
   if (!result.ok) return { ok: false, error: result.error || 'unknown' };
 
   await matchStore.updateMatch(matchId, { ...result.next_state, turn: (match.turn || 1) + 1 });
-  await clearPostOpeningWaitingForFirstCommanderInput(matchId);
   if (result.events?.length > 0) {
     for (const ev of result.events) await matchStore.appendEvent(matchId, ev);
   }
