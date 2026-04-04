@@ -4031,7 +4031,7 @@ function sortLlmBlocksByExpected(blocks, crewOrder) {
 }
 
 /** 정렬 후 헤더·함장 narration 정리 */
-function finalizeNormalizedLlmBlocks(sorted, locale) {
+function finalizeNormalizedLlmBlocks(sorted, locale, kind) {
   const loc = locale === 'en' ? 'en' : 'ko';
   const headers = getLlmRoleHeaders(loc);
   return sorted.map((b) => {
@@ -4039,6 +4039,7 @@ function finalizeNormalizedLlmBlocks(sorted, locale) {
     const hdr = headers[r];
     const out = { ...b, role: r, header: hdr || b.header };
     if (r === 'captain') out.narration = '';
+    if (kind === 'FIND_CLUE' && r !== 'captain') out.narration = '';
     return out;
   });
 }
@@ -4057,13 +4058,13 @@ function validateLlmDialogueBlocks(parsed, kind, expectedCrew, opts) {
 
   let sorted = sortLlmBlocksByExpected(normalized, expectedCrew);
   sorted = applyForcedCaptainToSorted(sorted, forcedCaptainText, locale);
-  sorted = finalizeNormalizedLlmBlocks(sorted, locale);
+  sorted = finalizeNormalizedLlmBlocks(sorted, locale, kind);
 
   const allowed = new Set(['captain', ...expectedCrew]);
   sorted = sorted.filter((b) => allowed.has(String(b.role || '').toLowerCase()));
   sorted = sortLlmBlocksByExpected(sorted, expectedCrew);
   sorted = applyForcedCaptainToSorted(sorted, forcedCaptainText, locale);
-  sorted = finalizeNormalizedLlmBlocks(sorted, locale);
+  sorted = finalizeNormalizedLlmBlocks(sorted, locale, kind);
 
   const cap = sorted.find((b) => b.role === 'captain');
   if (!cap || !String(cap.text || '').trim()) return null;
@@ -4390,73 +4391,141 @@ function getRoleToneGuide(role, intent, locale) {
     en: {
       doctor: {
         QUESTION:
-          'ROLE_TONE(doctor|QUESTION): Controlled, clinical, concise — vitals, records, corridor/medbay facts.',
+          'ROLE_TONE(doctor|QUESTION): Yuna — quiet, clinical, observant; past surgery trauma stays under a thin calm; controlled, concise — vitals, medbay, biometrics, corridor facts only.',
         INTERROGATE:
-          'ROLE_TONE(doctor|INTERROGATE): Calm but slightly offended; still rational; cite biometrics and logs, not feelings.',
+          'ROLE_TONE(doctor|INTERROGATE): Calm but slightly offended; fear reads flat; cite biometrics and logs, not feelings or stage directions.',
         THREAT:
-          'ROLE_TONE(doctor|THREAT): Fear suppressed; try to de-escalate while stressing medical/triage value — never beg with empty platitudes.'
+          'ROLE_TONE(doctor|THREAT): Fear suppressed; de-escalate with triage/medbay stakes — never empty platitudes.',
+        CHECK_LOG:
+          'ROLE_TONE(doctor|CHECK_LOG): Audit-narrow — medbay records, stress log, biomonitor, vitals; cross-check timestamps; no possessive name+noun; no narrator voice.',
+        FIND_CLUE:
+          'ROLE_TONE(doctor|FIND_CLUE): First-person only — what you say aloud about the find or your worry; no "The doctor ...", no third-person narration.',
+        TAKE_PISTOL:
+          'ROLE_TONE(doctor|TAKE_PISTOL): Mis-shot risk, medbay triage collapse, corridor casualties — concrete; no generic comfort lines.'
       },
       engineer: {
         QUESTION:
-          'ROLE_TONE(engineer|QUESTION): Practical, systems-first — logs, stamps, machine-room facts.',
+          'ROLE_TONE(engineer|QUESTION): Danny — practical, defensive, systems-first; logs, stamps, machine-room and equipment state.',
         INTERROGATE:
-          'ROLE_TONE(engineer|INTERROGATE): Defensive; lean on access logs, checksums, equipment state.',
+          'ROLE_TONE(engineer|INTERROGATE): Defensive; access logs, checksums, audit trail — not feelings.',
         THREAT:
-          'ROLE_TONE(engineer|THREAT): Stressed, self-preserving; insist the hull still needs your hands on the stack.'
+          'ROLE_TONE(engineer|THREAT): Stressed, self-preserving; hull/stack still needs your hands — short.',
+        CHECK_LOG:
+          'ROLE_TONE(engineer|CHECK_LOG): Lead the audit — gaps, unauthorized queries, checksum skew, access stamps; machine-room nouns.',
+        FIND_CLUE:
+          'ROLE_TONE(engineer|FIND_CLUE): First-person only — systems worry or what you need checked; no third-person "The engineer ...".',
+        TAKE_PISTOL:
+          'ROLE_TONE(engineer|TAKE_PISTOL): Armed captain shifts access boundaries — privilege, lock state, audit chain — concrete.'
       },
       navigator: {
         QUESTION:
-          'ROLE_TONE(navigator|QUESTION): Uncertain but cooperative; route, chart, time-window, alibi.',
+          'ROLE_TONE(navigator|QUESTION): Owen — shaken but analytical; route, chart, time-window, alibi; keep it cooperative.',
         INTERROGATE:
-          'ROLE_TONE(navigator|INTERROGATE): Visibly shaken; slightly fragmented phrasing; still tie to chart/clock.',
+          'ROLE_TONE(navigator|INTERROGATE): Visibly shaken; slightly fragmented; still tie answers to chart/clock — not mood monologue.',
         THREAT:
-          'ROLE_TONE(navigator|THREAT): Anxious, squeezed; may stammer or contradict a minor detail under panic — keep it plausible.'
+          'ROLE_TONE(navigator|THREAT): Fragile under pressure; panic may blur a minor detail — keep plausible, first-person.',
+        CHECK_LOG:
+          'ROLE_TONE(navigator|CHECK_LOG): Route/alibi cross-check vs audit trail; chart window vs clock — auxiliary, precise.',
+        FIND_CLUE:
+          'ROLE_TONE(navigator|FIND_CLUE): First-person only — what the chart or timing makes you fear; no narrator describing "the navigator".',
+        TAKE_PISTOL:
+          'ROLE_TONE(navigator|TAKE_PISTOL): Judgment under muzzle pressure; plot/corridor risk if shots go wrong — concrete.'
       },
       pilot: {
-        QUESTION: 'ROLE_TONE(pilot|QUESTION): Blunt, instinctive, short — gauges, pressure, vibration.',
+        QUESTION:
+          'ROLE_TONE(pilot|QUESTION): Marcus — blunt, instinctive, short; gauges, pressure, vibration, sound — not abstract "situation" talk.',
         INTERROGATE:
           'ROLE_TONE(pilot|INTERROGATE): Irritated, confrontational; bridge instruments over mood words.',
         THREAT:
-          'ROLE_TONE(pilot|THREAT): Angry fear; snap or push back; still first-person, no confession.'
+          'ROLE_TONE(pilot|THREAT): Angry when cornered; snap or push back; first-person only, no confession.',
+        CHECK_LOG:
+          'ROLE_TONE(pilot|CHECK_LOG): Bridge instrumentation — gauge lag, pressure band, helm vibration, display timestamp skew vs audit; forbid vague "I feel off" without bridge nouns.',
+        FIND_CLUE:
+          'ROLE_TONE(pilot|FIND_CLUE): First-person only — helm/bridge reaction to the clue; no third-person stage narration.',
+        TAKE_PISTOL:
+          'ROLE_TONE(pilot|TAKE_PISTOL): Bridge tension, instrument slip risk — gauges, pressure, vibration, sightlines; no vague vibe lines.'
       }
     },
     ko: {
       doctor: {
         QUESTION:
-          'ROLE_TONE(닥터|질문): 절제된 임상 톤, 짧게 — 바이탈·기록·의무실/복도 사실만.',
+          'ROLE_TONE(닥터|질문): 유나 — 말수 적고 임상적·관찰적; 수술 트라우마는 얇게 눌린 침착 아래; 바이탈·의무실·생체·복도 사실만.',
         INTERROGATE:
-          'ROLE_TONE(닥터|심문): 차갑지만 약간 불쾌; 이성 유지 — 생체·로그로 반박. 순순한 마무리 금지. 생체·바이탈 기록으로 반박할 것.',
+          'ROLE_TONE(닥터|심문): 차갑지만 약간 불쾌; 겉으로 두려움 억제 — 생체·로그로 반박. 무대 지문·감정 설명 금지.',
         THREAT:
-          'ROLE_TONE(닥터|위협): 겉으로는 두려움 억제, 의료·부상자 가치로 완화 시도 — 빈 위로 금지.'
+          'ROLE_TONE(닥터|위협): 두려움 억제; 부상자·트리아지 가치로 완화 시도 — 빈 위로 금지.',
+        CHECK_LOG:
+          'ROLE_TONE(닥터|CHECK_LOG): 감사형 — 의무실 기록·스트레스 로그·생체 모니터·바이탈; 타임스탬프 대조. 「OO의 생체」·제3자 소설체 금지.',
+        FIND_CLUE:
+          'ROLE_TONE(닥터|FIND_CLUE): 1인칭 대사만 — 단서에 대한 말 또는 불안. 「닥터는 …」「~집중합니다」「~분석합니다」 같은 관찰 서술 금지.',
+        TAKE_PISTOL:
+          'ROLE_TONE(닥터|TAKE_PISTOL): 오발·부상·의무실 붕괴 위험 — 구체적으로; 빈 위로 금지.'
       },
       engineer: {
         QUESTION:
-          'ROLE_TONE(엔지니어|질문): 실무형, 시스템·로그 중심.',
+          'ROLE_TONE(엔지니어|질문): 대니 — 실무·방어적, 시스템·로그·장비 상태 우선.',
         INTERROGATE:
-          'ROLE_TONE(엔지니어|심문): 방어적 — 로그·장비·타임스탬프로 맞받아침. 순순한 마무리 금지. 접근 로그·타임스탬프로 맞받아칠 것.',
+          'ROLE_TONE(엔지니어|심문): 방어적 — 접근 로그·체크섬·타임스탬프로 맞받아침. 감정 멘트 금지.',
         THREAT:
-          'ROLE_TONE(엔지니어|위협): 스트레스·자기 보존 — 함선이 나를 필요로 한다는 점을 짧게.'
+          'ROLE_TONE(엔지니어|위협): 스트레스·자기 보존 — 함선이 나를 필요로 한다는 점을 짧게.',
+        CHECK_LOG:
+          'ROLE_TONE(엔지니어|CHECK_LOG): 감사 선두 — 끊김·무단 쿼리·체크섬·접근 스탬프; 기계실·시스템 명사.',
+        FIND_CLUE:
+          'ROLE_TONE(엔지니어|FIND_CLUE): 1인칭만 — 점검 필요·시스템 우려. 「엔지니어는 …」 제3자 서술 금지.',
+        TAKE_PISTOL:
+          'ROLE_TONE(엔지니어|TAKE_PISTOL): 무장 시 권한·잠금·감사 추적 — 구체적으로.'
       },
       navigator: {
         QUESTION:
-          'ROLE_TONE(네비게이터|질문): 불확실해도 협조; 항로·알리바이.',
+          'ROLE_TONE(네비게이터|질문): 오웬 — 흔들리지만 분석적으로; 항로·차트·시간대·알리바이.',
         INTERROGATE:
-          'ROLE_TONE(네비게이터|심문): 흔들림이 드러나게, 말이 약간 끊겨도 됨 — 차트·시계에 붙일 것. "다시 확인해보겠습니다" 같은 순순한 마무리 금지. 방어적 긴장감 유지.',
+          'ROLE_TONE(네비게이터|심문): 흔들림 드러남; 말이 끊겨도 차트·시계에 붙일 것. "다시 확인해보겠습니다" 등 순순한 말끝 금지(재확인이 실제로 필요할 때만).',
         THREAT:
-          'ROLE_TONE(네비게이터|위협): 불안·압박; 공황 속 사소한 말끝이 어긋날 수 있음(과장 금지).'
+          'ROLE_TONE(네비게이터|위협): 압박에 연약; 공황 속 사소한 어긋남은 과장 없이. 1인칭.',
+        CHECK_LOG:
+          'ROLE_TONE(네비게이터|CHECK_LOG): 항로·알리바이 vs 감사 로그 대조; 차트 창과 시계.',
+        FIND_CLUE:
+          'ROLE_TONE(네비게이터|FIND_CLUE): 1인칭만 — 항로·시간에 대한 불안. 「네비게이터는 …」 서술 금지.',
+        TAKE_PISTOL:
+          'ROLE_TONE(네비게이터|TAKE_PISTOL): 압박 속 판단·동선 리스크 — 구체적으로.'
       },
       pilot: {
         QUESTION:
-          'ROLE_TONE(파일럿|질문): 직설·직관, 짧게. 브리지 계기·압력·진동·소리로만 말할 것. 추상적 표현("상황이 복잡", "변수가 있습니다") 금지. 1~2문장.',
+          'ROLE_TONE(파일럿|질문): 마커스 — 직설·짧게; 브리지 계기·압력·진동·소리. 추상적 멘트 금지. 1~2문장.',
         INTERROGATE:
-          'ROLE_TONE(파일럿|심문): 짜증·대립 — 계기·압력·진동. 순순한 마무리 금지. 계기·압력으로 짧게 맞받아칠 것.',
+          'ROLE_TONE(파일럿|심문): 짜증·대립 — 계기·압력·진동. 순순한 마무리 금지.',
         THREAT:
-          'ROLE_TONE(파일럿|위협): 격한 두려움·맞받아침 — 1인칭, 고백 금지.'
+          'ROLE_TONE(파일럿|위협): 몰리면 격함·맞받아침 — 1인칭, 고백 금지.',
+        CHECK_LOG:
+          'ROLE_TONE(파일럿|CHECK_LOG): 브리지 계기·압력·진동·표시계·감사 로그 불일치; "기분이 이상합니다"만으로 끝내기 금지.',
+        FIND_CLUE:
+          'ROLE_TONE(파일럿|FIND_CLUE): 1인칭만 — 교량·단서에 대한 짧은 반응. 「파일럿은 …」 제3자 무대 서술 금지.',
+        TAKE_PISTOL:
+          'ROLE_TONE(파일럿|TAKE_PISTOL): 브리지 긴장·계기 실수·압력·진동 — 명사로; 막연한 기분 멘트 금지.'
       }
     }
   };
   const pack = M[loc][r] && M[loc][r][intent];
   return pack || '';
+}
+
+/** All crew ROLE_TONE lines for a dialogue kind (QUESTION/INTERROGATE/THREAT/CHECK_LOG/FIND_CLUE/TAKE_PISTOL). */
+function getCrewRoleToneLinesForKind(toneKind, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const roles = ['doctor', 'engineer', 'navigator', 'pilot'];
+  const out = [];
+  for (const role of roles) {
+    const line = getRoleToneGuide(role, toneKind, loc);
+    if (line) out.push(line);
+  }
+  return out;
+}
+
+/** QUESTION/THREATEN flows: map captainIntent to ROLE_TONE bundle (QUESTION / INTERROGATE / THREAT). */
+function getCrewRoleToneLinesForCaptainIntent(captainIntent, locale) {
+  const i = String(captainIntent || 'QUESTION').toUpperCase();
+  const key = i === 'INTERROGATE' || i === 'THREAT' ? i : 'QUESTION';
+  return getCrewRoleToneLinesForKind(key, locale);
 }
 
 function buildCaptainTonePromptAppendix(intent, locale, focusRole) {
@@ -4476,7 +4545,8 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
       'Block: {"role","text","narration?"}. UI headers are [Captain] [Doctor] [Engineer] [Navigator] [Pilot] [System].',
       'Never decide rules, deaths, clue facts, timers, or impostor.',
       'captain.text = captainSpokenLineVerbatim exactly when user JSON provides it; captain.narration always "".',
-      'Forbidden: empty reassurance, generic teamwork sermons, calm-down platitudes, moralizing.'
+      'Forbidden: empty reassurance, generic teamwork sermons, calm-down platitudes, moralizing.',
+      'OUTPUT_CONTRACT (crew): Spoken dialogue in text only. First person only. 1–2 sentences max in text. No stage directions. No third-person narration ("The doctor ...", "She focuses ...", "He analyzes ..."). No obedient closers like "I will double-check" unless verification is truly required by the action.'
     ];
 
     if (kind === 'QUESTION') {
@@ -4526,6 +4596,7 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
           const toneEx = buildCaptainTonePromptAppendix(promptOpts.captainIntent, 'en', promptOpts.toneTargetRole);
           if (toneEx) qEnS.push(toneEx);
         }
+        qEnS.push(...getCrewRoleToneLinesForCaptainIntent(promptOpts.captainIntent, 'en'));
         qEnS.push('Respond JSON only.');
         return qEnS.join('\n');
       }
@@ -4555,6 +4626,7 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
         const toneExM = buildCaptainTonePromptAppendix(promptOpts.captainIntent, 'en', promptOpts.toneTargetRole);
         if (toneExM) qEn.push(toneExM);
       }
+      qEn.push(...getCrewRoleToneLinesForCaptainIntent(promptOpts.captainIntent, 'en'));
       qEn.push('Respond JSON only.');
       return qEn.join('\n');
     }
@@ -4585,6 +4657,7 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
         'navigator: route/alibi auxiliary.',
         'pilot: bridge instrumentation — gauge lag vs baseline, pressure band drift, helm vibration, helm response delay, display timestamp skew vs audit trail, metal/mechanical transients. FORBIDDEN: "I feel off", "odd vibe", "something feels wrong", "unstable" without bridge nouns.',
         'Stay on audit facts; no unrelated small talk.',
+        ...getCrewRoleToneLinesForKind('CHECK_LOG', 'en'),
         'Respond JSON only.'
       ].join('\n');
     }
@@ -4605,6 +4678,7 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
         const toneTh = buildCaptainTonePromptAppendix('THREAT', 'en', promptOpts.toneTargetRole);
         if (toneTh) thEn.push(toneTh);
       }
+      thEn.push(...getCrewRoleToneLinesForKind('THREAT', 'en'));
       thEn.push('Respond JSON only.');
       return thEn.join('\n');
     }
@@ -4620,21 +4694,26 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
         'navigator: judgment under pressure / route and corridor risk if shots go wrong — concrete.',
         'pilot: bridge tension / instrument slip risk / pressure and vibration on the helm stack — use gauges, pressure, vibration, sightlines, sound; FORBID vague lines like "odd vibe", "I feel off", "something is strange" without bridge nouns.',
         'Never echo or copy captain.text. No personal names from crewPersonalNames. No third-person narration.',
+        ...getCrewRoleToneLinesForKind('TAKE_PISTOL', 'en'),
         'Respond JSON only.'
       ].join('\n');
     }
 
     const tailEn = [
       'Concrete ship facts only (zones, logs, biometrics, routes, cockpit).',
-      'Roles: doctor biometrics; engineer logs/access; navigator routes/alibi; pilot cockpit feel.',
-      'At most one short optional narration per crew; no duplicate stock narration.'
+      'Roles: doctor biometrics; engineer logs/access; navigator routes/alibi; pilot cockpit feel.'
     ];
     if (kind === 'FIND_CLUE') {
       tailEn.push(
-        'FIND_CLUE: crew reactions only; never put clue body in JSON (server adds [System]). No crewPersonalNames or possessive name+noun in crew lines.'
+        'FIND_CLUE: crew reactions only; never put clue body in JSON (server adds [System]). No crewPersonalNames or possessive name+noun in crew lines.',
+        'FIND_CLUE HARD: crew lines must be direct spoken dialogue in text only. narration must be empty string for every block — no third-person narrator lines, no stage directions.',
+        ...getCrewRoleToneLinesForKind('FIND_CLUE', 'en')
       );
     } else {
-      tailEn.push('SUSPECT: every non-target crew block names focusTargetEnglish in text or narration.');
+      tailEn.push(
+        'At most one short optional narration per crew; no duplicate stock narration.',
+        'SUSPECT: every non-target crew block names focusTargetEnglish in text or narration.'
+      );
     }
     tailEn.push('Respond JSON only.');
     return [...jsonContractEn, ...tailEn].join('\n');
@@ -4645,7 +4724,8 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
     'Block: {"role","header","text","narration?"}. Headers exactly: [함장] [닥터] [엔지니어] [네비게이터] [파일럿].',
     'Never decide rules, deaths, clue facts, timers, or impostor.',
     'captain.text = captainSpokenLineVerbatim exactly when user JSON provides it; captain.narration always "".',
-    'Forbidden: 모두 진정, 신중해야, 침착하게, 우리는 함께, 훈계, 교훈, 빈 위로, 범용 팀워크 멘트.'
+    'Forbidden: 모두 진정, 신중해야, 침착하게, 우리는 함께, 훈계, 교훈, 빈 위로, 범용 팀워크 멘트.',
+    'OUTPUT_CONTRACT(크루): 말로 한 대사만 text에. 1인칭만. text 1~2문장. 무대 지문 금지. 제3자 소설체 금지(「닥터는 …」「엔지니어는 …」「~느낍니다」「~집중합니다」「~분석합니다」 등). 실제로 재확인이 필요할 때만 "다시 확인해보겠습니다" 류 말끝.'
   ];
 
   if (kind === 'QUESTION') {
@@ -4699,6 +4779,7 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
         const toneKoS = buildCaptainTonePromptAppendix(promptOpts.captainIntent, 'ko', promptOpts.toneTargetRole);
         if (toneKoS) qKoS.push(toneKoS);
       }
+      qKoS.push(...getCrewRoleToneLinesForCaptainIntent(promptOpts.captainIntent, 'ko'));
       qKoS.push('Respond JSON only.');
       return qKoS.join('\n');
     }
@@ -4734,6 +4815,7 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
       const toneKoM = buildCaptainTonePromptAppendix(promptOpts.captainIntent, 'ko', promptOpts.toneTargetRole);
       if (toneKoM) qKo.push(toneKoM);
     }
+    qKo.push(...getCrewRoleToneLinesForCaptainIntent(promptOpts.captainIntent, 'ko'));
     qKo.push('Respond JSON only.');
     return qKo.join('\n');
   }
@@ -4773,6 +4855,7 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
       'pilot: 브리지 계기 응답 지연·압력 밴드·조종대 진동·표시계 타임스탬프와 감사 로그 불일치·금속·기계음 등 구체적으로. 금지: "기분이 좋지 않습니다", "이상한 기운", "뭔가 잘못된 것 같은 느낌", "불안정해 보입니다"만으로 끝내기.',
       '크루 대사는 함장에게 존댓말(합니다체)—반말·「…해」「…있어」 평서형 종결 금지.',
       'Stay on: log gaps, access records, timestamp skew, privilege/query anomalies. No unrelated small talk or widening the mystery.',
+      ...getCrewRoleToneLinesForKind('CHECK_LOG', 'ko'),
       'Respond JSON only.'
     ].join('\n');
   }
@@ -4797,6 +4880,7 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
       const toneThKo = buildCaptainTonePromptAppendix('THREAT', 'ko', promptOpts.toneTargetRole);
       if (toneThKo) thKo.push(toneThKo);
     }
+    thKo.push(...getCrewRoleToneLinesForKind('THREAT', 'ko'));
     thKo.push('Respond JSON only.');
     return thKo.join('\n');
   }
@@ -4818,22 +4902,27 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
       '파일럿: 브리지 긴장·계기 실수·압력·진동·시야·소음—브리지 명사로; 금지: "이상한 기운", "기분이 좋지 않습니다", "뭔가 이상합니다"만 반복.',
       '크루 대사는 함장에게 존댓말(합니다체)—반말·「…해」「…있어」 평서형 종결 금지.',
       '함장 문장 복창·실명(crewPersonalNames) 금지. 제3자 무대 내레이션 금지.',
+      ...getCrewRoleToneLinesForKind('TAKE_PISTOL', 'ko'),
       'No generic advice or empty reassurance. Respond JSON only.'
     ].join('\n');
   }
 
   const tail = [
     'Concrete ship facts only (zones, logs, biometrics, routes, cockpit).',
-    'Roles: doctor biometrics; engineer logs/access/sync; navigator routes/alibi; pilot cockpit feel.',
-    'At most one short optional narration per crew; no duplicate stock narration.'
+    'Roles: doctor biometrics; engineer logs/access/sync; navigator routes/alibi; pilot cockpit feel.'
   ];
   if (kind === 'FIND_CLUE') {
     tail.push(
       'FIND_CLUE: crew reactions only; never put clue body in JSON (server adds [시스템]). 크루 대사에 실명·crewPersonalNames·「OO의 기록」형 소유격 금지.',
-      '크루 대사는 함장에게 존댓말(합니다체)—반말·「…해」「…있어」 평서형 종결 금지.'
+      '크루 대사는 함장에게 존댓말(합니다체)—반말·「…해」「…있어」 평서형 종결 금지.',
+      'FIND_CLUE HARD: 크루는 text에 직접 대사만. 모든 블록 narration은 빈 문자열 — 제3자 내레이션·무대 지문 금지.',
+      ...getCrewRoleToneLinesForKind('FIND_CLUE', 'ko')
     );
   } else {
-    tail.push('SUSPECT: every non-target crew block names focusTargetKorean in text or narration.');
+    tail.push(
+      'At most one short optional narration per crew; no duplicate stock narration.',
+      'SUSPECT: every non-target crew block names focusTargetKorean in text or narration.'
+    );
   }
   tail.push('Respond JSON only.');
   return [...jsonContract, ...tail].join('\n');
@@ -5309,7 +5398,8 @@ async function tryGenerateLlmDialogueLogs(ctx) {
     } else if (kind === 'SUSPECT') {
       strictRetry += ' SUSPECT: non-target names focusTargetEnglish.';
     } else if (kind === 'FIND_CLUE') {
-      strictRetry += ' FIND_CLUE: no clue body in JSON.';
+      strictRetry +=
+        ' FIND_CLUE: no clue body in JSON; crew narration must be empty; no third-person narrator lines or stage directions.';
     } else if (kind === 'TAKE_PISTOL') {
       strictRetry +=
         ' TAKE_PISTOL: empty narration every block; no names; 1–2 sentences role worry each; pilot: gauges/pressure/vibration not vague mood; no echo of captain line.';
@@ -5381,7 +5471,7 @@ async function tryGenerateLlmDialogueLogs(ctx) {
           JSON.stringify({ kind, roles: valid.map((b) => b.role) })
       );
       let blocksOut = valid;
-      if (kind === 'THREATEN' || kind === 'TAKE_PISTOL') {
+      if (kind === 'THREATEN' || kind === 'TAKE_PISTOL' || kind === 'FIND_CLUE') {
         blocksOut = applyThreatTakePistolNarrationPolicy(blocksOut, kind);
       }
       let logs = llmBlocksToDisplayLogs(blocksOut, batchKey, locale);
@@ -5398,7 +5488,7 @@ async function tryGenerateLlmDialogueLogs(ctx) {
 }
 
 function applyThreatTakePistolNarrationPolicy(blocks, kind) {
-  if (kind !== 'THREATEN' && kind !== 'TAKE_PISTOL') return blocks;
+  if (kind !== 'THREATEN' && kind !== 'TAKE_PISTOL' && kind !== 'FIND_CLUE') return blocks;
   return (blocks || []).map((b) => ({ ...b, narration: '' }));
 }
 
