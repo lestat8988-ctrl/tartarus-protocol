@@ -8111,14 +8111,16 @@ function toPlayerDisplayLogs(rawEvents, opts = {}) {
       text = null;
     } else if (ev.dialogue && typeof ev.dialogue === 'string') {
       let d = ev.dialogue.trim();
-      if (
-        locale === 'en' &&
-        t === 'CREW_DIALOGUE' &&
-        d ===
-          '[HADES] Final calculation complete. Fail to remove the overlap in time, and the ship is mine.'
-      ) {
-        d =
-          '[HADES] Final calculation complete. Fail to remove the impostor in time, and the ship becomes mine.';
+      if (locale === 'en' && t === 'CREW_DIALOGUE' && d) {
+        if (
+          d ===
+            '[HADES] Final calculation complete. Fail to remove the overlap in time, and the ship is mine.' ||
+          d ===
+            '[HADES] Final calculation complete. Fail to remove the impostor in time, and the ship becomes mine.'
+        ) {
+          d =
+            '[HADES]\nIt ends here. The moment you point at the wrong one, this ship is mine.';
+        }
       }
       const m = d.match(/^\[([^\]]+)\]\s*(.*)$/);
       const crewBody = m ? m[2].trim() : '';
@@ -8260,7 +8262,10 @@ function isNameQuestionTensionOrStaleNoiseLine(t, loc) {
       /Optimal removal window is approaching/i.test(s) ||
       /There are already deaths/i.test(s) ||
       /Final calculation complete/i.test(s) ||
-      /Fail to remove the impostor/i.test(s)
+      /Fail to remove the impostor/i.test(s) ||
+      /Time is shorter now/i.test(s) ||
+      /One less\. Records/i.test(s) ||
+      /It ends here/i.test(s)
     );
   }
   return (
@@ -8269,7 +8274,10 @@ function isNameQuestionTensionOrStaleNoiseLine(t, loc) {
     /최적 제거 시점이 임박/i.test(s) ||
     /이미 사망자가 있다/i.test(s) ||
     /최종 계산 완료/i.test(s) ||
-    /중첩체를 제거하지 못하면/i.test(s)
+    /중첩체를 제거하지 못하면/i.test(s) ||
+    /시간이 줄었다/i.test(s) ||
+    /한 명 줄었다/i.test(s) ||
+    /끝났다\. 네가 틀린 사람을 지목/i.test(s)
   );
 }
 
@@ -9016,17 +9024,17 @@ function timerTensionDialogueLines(locale, gs) {
   const en6 =
     '[System] Internal anomaly detected. Biometric signals in Medbay and Engine Room are unstable.';
   const ko3Base =
-    '[HADES]\n최적 제거 시점이 임박했다. 현재 대응 속도로는 전원 생존이 어렵다.';
+    '[HADES]\n시간이 줄었다. 네가 망설이는 동안 나는 이미 다음을 골랐다.';
   const ko3Dead =
-    '[HADES]\n이미 사망자가 있다. 최적 제거 시점이 임박했고, 남은 시간으로는 전원 생존이 어렵다.';
+    '[HADES]\n한 명 줄었다. 기록은 거짓말하지 않는다 — 다음이 누구인지 너도 알고 있다.';
   const en3Base =
-    '[HADES] Optimal removal window is approaching. With the current response pace, full crew survival is unlikely.';
+    '[HADES]\nTime is shorter now. While you hesitate, I have already chosen the next.';
   const en3Dead =
-    '[HADES] There are already deaths. Optimal removal window is approaching; with the current response pace, full crew survival is unlikely.';
+    '[HADES]\nOne less. Records don\'t lie — you already know who is next.';
   const ko1 =
-    '[HADES]\n최종 계산 완료. 남은 시간 내 중첩체를 제거하지 못하면 함선은 내 것이 된다.';
+    '[HADES]\n끝났다. 네가 틀린 사람을 지목하는 순간, 이 함선은 내 것이 된다.';
   const en1 =
-    '[HADES] Final calculation complete. Fail to remove the impostor in time, and the ship becomes mine.';
+    '[HADES]\nIt ends here. The moment you point at the wrong one, this ship is mine.';
   if (locale === 'en') {
     return { six: en6, three: dead > 0 ? en3Dead : en3Base, one: en1 };
   }
