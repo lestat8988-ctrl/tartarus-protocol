@@ -3625,6 +3625,31 @@
         return base;
       }
 
+      /** display가 [역할] 한 줄뿐이고 본문 필드가 비어 있으면 true (applyEvents·dedupe 키 공통) */
+      function isBracketOnlyHeaderEvent(ev) {
+        if (!ev || typeof ev !== 'object') return false;
+        var t = ev.type != null ? String(ev.type) : '';
+        var text = ev.text != null ? String(ev.text) : '';
+        var dlg = ev.dialogue != null ? String(ev.dialogue) : '';
+        var msg = ev.message != null ? String(ev.message) : '';
+        var narr = ev.narration != null ? String(ev.narration) : '';
+        var line = displayLogLineFromEvent(ev);
+        var typeTrim = String(t).trim();
+        var lineTrim = String(line || '').trim();
+        var textEmpty = !text || !String(text).trim();
+        var dlgEmpty = !dlg || !String(dlg).trim();
+        var msgEmpty = !msg || !String(msg).trim();
+        var narrEmpty = !narr || !String(narr).trim();
+        return (
+          /^\[[^\]]+\]$/.test(typeTrim) &&
+          /^\[[^\]]+\]$/.test(lineTrim) &&
+          textEmpty &&
+          dlgEmpty &&
+          narrEmpty &&
+          msgEmpty
+        );
+      }
+
       /** 서버가 보낸 동일 display 이벤트를 poll마다 다시 append하지 않도록 안정 키 (인덱스·turn·id가 있으면 포함) */
       function buildEventDedupeKey(ev, indexInBatch, batchSeqOpt) {
         if (!ev || typeof ev !== 'object') return '';
@@ -3645,19 +3670,7 @@
               ? String(ev.sequence)
               : '';
         var evId = ev.id != null ? String(ev.id) : ev.event_id != null ? String(ev.event_id) : '';
-        var typeTrim = String(t).trim();
-        var lineTrim = String(line || '').trim();
-        var textEmpty = !text || !String(text).trim();
-        var dlgEmpty = !dlg || !String(dlg).trim();
-        var msgEmpty = !msg || !String(msg).trim();
-        var narrEmpty = !narr || !String(narr).trim();
-        var isBracketOnlyRoleHeader =
-          /^\[[^\]]+\]$/.test(typeTrim) &&
-          /^\[[^\]]+\]$/.test(lineTrim) &&
-          textEmpty &&
-          dlgEmpty &&
-          narrEmpty &&
-          msgEmpty;
+        var isBracketOnlyRoleHeader = isBracketOnlyHeaderEvent(ev);
         var key =
           t +
           '\u0001' +
@@ -3710,6 +3723,11 @@
         var i;
         for (i = 0; i < events.length; i++) {
           var ev = events[i];
+          if (isBracketOnlyHeaderEvent(ev) && seenSetOpt) {
+            if (i + 1 >= events.length) continue;
+            var bodyKey = buildEventDedupeKey(events[i + 1], i + 1);
+            if (bodyKey && seenSetOpt.has(bodyKey)) continue;
+          }
           var key = buildEventDedupeKey(ev, i, batchSeq);
           if (seenSetOpt && key && seenSetOpt.has(key)) continue;
           if (seenSetOpt && key) seenSetOpt.add(key);
