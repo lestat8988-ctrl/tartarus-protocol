@@ -2199,7 +2199,8 @@ function applyRolelessDialogueFollowupRouting(text, locale, cls, parsed, match) 
     intent_type: 'question',
     target: lastRole,
     isSelfDefenseQuestion: selfDefQ,
-    isTargetedAccusation: selfDefQ
+    isTargetedAccusation: selfDefQ,
+    is_followup_targeted_dialogue: true
   };
   try {
     console.log('[bot][intent] roleless_followup -> targeted_question role=' + lastRole);
@@ -2210,7 +2211,8 @@ function applyRolelessDialogueFollowupRouting(text, locale, cls, parsed, match) 
       parsed: merged,
       crewGameplayTargetRole: lastRole,
       isSelfDefenseQuestion: selfDefQ,
-      isTargetedAccusation: selfDefQ
+      isTargetedAccusation: selfDefQ,
+      is_followup_targeted_dialogue: true
     },
     parsed: merged
   };
@@ -4695,6 +4697,40 @@ function getRoleTraumaPrompt(role, locale) {
   return pack[r] || '';
 }
 
+/** Role-less emotional follow-up → LLM prompt (single-speaker targeted QUESTION only). */
+function getFollowupTargetedDialoguePromptLines(locale, toneTargetRole) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const r = String(toneTargetRole || '').toLowerCase();
+  const base =
+    loc === 'en'
+      ? 'FOLLOWUP_CONTINUITY: This is not a fresh neutral question. It is a continuation of the same emotional exchange with the same crew member. Keep the previous defensive/trauma tone. Do NOT reset into helpful assistant tone, compliance tone, or generic support language.'
+      : 'FOLLOWUP_CONTINUITY: 이것은 새로운 중립 질문이 아니라 같은 크루와 이어지는 후속 대화다. 직전의 방어적/트라우마 톤을 유지할 것. 어시스턴트형 도움말 톤, 순응형 말투, 일반 상담창구 톤으로 리셋하지 말 것.';
+  const roleLine = {
+    en: {
+      doctor:
+        'FOLLOWUP_ROLE (doctor): FORBIDDEN: "more information", "please tell me", "I will help", helpdesk tone. REQUIRED: shorter, colder, more withholding.',
+      engineer:
+        'FOLLOWUP_ROLE (engineer): FORBIDDEN: "Understood", "I will confirm", "I will fix the problem", obedient work tone. REQUIRED: bitter humor, rough deflection, or irritated systems talk.',
+      navigator:
+        'FOLLOWUP_ROLE (navigator): FORBIDDEN: neat calming resolution. REQUIRED: keep statistical / defensive flavor.',
+      pilot:
+        'FOLLOWUP_ROLE (pilot): FORBIDDEN: motivational explanation. REQUIRED: clipped, instrument-focused continuation.'
+    },
+    ko: {
+      doctor:
+        'FOLLOWUP_ROLE(닥터): 금지: "추가 정보", "말씀해 주십시오", "도와드리겠습니다", 헬프데스크·상담창구 톤. 필수: 더 짧게, 더 차갑게, 더 눌러쓰기.',
+      engineer:
+        'FOLLOWUP_ROLE(엔지니어): 금지: "알겠습니다", "확인하겠습니다", "문제를 해결하겠습니다", 순응·업무 복명 톤. 필수: 쓴 유머, 거친 비껴감, 짜증 난 시스템 얘기.',
+      navigator:
+        'FOLLOWUP_ROLE(네비게이터): 금지: 깔끔하게 가라앉히는 정리 멘트. 필수: 통계·수치·방어적 맛 유지.',
+      pilot:
+        'FOLLOWUP_ROLE(파일럿): 금지: 동기부여·위로형 설명. 필수: 짧게, 계기·교량 명사 위주로 이어가기.'
+    }
+  };
+  const line = roleLine[loc][r];
+  return line ? [base, line] : [base];
+}
+
 function buildDialogueSystemPrompt(kind, locale, promptOpts) {
   promptOpts = promptOpts || {};
   const loc = locale === 'en' ? 'en' : 'ko';
@@ -4760,6 +4796,11 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
           if (identityLineEn) qEnS.push(identityLineEn);
           const traumaLineEn = getRoleTraumaPrompt(promptOpts.toneTargetRole, 'en');
           if (traumaLineEn) qEnS.push(traumaLineEn);
+        }
+        if (promptOpts.is_followup_targeted_dialogue && promptOpts.toneTargetRole) {
+          for (const line of getFollowupTargetedDialoguePromptLines('en', promptOpts.toneTargetRole)) {
+            qEnS.push(line);
+          }
         }
         if (promptOpts.toneTargetRole && promptOpts.captainIntent) {
           const toneEx = buildCaptainTonePromptAppendix(promptOpts.captainIntent, 'en', promptOpts.toneTargetRole);
@@ -4955,6 +4996,11 @@ function buildDialogueSystemPrompt(kind, locale, promptOpts) {
         if (identityLineKo) qKoS.push(identityLineKo);
         const traumaLineKo = getRoleTraumaPrompt(promptOpts.toneTargetRole, 'ko');
         if (traumaLineKo) qKoS.push(traumaLineKo);
+      }
+      if (promptOpts.is_followup_targeted_dialogue && promptOpts.toneTargetRole) {
+        for (const line of getFollowupTargetedDialoguePromptLines('ko', promptOpts.toneTargetRole)) {
+          qKoS.push(line);
+        }
       }
       if (promptOpts.toneTargetRole && promptOpts.captainIntent) {
         const toneKoS = buildCaptainTonePromptAppendix(promptOpts.captainIntent, 'ko', promptOpts.toneTargetRole);
@@ -5351,7 +5397,8 @@ async function tryGenerateLlmDialogueLogs(ctx) {
     isTargetedAccusation,
     generalTargetedQuestion: generalTargetedQuestionNoName,
     captainIntent,
-    toneTargetRole: target && ['doctor', 'engineer', 'navigator', 'pilot'].includes(target) ? target : null
+    toneTargetRole: target && ['doctor', 'engineer', 'navigator', 'pilot'].includes(target) ? target : null,
+    is_followup_targeted_dialogue: !!ctx.isFollowupTargetedDialogue
   });
   if (kind === 'LORE_QUESTION') {
     system += '\n\n' + getLoreCanonSystemExtension(locale);
@@ -7757,7 +7804,8 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
   loreCanonAnchorText,
   targetedQuestionSingleSpeaker,
   isSelfDefenseQuestion,
-  isTargetedAccusation
+  isTargetedAccusation,
+  isFollowupTargetedDialogue
 }) {
   const loc = locale === 'en' ? 'en' : 'ko';
   const kind = getDialogueLlmKind(rawEvents);
@@ -7881,7 +7929,8 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
     isTargetedAccusation: !!isTargetedAccusation,
     locale: loc,
     loreQuestionTopic,
-    loreCanonAnchorText
+    loreCanonAnchorText,
+    isFollowupTargetedDialogue: !!isFollowupTargetedDialogue
   });
   if (llmLogs && llmLogs.length) {
     logDialogueTrace(actionSlug, apiProvider, modelStr, 'llm', eventsCount);
@@ -9116,7 +9165,8 @@ async function handleTextMessage(playerId, text, opts = {}) {
       targetedNameQuestion: targetedNameQ,
       targetedQuestionSingleSpeaker: cls.kind === 'targeted_question',
       isSelfDefenseQuestion: !!cls.isSelfDefenseQuestion,
-      isTargetedAccusation: !!(cls.isTargetedAccusation || parsed.isTargetedAccusation)
+      isTargetedAccusation: !!(cls.isTargetedAccusation || parsed.isTargetedAccusation),
+      isFollowupTargetedDialogue: !!cls.is_followup_targeted_dialogue
     }),
     locale
   );
@@ -10460,7 +10510,8 @@ async function processMessageApi(playerId, text, opts = {}) {
       targetedNameQuestion: targetedNameQ,
       targetedQuestionSingleSpeaker: cls.kind === 'targeted_question',
       isSelfDefenseQuestion: !!cls.isSelfDefenseQuestion,
-      isTargetedAccusation: !!(cls.isTargetedAccusation || parsed.isTargetedAccusation)
+      isTargetedAccusation: !!(cls.isTargetedAccusation || parsed.isTargetedAccusation),
+      isFollowupTargetedDialogue: !!cls.is_followup_targeted_dialogue
     }),
     locale
   );
@@ -10776,7 +10827,8 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
         match: updated,
         playerText: actionHint,
         clueTextFromEvent,
-        locale
+        locale,
+        isFollowupTargetedDialogue: false
       }),
       locale
     );
