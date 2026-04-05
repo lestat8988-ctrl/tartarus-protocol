@@ -4710,13 +4710,13 @@ function getFollowupTargetedDialoguePromptLines(locale, toneTargetRole) {
       doctor:
         'FOLLOWUP_HARD_OVERRIDE(doctor): In "the child" / past / trauma context, NEVER use current-patient framing, medbay helpdesk language, or offer-more-information language.',
       engineer:
-        'FOLLOWUP_HARD_OVERRIDE(engineer): In follow-up dialogue, forbid obedient work-response language such as "understood", "I will check", or "I will fix it".'
+        'FOLLOWUP_HARD_OVERRIDE(engineer): In follow-up dialogue, forbid agreement openers ("you\'re right", "that\'s right"), respectful obedience, soft compliance, and obedient work-response language ("understood", "I will check", "I will fix"). Use bitter humor, rough deflection, or irritated systems talk only — do not soften toward the captain.'
     },
     ko: {
       doctor:
         'FOLLOWUP_HARD_OVERRIDE(닥터): "그 아이" / 과거 / 트라우마 문맥에서는 현재 환자·의무실 안내·정보 제공 문구를 절대 쓰지 말 것.',
       engineer:
-        'FOLLOWUP_HARD_OVERRIDE(엔지니어): 후속 대화에서는 순응형 업무 답변 금지. "알겠습니다/확인해 보겠습니다/해결하겠습니다" 금지.'
+        'FOLLOWUP_HARD_OVERRIDE(엔지니어): 후속 대화에서 "맞아요/맞습니다" 금지, 순응형 동조 금지. "알겠습니다/확인해 보겠습니다/해결하겠습니다" 금지. 비꼼·쓴 유머·짜증 난 시스템 말투만 허용. 함장에게 부드럽게 물러서지 말 것.'
     }
   };
   const roleLine = {
@@ -4777,6 +4777,14 @@ function isFollowupEngineerToneInvalid(crewText) {
   if (t.includes('확인해 보겠습니다')) return true;
   if (t.includes('해결하겠습니다')) return true;
   if (t.includes('문제를 해결')) return true;
+  if (t.includes('함장님, 하지만')) return true;
+  if (t.includes('우선입니다')) return true;
+  if (t.includes('제게는 지금 가장 중요한 곳')) return true;
+  const tTrim = t.trimStart();
+  if (/^(맞아요|맞습니다)([,，\s]|\.|…|$)/.test(tTrim)) return true;
+  if (t.includes('맞아요,') || t.includes('맞습니다,')) return true;
+  if (!/안\s*맞아요|안맞아요/.test(t) && t.includes('맞아요') && (t.includes('우선') || t.includes('시스템'))) return true;
+  if (!t.includes('안 맞습니다') && t.includes('맞습니다') && (t.includes('우선') || t.includes('시스템'))) return true;
   const lower = t.toLowerCase();
   if (lower.includes('understood')) return true;
   if (lower.includes('i will check')) return true;
@@ -4785,16 +4793,25 @@ function isFollowupEngineerToneInvalid(crewText) {
   if (lower.includes("i'll fix")) return true;
   if (lower.includes('i will resolve')) return true;
   if (lower.includes('i will look into')) return true;
+  if (lower.includes("you're right") || lower.includes('you are right')) return true;
+  if (lower.includes("that's right") || lower.includes('that is right')) return true;
+  if (lower.includes('but commander') || lower.includes('but captain')) return true;
+  if (lower.includes('is my priority')) return true;
+  if (lower.includes('most important place')) return true;
   return false;
 }
 
-function getFollowupToneRetryOverrideLine(targetRole) {
+function getFollowupToneRetryOverrideLine(targetRole, locale) {
   const r = String(targetRole || '').toLowerCase();
+  const loc = locale === 'en' ? 'en' : 'ko';
   if (r === 'doctor') {
     return '\n\nRETRY_OVERRIDE(doctor): Remove helpdesk/report tone. Be colder, narrower, more withholding. No offer of more information.';
   }
   if (r === 'engineer') {
-    return '\n\nRETRY_OVERRIDE(engineer): Remove obedient/compliance tone. Keep bitter humor, rough deflection, or irritated systems talk.';
+    if (loc === 'ko') {
+      return '\n\nRETRY_OVERRIDE(엔지니어): 동조·순응형 오프너 금지. "맞아요/맞습니다"·존댓말 복종으로 시작 금지. 비꼼·쓴 유머·짜증 난 시스템 말투만 사용. 함장에게 부드럽게 물러서지 말 것.';
+    }
+    return '\n\nRETRY_OVERRIDE(engineer): Remove agreement/compliance tone completely. Do NOT open with agreement, apology, or respectful obedience. Use bitter humor, rough deflection, or irritated systems talk only.';
   }
   return '';
 }
@@ -5796,7 +5813,7 @@ async function tryGenerateLlmDialogueLogs(ctx) {
             ? isFollowupDoctorToneInvalid(crewPack)
             : isFollowupEngineerToneInvalid(crewPack);
         if (toneBad && !followupToneRetryHint) {
-          followupToneRetryHint = getFollowupToneRetryOverrideLine(target);
+          followupToneRetryHint = getFollowupToneRetryOverrideLine(target, locale);
           log('LLM_DIALOGUE', 'followup_tone_retry', { target, attempt });
           continue;
         }
