@@ -1939,6 +1939,14 @@
       var statePollingEnabled = false;
       /** /api/state 실제 fetch 직전마다 증가 (startStatePolling 시 0으로 리셋) */
       var statePollRequestId = 0;
+      /** /api/message 자유입력 처리 중엔 state 폴링이 같은 턴 cumulative 로그를 중복 append하지 않음 */
+      var suspendStateTranscriptApply = false;
+      var messageRequestSeq = 0;
+      var settledMessageRequestSeq = 0;
+
+      function shouldSkipStateTranscriptForInFlightMessage() {
+        return suspendStateTranscriptApply || messageRequestSeq > settledMessageRequestSeq;
+      }
 
       function clearStatePollTimer() {
         if (statePollTimer != null) {
@@ -2112,41 +2120,43 @@
             /* 배경 폴링: userActionPending·잠금 시퀀스에 관여하지 않음 */
             updateStatus(st, { forApiMessage: true, fromPoll: true });
             applyEntitlementFromResponse(data);
-            var capPhasePoll =
-              (data.match_state && data.match_state.captain_phase) ||
-              (data.game_state && data.game_state.captain_phase) ||
-              '';
-            var evCountPoll = data.events && data.events.length ? data.events.length : 0;
-            var recentCountPoll = data.recent_events && data.recent_events.length ? data.recent_events.length : 0;
-            if (capPhasePoll === 'opening_chat') {
-              var openPoll = replaceLogFromOpeningEventsSnapshot(data.events || [], data.match_id);
-              try {
-                console.log(
-                  '[miniapp][opening_chat] polling phase=',
-                  capPhasePoll,
-                  'events=',
-                  evCountPoll,
-                  'recent=',
-                  recentCountPoll
-                );
-                console.log(
-                  '[miniapp][opening_chat] rendered_count=',
-                  openPoll.rendered,
-                  'changed=',
-                  openPoll.changed
-                );
-              } catch (eDbg) {}
-            } else {
-              lastOpeningSnapshotSig = '';
-              if (data.recent_events && data.recent_events.length) {
-                appendRecentEventsIfFresh(
-                  {
-                    match_id: data.match_id,
-                    recent_events: data.recent_events,
-                    remaining_sec: data.remaining_sec
-                  },
-                  'state'
-                );
+            if (!shouldSkipStateTranscriptForInFlightMessage()) {
+              var capPhasePoll =
+                (data.match_state && data.match_state.captain_phase) ||
+                (data.game_state && data.game_state.captain_phase) ||
+                '';
+              var evCountPoll = data.events && data.events.length ? data.events.length : 0;
+              var recentCountPoll = data.recent_events && data.recent_events.length ? data.recent_events.length : 0;
+              if (capPhasePoll === 'opening_chat') {
+                var openPoll = replaceLogFromOpeningEventsSnapshot(data.events || [], data.match_id);
+                try {
+                  console.log(
+                    '[miniapp][opening_chat] polling phase=',
+                    capPhasePoll,
+                    'events=',
+                    evCountPoll,
+                    'recent=',
+                    recentCountPoll
+                  );
+                  console.log(
+                    '[miniapp][opening_chat] rendered_count=',
+                    openPoll.rendered,
+                    'changed=',
+                    openPoll.changed
+                  );
+                } catch (eDbg) {}
+              } else {
+                lastOpeningSnapshotSig = '';
+                if (data.recent_events && data.recent_events.length) {
+                  appendRecentEventsIfFresh(
+                    {
+                      match_id: data.match_id,
+                      recent_events: data.recent_events,
+                      remaining_sec: data.remaining_sec
+                    },
+                    'state'
+                  );
+                }
               }
             }
             if (isTerminalState(st) || gs.game_over) {
@@ -2620,41 +2630,43 @@
             }
             updateStatus(st, { forApiMessage: true, fromPoll: true });
             applyEntitlementFromResponse(data);
-            var capPhaseImm =
-              (data.match_state && data.match_state.captain_phase) ||
-              (data.game_state && data.game_state.captain_phase) ||
-              '';
-            var evCountImm = data.events && data.events.length ? data.events.length : 0;
-            var recentCountImm = data.recent_events && data.recent_events.length ? data.recent_events.length : 0;
-            if (capPhaseImm === 'opening_chat') {
-              var openImm = replaceLogFromOpeningEventsSnapshot(data.events || [], data.match_id);
-              try {
-                console.log(
-                  '[miniapp][opening_chat] polling phase=',
-                  capPhaseImm,
-                  'events=',
-                  evCountImm,
-                  'recent=',
-                  recentCountImm
-                );
-                console.log(
-                  '[miniapp][opening_chat] rendered_count=',
-                  openImm.rendered,
-                  'changed=',
-                  openImm.changed
-                );
-              } catch (eDbg2) {}
-            } else {
-              lastOpeningSnapshotSig = '';
-              if (data.recent_events && data.recent_events.length) {
-                appendRecentEventsIfFresh(
-                  {
-                    match_id: data.match_id,
-                    recent_events: data.recent_events,
-                    remaining_sec: data.remaining_sec
-                  },
-                  String(reason || 'immediate')
-                );
+            if (!shouldSkipStateTranscriptForInFlightMessage()) {
+              var capPhaseImm =
+                (data.match_state && data.match_state.captain_phase) ||
+                (data.game_state && data.game_state.captain_phase) ||
+                '';
+              var evCountImm = data.events && data.events.length ? data.events.length : 0;
+              var recentCountImm = data.recent_events && data.recent_events.length ? data.recent_events.length : 0;
+              if (capPhaseImm === 'opening_chat') {
+                var openImm = replaceLogFromOpeningEventsSnapshot(data.events || [], data.match_id);
+                try {
+                  console.log(
+                    '[miniapp][opening_chat] polling phase=',
+                    capPhaseImm,
+                    'events=',
+                    evCountImm,
+                    'recent=',
+                    recentCountImm
+                  );
+                  console.log(
+                    '[miniapp][opening_chat] rendered_count=',
+                    openImm.rendered,
+                    'changed=',
+                    openImm.changed
+                  );
+                } catch (eDbg2) {}
+              } else {
+                lastOpeningSnapshotSig = '';
+                if (data.recent_events && data.recent_events.length) {
+                  appendRecentEventsIfFresh(
+                    {
+                      match_id: data.match_id,
+                      recent_events: data.recent_events,
+                      remaining_sec: data.remaining_sec
+                    },
+                    String(reason || 'immediate')
+                  );
+                }
               }
             }
             if (isTerminalState(st) || gs.game_over) stopStatePolling();
@@ -3927,6 +3939,9 @@
         if (!trimmed) return;
         if (isGameOver || userActionPending) return;
         var userTurnLockSeq = beginCaptainUserActionLock();
+        messageRequestSeq++;
+        var messageSeqThis = messageRequestSeq;
+        suspendStateTranscriptApply = true;
         var playerId = getPlayerId();
         logMiniappApiLang('/api/message');
         fetch(API_BASE + '/api/message', {
@@ -4003,7 +4018,10 @@
             appendLogDebugLinesFromErr(err, 'doMessage');
           })
           .finally(function() {
+            settledMessageRequestSeq = messageSeqThis;
+            suspendStateTranscriptApply = false;
             scheduleTryReleaseUserActionAfterLogRender(userTurnLockSeq);
+            fetchLatestStateImmediate('message-settled');
           });
       }
 
