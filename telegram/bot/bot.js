@@ -2136,11 +2136,20 @@ function isDialogueFocusRecent(gs) {
 }
 
 function hasConversationalFollowupCue(raw) {
+  const trimmed = String(raw || '').trim();
   const t = String(raw || '');
   const lower = t.toLowerCase();
   if (/(트라우마|상처|과거|기억|잊|사고|그건|그때|아직도|잊게|넘길\s*일은\s*아니)/i.test(t)) return true;
   if (/\b(trauma|wound|past|remember|forget|still|family|child|mother|home|incident|accident)\b/i.test(lower)) return true;
   if (/\bwhy\s+always\b|back\s+then\b|deep\s*space/i.test(lower)) return true;
+  if (
+    trimmed.length <= 20 &&
+    /(?:좋네|그렇군|쉽지\s*않군|빠를수록|그렇지|맞군|그렇겠군|쉽지\s*않네|그러게|알겠네|힘들겠군|힘드네|그런가)\s*[.?!]?\s*$/.test(
+      trimmed
+    )
+  ) {
+    return true;
+  }
   return false;
 }
 
