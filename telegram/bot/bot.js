@@ -4750,6 +4750,55 @@ function getFollowupTargetedDialoguePromptLines(locale, toneTargetRole) {
   return out;
 }
 
+/** Targeted follow-up QUESTION only: post-validate crew tone; one LLM retry with stricter reminder. */
+function isFollowupDoctorToneInvalid(crewText) {
+  const t = String(crewText || '');
+  if (t.includes('추가 정보')) return true;
+  if (t.includes('기록에 남아 있습니다')) return true;
+  if (t.includes('제공 가능합니다')) return true;
+  if (t.includes('현재 환자')) return true;
+  if (t.includes('말씀해 주십시오')) return true;
+  const lower = t.toLowerCase();
+  if (lower.includes('more information')) return true;
+  if (lower.includes('additional information')) return true;
+  if (lower.includes('can provide')) return true;
+  if (lower.includes('current patient')) return true;
+  if (lower.includes('ward round')) return true;
+  if (lower.includes('please tell me')) return true;
+  if (lower.includes('if you need')) return true;
+  if (lower.includes('happy to help')) return true;
+  return false;
+}
+
+function isFollowupEngineerToneInvalid(crewText) {
+  const t = String(crewText || '');
+  if (t.includes('알겠습니다')) return true;
+  if (t.includes('확인하겠습니다')) return true;
+  if (t.includes('확인해 보겠습니다')) return true;
+  if (t.includes('해결하겠습니다')) return true;
+  if (t.includes('문제를 해결')) return true;
+  const lower = t.toLowerCase();
+  if (lower.includes('understood')) return true;
+  if (lower.includes('i will check')) return true;
+  if (lower.includes("i'll check")) return true;
+  if (lower.includes('i will fix')) return true;
+  if (lower.includes("i'll fix")) return true;
+  if (lower.includes('i will resolve')) return true;
+  if (lower.includes('i will look into')) return true;
+  return false;
+}
+
+function getFollowupToneRetryOverrideLine(targetRole) {
+  const r = String(targetRole || '').toLowerCase();
+  if (r === 'doctor') {
+    return '\n\nRETRY_OVERRIDE(doctor): Remove helpdesk/report tone. Be colder, narrower, more withholding. No offer of more information.';
+  }
+  if (r === 'engineer') {
+    return '\n\nRETRY_OVERRIDE(engineer): Remove obedient/compliance tone. Keep bitter humor, rough deflection, or irritated systems talk.';
+  }
+  return '';
+}
+
 function buildDialogueSystemPrompt(kind, locale, promptOpts) {
   promptOpts = promptOpts || {};
   const loc = locale === 'en' ? 'en' : 'ko';
@@ -5383,6 +5432,7 @@ async function tryGenerateLlmDialogueLogs(ctx) {
       : '';
 
   const isTargetedAccusation = !!ctx.isTargetedAccusation;
+  const isFollowupTargetedDialogue = !!ctx.isFollowupTargetedDialogue;
   const generalTargetedQuestionNoName =
     kind === 'QUESTION' &&
     targetedQuestionSingleSpeaker &&
@@ -5710,9 +5760,10 @@ async function tryGenerateLlmDialogueLogs(ctx) {
   const timeoutMs = dialogueTimeoutMsForKind(kind);
   const maxTokens = kind === 'QUESTION' || kind === 'LORE_QUESTION' ? 1400 : undefined;
 
+  let followupToneRetryHint = '';
   let lastRaw = '';
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const user = userBase + (attempt ? strictRetry : '');
+    const user = userBase + (attempt ? strictRetry : '') + followupToneRetryHint;
     let raw;
     try {
       raw = await callChatCompletionsJson({ system, user, timeoutMs, maxTokens });
@@ -5732,6 +5783,24 @@ async function tryGenerateLlmDialogueLogs(ctx) {
       targetedQuestionSingleSpeaker
     });
     if (valid) {
+      if (
+        kind === 'QUESTION' &&
+        isFollowupTargetedDialogue &&
+        targetedQuestionSingleSpeaker &&
+        (target === 'doctor' || target === 'engineer')
+      ) {
+        const tb = valid.find((b) => String(b.role || '').toLowerCase() === target);
+        const crewPack = [String(tb?.text || ''), String(tb?.narration || '')].join('\n').trim();
+        const toneBad =
+          target === 'doctor'
+            ? isFollowupDoctorToneInvalid(crewPack)
+            : isFollowupEngineerToneInvalid(crewPack);
+        if (toneBad && !followupToneRetryHint) {
+          followupToneRetryHint = getFollowupToneRetryOverrideLine(target);
+          log('LLM_DIALOGUE', 'followup_tone_retry', { target, attempt });
+          continue;
+        }
+      }
       console.log(
         '[bot] LLM_DIALOGUE normalized ' +
           JSON.stringify({ kind, roles: valid.map((b) => b.role) })
