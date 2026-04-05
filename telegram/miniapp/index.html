@@ -1751,9 +1751,11 @@
       var lastKnownMatchId = null;
       /** recent_events 배치 단위 중복 렌더 방지 (message·state 공통) */
       var lastRenderedRecentEventsSig = '';
-      /** /api/state 누적 recent_events: 배열 전체가 매 poll 반복될 수 있어 이벤트 단위 dedupe (매치 변경 시 초기화) */
-      var renderedServerLogKeys = new Set();
+      /** /api/state 누적 recent_events: poll마다 동일 이벤트 재append 방지 — role·text·narration·인덱스 기반 안정 키 */
+      var seenServerLogKeys = new Set();
       var renderedLogKeysMatchId = '';
+      /** 마지막으로 트랜스크립트를 바인딩한 match_id — 변경 시 DOM·dedupe 전부 리셋 */
+      var lastAppliedTranscriptMatchId = '';
       /** opening_chat: 전체 events 스냅샷 서명 — 동일 스냅샷이면 로그 재구성 생략 */
       var lastOpeningSnapshotSig = '';
       var recentEventsDedupeOptInLogged = false;
@@ -1988,6 +1990,14 @@
             }
           }
         });
+        window.addEventListener('pageshow', function(ev) {
+          if (!ev.persisted) return;
+          try {
+            console.log('[miniapp] pageshow_bfcache_resume=true');
+          } catch (e) {}
+          clearGameLogPanelAndState();
+          if (screen === 'game' && !isGameOver) fetchLatestStateImmediate('pageshow-bfcache');
+        });
       }
 
       function buildRecentEventsSig(data) {
@@ -2015,11 +2025,8 @@
         }
         if (!data || !data.recent_events || !data.recent_events.length) return false;
         var mid = data.match_id != null ? String(data.match_id) : String(lastKnownMatchId || '');
-        if (mid && mid !== renderedLogKeysMatchId) {
-          renderedLogKeysMatchId = mid;
-          renderedServerLogKeys.clear();
-        }
-        var n = applyEvents(data.recent_events, renderedServerLogKeys);
+        ensureTranscriptMatchForState(mid);
+        var n = applyEvents(data.recent_events, seenServerLogKeys);
         if (n === 0) {
           try {
             console.log('[miniapp] recent_events_all_duplicate_skipped=true');
@@ -2183,12 +2190,23 @@
       function clearGameLogPanelAndState() {
         lastAppendedLogNorm = null;
         lastRenderedRecentEventsSig = '';
-        renderedServerLogKeys.clear();
+        seenServerLogKeys.clear();
         renderedLogKeysMatchId = '';
+        lastAppliedTranscriptMatchId = '';
         lastOpeningSnapshotSig = '';
         logInActiveTurn = false;
         lastLogBlockRole = null;
         if (logPanel) logPanel.innerHTML = '';
+      }
+
+      /** match_id가 바뀌면 트랜스크립트·dedupe 캐시를 비우고 새 매치에만 바인딩 (재개 시 canonical 재렌더) */
+      function ensureTranscriptMatchForState(mid) {
+        var m = mid != null ? String(mid) : '';
+        if (!m) return;
+        if (String(lastAppliedTranscriptMatchId) === m) return;
+        clearGameLogPanelAndState();
+        lastAppliedTranscriptMatchId = m;
+        renderedLogKeysMatchId = m;
       }
 
       function bumpAppRequestGeneration() {
@@ -3565,8 +3583,8 @@
         return base;
       }
 
-      /** 서버가 보낸 동일 display 이벤트를 poll마다 다시 append하지 않도록 안정 키 */
-      function buildEventDedupeKey(ev) {
+      /** 서버가 보낸 동일 display 이벤트를 poll마다 다시 append하지 않도록 안정 키 (인덱스·turn·id가 있으면 포함) */
+      function buildEventDedupeKey(ev, indexInBatch) {
         if (!ev || typeof ev !== 'object') return '';
         var t = ev.type != null ? String(ev.type) : '';
         var role = ev.role != null ? String(ev.role) : '';
@@ -3576,7 +3594,40 @@
         var narr = ev.narration != null ? String(ev.narration) : '';
         var tgt = ev.target != null ? String(ev.target) : '';
         var line = displayLogLineFromEvent(ev);
-        return t + '\u0001' + role + '\u0001' + text + '\u0001' + dlg + '\u0001' + msg + '\u0001' + narr + '\u0001' + tgt + '\u0001' + line;
+        var idxPart = indexInBatch != null && indexInBatch >= 0 ? String(indexInBatch) : '';
+        var turn = ev.turn != null ? String(ev.turn) : '';
+        var seq =
+          ev.seq != null
+            ? String(ev.seq)
+            : ev.sequence != null
+              ? String(ev.sequence)
+              : '';
+        var evId = ev.id != null ? String(ev.id) : ev.event_id != null ? String(ev.event_id) : '';
+        return (
+          t +
+          '\u0001' +
+          role +
+          '\u0001' +
+          text +
+          '\u0001' +
+          dlg +
+          '\u0001' +
+          msg +
+          '\u0001' +
+          narr +
+          '\u0001' +
+          tgt +
+          '\u0001' +
+          line +
+          '\u0001' +
+          idxPart +
+          '\u0001' +
+          turn +
+          '\u0001' +
+          seq +
+          '\u0001' +
+          evId
+        );
       }
 
       function buildOpeningSnapshotSig(events, matchId) {
@@ -3593,21 +3644,24 @@
       function applyEvents(events, seenSetOpt) {
         if (!events || !events.length) return 0;
         var n = 0;
-        events.forEach(function(ev) {
-          var key = buildEventDedupeKey(ev);
-          if (seenSetOpt && key && seenSetOpt.has(key)) return;
+        var i;
+        for (i = 0; i < events.length; i++) {
+          var ev = events[i];
+          var key = buildEventDedupeKey(ev, i);
+          if (seenSetOpt && key && seenSetOpt.has(key)) continue;
           if (seenSetOpt && key) seenSetOpt.add(key);
           var label = displayLogLineFromEvent(ev);
           if (label) {
             appendLog(label, false, 'applyEvents');
             n++;
           }
-        });
+        }
         return n;
       }
 
       /** opening_chat: events 전체 스냅샷 동기화 — 서명 동일 시 DOM 유지. */
       function replaceLogFromOpeningEventsSnapshot(events, matchId) {
+        ensureTranscriptMatchForState(matchId);
         var sig = buildOpeningSnapshotSig(events, matchId);
         if (sig && sig === lastOpeningSnapshotSig) {
           return { rendered: 0, changed: false };
@@ -3620,14 +3674,14 @@
         lastRenderedRecentEventsSig = '';
         var midOpen = matchId != null ? String(matchId) : String(lastKnownMatchId || '');
         renderedLogKeysMatchId = midOpen;
-        renderedServerLogKeys.clear();
+        seenServerLogKeys.clear();
         logInActiveTurn = false;
         lastLogBlockRole = null;
         logPanel.innerHTML = '';
         if (!events || !events.length) {
           return { rendered: 0, changed: true };
         }
-        var n = applyEvents(events, renderedServerLogKeys);
+        var n = applyEvents(events, seenServerLogKeys);
         return { rendered: n, changed: true };
       }
 
@@ -3764,7 +3818,7 @@
             lastRenderedRecentEventsSig = '';
             if (newMid) {
               renderedLogKeysMatchId = newMid;
-              renderedServerLogKeys.clear();
+              seenServerLogKeys.clear();
             }
             ensureIntroButtonsEnabled();
             var st = { match_id: data.match_id, remaining_sec: data.remaining_sec, game_state: data.game_state };
@@ -3776,7 +3830,7 @@
             if (restart) {
               appendLog(getInitialSystemLogLine(), false);
             } else if (data.events && data.events.length) {
-              applyEvents(data.events, renderedServerLogKeys);
+              applyEvents(data.events, seenServerLogKeys);
               var gsStart = data.game_state || {};
               if (gsStart.captain_phase === 'opening_chat') {
                 lastOpeningSnapshotSig = buildOpeningSnapshotSig(data.events, data.match_id);
@@ -3784,6 +3838,7 @@
             } else {
               appendLog(getInitialSystemLogLine(), false);
             }
+            if (newMid) lastAppliedTranscriptMatchId = newMid;
             startStatePolling(newMid);
           })
           .catch(function(err) {
