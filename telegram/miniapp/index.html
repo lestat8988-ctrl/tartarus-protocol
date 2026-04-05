@@ -3629,7 +3629,20 @@
               ? String(ev.sequence)
               : '';
         var evId = ev.id != null ? String(ev.id) : ev.event_id != null ? String(ev.event_id) : '';
-        return (
+        var typeTrim = String(t).trim();
+        var lineTrim = String(line || '').trim();
+        var textEmpty = !text || !String(text).trim();
+        var dlgEmpty = !dlg || !String(dlg).trim();
+        var msgEmpty = !msg || !String(msg).trim();
+        var narrEmpty = !narr || !String(narr).trim();
+        var isBracketOnlyRoleHeader =
+          /^\[[^\]]+\]$/.test(typeTrim) &&
+          /^\[[^\]]+\]$/.test(lineTrim) &&
+          textEmpty &&
+          dlgEmpty &&
+          narrEmpty &&
+          msgEmpty;
+        var key =
           t +
           '\u0001' +
           role +
@@ -3652,8 +3665,11 @@
           '\u0001' +
           seq +
           '\u0001' +
-          evId
-        );
+          evId;
+        if (isBracketOnlyRoleHeader) {
+          key += '\u0001bracketHdr:' + String(indexInBatch != null ? indexInBatch : 0);
+        }
+        return key;
       }
 
       function buildOpeningSnapshotSig(events, matchId) {
