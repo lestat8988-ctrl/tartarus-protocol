@@ -1777,6 +1777,8 @@
       var logInActiveTurn = false;
       /** 직전 [역할]/System:/함장이… 헤더 이후 내레이션 줄이 같은 색을 이어받기 위한 키 */
       var lastLogBlockRole = null;
+      /** 헤더만 있는 줄 직후 첫 본문 줄에만 부여할 역할 — 소비 후 null (lastLogBlockRole 오염 방지) */
+      var pendingHeaderRole = null;
       /**
        * 함장이 직접 시작한 턴 요청(/api/message, /api/action)에만 true.
        * /api/state 폴링·백그라운드 동기화는 이 플래그를 절대 켜거나 끄지 않음(updateStatus fromPoll 전용 경로).
@@ -2196,6 +2198,7 @@
         lastOpeningSnapshotSig = '';
         logInActiveTurn = false;
         lastLogBlockRole = null;
+        pendingHeaderRole = null;
         if (logPanel) logPanel.innerHTML = '';
       }
 
@@ -2797,6 +2800,7 @@
         entry.className = 'log-entry' + (isError ? ' error' : '');
         if (isError) {
           lastLogBlockRole = null;
+          pendingHeaderRole = null;
           entry.textContent = raw;
           if (!logPanel) return;
           var wasFollowingErr = isLogNearBottom(logPanel);
@@ -2809,15 +2813,23 @@
         var bracketProbe = raw.match(/^\[([^\]]+)\]/);
         if (bracketProbe && !mapBracketInnerToLogRole(bracketProbe[1])) {
           lastLogBlockRole = null;
+          pendingHeaderRole = null;
           entry.textContent = raw;
         } else if (isInternalActedSummaryLine(raw)) {
           lastLogBlockRole = null;
+          pendingHeaderRole = null;
           entry.textContent = raw;
         } else if (/^Game over\.?\s/i.test(raw)) {
           lastLogBlockRole = null;
+          pendingHeaderRole = null;
           entry.textContent = raw;
         } else if (parsed.role) {
           lastLogBlockRole = parsed.role;
+          if (parsed.bodyText && String(parsed.bodyText).trim()) {
+            pendingHeaderRole = null;
+          } else {
+            pendingHeaderRole = parsed.role;
+          }
           entry.setAttribute('data-role', parsed.role);
           var head = document.createElement('span');
           head.className = 'log-role-header';
@@ -2832,11 +2844,25 @@
           }
         } else if (isCaptainNarrationLineKo(raw)) {
           lastLogBlockRole = 'captain';
+          pendingHeaderRole = null;
           entry.setAttribute('data-role', 'captain');
           entry.textContent = raw;
-        } else if (lastLogBlockRole) {
-          entry.setAttribute('data-role', lastLogBlockRole);
+        } else if (pendingHeaderRole) {
+          entry.setAttribute('data-role', pendingHeaderRole);
+          pendingHeaderRole = null;
           entry.textContent = raw;
+        } else if (lastLogBlockRole) {
+          var crewPrev =
+            lastLogBlockRole === 'doctor' ||
+            lastLogBlockRole === 'engineer' ||
+            lastLogBlockRole === 'navigator' ||
+            lastLogBlockRole === 'pilot';
+          if (crewPrev && /^System\s*:/i.test(raw)) {
+            entry.textContent = raw;
+          } else {
+            entry.setAttribute('data-role', lastLogBlockRole);
+            entry.textContent = raw;
+          }
         } else {
           entry.textContent = raw;
         }
@@ -3677,6 +3703,7 @@
         seenServerLogKeys.clear();
         logInActiveTurn = false;
         lastLogBlockRole = null;
+        pendingHeaderRole = null;
         logPanel.innerHTML = '';
         if (!events || !events.length) {
           return { rendered: 0, changed: true };
