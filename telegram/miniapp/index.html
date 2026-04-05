@@ -1751,6 +1751,9 @@
       var lastKnownMatchId = null;
       /** recent_events 배치 단위 중복 렌더 방지 (message·state 공통) */
       var lastRenderedRecentEventsSig = '';
+      /** /api/state 누적 recent_events: 배열 전체가 매 poll 반복될 수 있어 이벤트 단위 dedupe (매치 변경 시 초기화) */
+      var renderedServerLogKeys = new Set();
+      var renderedLogKeysMatchId = '';
       /** opening_chat: 전체 events 스냅샷 서명 — 동일 스냅샷이면 로그 재구성 생략 */
       var lastOpeningSnapshotSig = '';
       var recentEventsDedupeOptInLogged = false;
@@ -2006,21 +2009,24 @@
       function appendRecentEventsIfFresh(data, source) {
         if (!recentEventsDedupeOptInLogged) {
           try {
-            console.log('[miniapp] recent_events_sig_dedupe_enabled=true');
+            console.log('[miniapp] recent_events_event_dedupe_enabled=true');
           } catch (e) {}
           recentEventsDedupeOptInLogged = true;
         }
         if (!data || !data.recent_events || !data.recent_events.length) return false;
-        var sig = buildRecentEventsSig(data);
-        if (!sig) return false;
-        if (sig === lastRenderedRecentEventsSig) {
+        var mid = data.match_id != null ? String(data.match_id) : String(lastKnownMatchId || '');
+        if (mid && mid !== renderedLogKeysMatchId) {
+          renderedLogKeysMatchId = mid;
+          renderedServerLogKeys.clear();
+        }
+        var n = applyEvents(data.recent_events, renderedServerLogKeys);
+        if (n === 0) {
           try {
-            console.log('[miniapp] recent_events_duplicate_skipped=true');
+            console.log('[miniapp] recent_events_all_duplicate_skipped=true');
           } catch (e) {}
           return false;
         }
-        lastRenderedRecentEventsSig = sig;
-        applyEvents(data.recent_events);
+        lastRenderedRecentEventsSig = buildRecentEventsSig(data);
         return true;
       }
 
@@ -2177,6 +2183,8 @@
       function clearGameLogPanelAndState() {
         lastAppendedLogNorm = null;
         lastRenderedRecentEventsSig = '';
+        renderedServerLogKeys.clear();
+        renderedLogKeysMatchId = '';
         lastOpeningSnapshotSig = '';
         logInActiveTurn = false;
         lastLogBlockRole = null;
@@ -3557,6 +3565,20 @@
         return base;
       }
 
+      /** 서버가 보낸 동일 display 이벤트를 poll마다 다시 append하지 않도록 안정 키 */
+      function buildEventDedupeKey(ev) {
+        if (!ev || typeof ev !== 'object') return '';
+        var t = ev.type != null ? String(ev.type) : '';
+        var role = ev.role != null ? String(ev.role) : '';
+        var text = ev.text != null ? String(ev.text) : '';
+        var dlg = ev.dialogue != null ? String(ev.dialogue) : '';
+        var msg = ev.message != null ? String(ev.message) : '';
+        var narr = ev.narration != null ? String(ev.narration) : '';
+        var tgt = ev.target != null ? String(ev.target) : '';
+        var line = displayLogLineFromEvent(ev);
+        return t + '\u0001' + role + '\u0001' + text + '\u0001' + dlg + '\u0001' + msg + '\u0001' + narr + '\u0001' + tgt + '\u0001' + line;
+      }
+
       function buildOpeningSnapshotSig(events, matchId) {
         var mid = matchId != null ? String(matchId) : String(lastKnownMatchId || '');
         if (!events || !events.length) return 'open|' + mid + '|n:0|j:';
@@ -3568,10 +3590,13 @@
         return 'open|' + mid + '|n:' + parts.length + '|j:' + parts.join('\u0001');
       }
 
-      function applyEvents(events) {
+      function applyEvents(events, seenSetOpt) {
         if (!events || !events.length) return 0;
         var n = 0;
         events.forEach(function(ev) {
+          var key = buildEventDedupeKey(ev);
+          if (seenSetOpt && key && seenSetOpt.has(key)) return;
+          if (seenSetOpt && key) seenSetOpt.add(key);
           var label = displayLogLineFromEvent(ev);
           if (label) {
             appendLog(label, false, 'applyEvents');
@@ -3593,13 +3618,16 @@
         }
         lastAppendedLogNorm = null;
         lastRenderedRecentEventsSig = '';
+        var midOpen = matchId != null ? String(matchId) : String(lastKnownMatchId || '');
+        renderedLogKeysMatchId = midOpen;
+        renderedServerLogKeys.clear();
         logInActiveTurn = false;
         lastLogBlockRole = null;
         logPanel.innerHTML = '';
         if (!events || !events.length) {
           return { rendered: 0, changed: true };
         }
-        var n = applyEvents(events);
+        var n = applyEvents(events, renderedServerLogKeys);
         return { rendered: n, changed: true };
       }
 
@@ -3734,6 +3762,10 @@
             } catch (e) {}
             activeMatchPollId = newMid || null;
             lastRenderedRecentEventsSig = '';
+            if (newMid) {
+              renderedLogKeysMatchId = newMid;
+              renderedServerLogKeys.clear();
+            }
             ensureIntroButtonsEnabled();
             var st = { match_id: data.match_id, remaining_sec: data.remaining_sec, game_state: data.game_state };
             if (data.deadline_at != null) st.deadline_at = data.deadline_at;
@@ -3744,7 +3776,7 @@
             if (restart) {
               appendLog(getInitialSystemLogLine(), false);
             } else if (data.events && data.events.length) {
-              applyEvents(data.events);
+              applyEvents(data.events, renderedServerLogKeys);
               var gsStart = data.game_state || {};
               if (gsStart.captain_phase === 'opening_chat') {
                 lastOpeningSnapshotSig = buildOpeningSnapshotSig(data.events, data.match_id);
