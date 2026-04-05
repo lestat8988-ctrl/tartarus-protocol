@@ -2568,7 +2568,7 @@
        * visibility 복귀·폴링 재시작 등 — 최신 /api/state 즉시 1회 (generation·match_id stale 가드).
        */
       function fetchLatestStateImmediate(reason) {
-        if (screen !== 'game') return;
+        if (screen !== 'game') return null;
         var playerId = getPlayerId();
         var reqId = ++latestStateFetchGen;
         var fetchGen = appRequestGeneration;
@@ -2579,7 +2579,7 @@
             console.log('[miniapp][state] fetching latest state reason=' + String(reason || ''));
           }
         } catch (e) {}
-        fetch(
+        return fetch(
           API_BASE +
             '/api/state?playerId=' +
             encodeURIComponent(playerId) +
@@ -3948,10 +3948,31 @@
        */
       function submitFreeMessage(evt) {
         if (evt && evt.preventDefault) evt.preventDefault();
-        if (isGameOver || userActionPending) return;
-        if (promptEntitlementBlocked) return;
+        if (isGameOver) {
+          try {
+            console.log('[miniapp] blocked reason=game_over where=submitFreeMessage');
+          } catch (e) {}
+          return;
+        }
+        if (userActionPending) {
+          try {
+            console.log('[miniapp] blocked reason=userActionPending where=submitFreeMessage');
+          } catch (e) {}
+          return;
+        }
+        if (promptEntitlementBlocked) {
+          try {
+            console.log('[miniapp] blocked reason=promptEntitlementBlocked where=submitFreeMessage');
+          } catch (e) {}
+          return;
+        }
         var raw = (freeInput && freeInput.value || '').trim();
-        if (!raw) return;
+        if (!raw) {
+          try {
+            console.log('[miniapp] blocked reason=empty_trimmed where=submitFreeMessage');
+          } catch (e) {}
+          return;
+        }
         try {
           console.log('[miniapp] submit message text=' + JSON.stringify(raw));
         } catch (e) {}
@@ -3961,8 +3982,37 @@
       /** /api/message — 액션·모달 동일 경로. 함장 줄은 로컬 optimistic append 없이 appendSummaryOrEvents(recent_events)만 사용 */
       function doMessage(text) {
         var trimmed = String(text == null ? '' : text).trim();
-        if (!trimmed) return;
-        if (isGameOver || userActionPending) return;
+        if (!trimmed) {
+          try {
+            console.log('[miniapp] blocked reason=empty_trimmed where=doMessage');
+          } catch (e) {}
+          return;
+        }
+        if (isGameOver) {
+          try {
+            console.log('[miniapp] blocked reason=game_over where=doMessage');
+          } catch (e) {}
+          return;
+        }
+        if (userActionPending) {
+          try {
+            console.log(
+              '[miniapp] blocked reason=userActionPending where=doMessage userActionPending=' +
+                String(userActionPending) +
+                ' captainUserActionLockSeq=' +
+                String(captainUserActionLockSeq) +
+                ' captainUserActionSeq=' +
+                String(captainUserActionSeq) +
+                ' messageRequestSeq=' +
+                messageRequestSeq +
+                ' settledMessageRequestSeq=' +
+                settledMessageRequestSeq +
+                ' suspendStateTranscriptApply=' +
+                suspendStateTranscriptApply
+            );
+          } catch (e) {}
+          return;
+        }
         var userTurnLockSeq = beginCaptainUserActionLock();
         messageRequestSeq++;
         var messageSeqThis = messageRequestSeq;
@@ -4046,7 +4096,18 @@
             settledMessageRequestSeq = messageSeqThis;
             suspendStateTranscriptApply = false;
             scheduleTryReleaseUserActionAfterLogRender(userTurnLockSeq);
-            fetchLatestStateImmediate('message-settled');
+            var stateP = fetchLatestStateImmediate('message-settled');
+            if (stateP && typeof stateP.then === 'function') {
+              stateP.finally(function() {
+                try {
+                  console.log(
+                    '[miniapp] message-settled state sync done; reschedule lock release lockSeq=' +
+                      String(userTurnLockSeq)
+                  );
+                } catch (e) {}
+                scheduleTryReleaseUserActionAfterLogRender(userTurnLockSeq);
+              });
+            }
           });
       }
 
