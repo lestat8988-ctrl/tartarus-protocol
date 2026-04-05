@@ -2793,7 +2793,9 @@
             console.log('[miniapp] appendLog source=' + (source || 'unknown') + ' text=' + JSON.stringify(raw));
           } catch (e) {}
         }
-        if (raw === lastAppendedLogNorm) return;
+        var trimmedRaw = String(raw || '').trim();
+        var isBracketOnlyHeaderLine = /^\[[^\]]+\]$/.test(trimmedRaw);
+        if (!isBracketOnlyHeaderLine && raw === lastAppendedLogNorm) return;
         lastAppendedLogNorm = raw;
         if (logInit && logInit.parentNode) logInit.remove();
         var entry = document.createElement('div');
