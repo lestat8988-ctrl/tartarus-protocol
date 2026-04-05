@@ -2126,6 +2126,125 @@ function buildEmptyFreeInputRouteResult(normalizedText, originalInput, shadowCls
   };
 }
 
+/** Short-term dialogue focus in match.game_state only (no extra DB tables). */
+const DIALOGUE_FOCUS_TTL_MS = 10 * 60 * 1000;
+
+function isDialogueFocusRecent(gs) {
+  const t = gs && gs.last_dialogue_at_ms;
+  if (t == null || !Number.isFinite(Number(t))) return false;
+  return Date.now() - Number(t) <= DIALOGUE_FOCUS_TTL_MS;
+}
+
+function hasConversationalFollowupCue(raw) {
+  const t = String(raw || '');
+  const lower = t.toLowerCase();
+  if (/(트라우마|상처|과거|기억|잊|사고|그건|그때|아직도|잊게|넘길\s*일은\s*아니)/i.test(t)) return true;
+  if (/\b(trauma|wound|past|remember|forget|still|family|child|mother|home|incident|accident)\b/i.test(lower)) return true;
+  if (/\bwhy\s+always\b|back\s+then\b|deep\s*space/i.test(lower)) return true;
+  return false;
+}
+
+function hasExplicitCrewRoleInFreeText(raw) {
+  return !!detectCrewRoleForGameplayQuestion(String(raw || ''));
+}
+
+function hasClearStructuredActionIntent(parsed, raw) {
+  const it = String(parsed?.intent_type || '').toLowerCase();
+  if (
+    [
+      'check_log',
+      'threaten',
+      'threat',
+      'take_pistol',
+      'find_clue',
+      'accuse',
+      'accuse_hint',
+      'repair',
+      'wait'
+    ].includes(it)
+  ) {
+    return true;
+  }
+  const r = String(raw || '');
+  const lower = r.toLowerCase();
+  if (
+    /(로그\s*확인|check\s*log|시스템\s*로그|접근\s*로그|권총|pistol|단서\s*수집|collect\s*a\s*clue|위협|threaten|처형|execute|범인\s*지목)/i.test(r)
+  ) {
+    return true;
+  }
+  if (/\b(accuse|execute|check\s+log|log\s+check|clue|threat|pistol)\b/i.test(lower)) return true;
+  return false;
+}
+
+/**
+ * Role-less emotional follow-up → last targeted crew (game_state), priority below explicit role / actions.
+ * @returns {{ cls: object, parsed: object }}
+ */
+function applyRolelessDialogueFollowupRouting(text, locale, cls, parsed, match) {
+  const raw = String(text || '').trim();
+  if (!raw || !match) return { cls, parsed };
+  if (containsLoreCanonSubject(raw)) return { cls, parsed };
+  const gs = match.game_state || {};
+  const lastRole = String(gs.last_targeted_role || '').toLowerCase();
+  if (!lastRole || !['doctor', 'engineer', 'navigator', 'pilot'].includes(lastRole)) return { cls, parsed };
+  if (!isDialogueFocusRecent(gs)) return { cls, parsed };
+  if (hasExplicitCrewRoleInFreeText(raw)) return { cls, parsed };
+  if (hasClearStructuredActionIntent(parsed, raw)) return { cls, parsed };
+  if (!hasConversationalFollowupCue(raw)) return { cls, parsed };
+  const k = cls.kind;
+  if (k !== 'mapped' && k !== 'brief_question') return { cls, parsed };
+  const selfDefQ = isSelfDefenseQuestionContext(raw);
+  const merged = {
+    ...parsed,
+    intent_type: 'question',
+    target: lastRole,
+    isSelfDefenseQuestion: selfDefQ,
+    isTargetedAccusation: selfDefQ
+  };
+  try {
+    console.log('[bot][intent] roleless_followup -> targeted_question role=' + lastRole);
+  } catch (e) {}
+  return {
+    cls: {
+      kind: 'targeted_question',
+      parsed: merged,
+      crewGameplayTargetRole: lastRole,
+      isSelfDefenseQuestion: selfDefQ,
+      isTargetedAccusation: selfDefQ
+    },
+    parsed: merged
+  };
+}
+
+function extractCrewDialogueBodyFromDisplayLogs(displayLogs, targetRole, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const h = getLlmRoleHeaders(loc);
+  const hdr = h[String(targetRole || '').toLowerCase()];
+  if (!hdr || !Array.isArray(displayLogs)) return '';
+  for (let i = 0; i < displayLogs.length - 1; i++) {
+    if (String(displayLogs[i]?.type || '').trim() === hdr) {
+      const body = String(displayLogs[i + 1]?.type || '').trim();
+      if (body && !/^\[[^\]]+\]$/.test(body)) return body.slice(0, 800);
+    }
+  }
+  return '';
+}
+
+async function persistDialogueFocusMemory(matchId, opts) {
+  opts = opts || {};
+  const targetRole = String(opts.targetRole || '').toLowerCase();
+  if (!matchId || !targetRole || !['doctor', 'engineer', 'navigator', 'pilot'].includes(targetRole)) return;
+  const m = await matchStore.getMatch(matchId);
+  if (!m) return;
+  const gs = { ...(m.game_state || {}) };
+  gs.last_targeted_role = targetRole;
+  gs.last_dialogue_kind = String(opts.dialogueKind || '').slice(0, 32) || null;
+  gs.last_captain_text = String(opts.captainText || '').slice(0, 500);
+  gs.last_role_reply = String(opts.roleReply || '').slice(0, 800);
+  gs.last_dialogue_at_ms = Date.now();
+  await matchStore.updateMatch(matchId, { game_state: gs });
+}
+
 function buildStateQueryDialogueLine(match, subtype, locale, now) {
   const loc = locale === 'en' ? 'en' : 'ko';
   const sys = systemHeader(loc);
@@ -5285,7 +5404,7 @@ async function tryGenerateLlmDialogueLogs(ctx) {
 
   // --- recent dialogue context injection ---
   let recentContextBlock = '';
-  if ((kind === 'QUESTION' || kind === 'CHECK_LOG') && match?.match_id) {
+  if ((kind === 'QUESTION' || kind === 'CHECK_LOG' || kind === 'THREATEN') && match?.match_id) {
     try {
       const matchId = match.match_id;
       const allEvents = dbMatchEventsMemory.filter((e) => e.match_id === matchId);
@@ -5364,6 +5483,21 @@ async function tryGenerateLlmDialogueLogs(ctx) {
       }
     } catch (e) {
       // ignore context injection failure
+    }
+  }
+  if ((kind === 'QUESTION' || kind === 'THREATEN') && target) {
+    const gm = gs.last_captain_text;
+    const gr = gs.last_role_reply;
+    if (gm && String(gs.last_targeted_role || '').toLowerCase() === String(target).toLowerCase()) {
+      const memBlock =
+        locale === 'en'
+          ? '\n\n[SHORT_TERM MEMORY — prior turn, same crew]\nCaptain (prior): ' +
+            String(gm).slice(0, 280) +
+            (gr ? '\nCrew (prior): ' + String(gr).slice(0, 320) : '')
+          : '\n\n[단기 기억 — 직전 동일 승무원과의 교환]\n함장(직전): ' +
+            String(gm).slice(0, 280) +
+            (gr ? '\n크루(직전): ' + String(gr).slice(0, 320) : '');
+      recentContextBlock = (recentContextBlock || '') + memBlock;
     }
   }
   if (recentContextBlock) system += recentContextBlock;
@@ -8622,8 +8756,11 @@ async function handleTextMessage(playerId, text, opts = {}) {
   }
 
   const resolvedTg = await resolveMiniappFreeClassification(text, locale);
-  const cls = resolvedTg.cls;
+  let cls = resolvedTg.cls;
   let parsed = resolvedTg.parsed;
+  const routedFollow = applyRolelessDialogueFollowupRouting(text, locale, cls, parsed, match);
+  cls = routedFollow.cls;
+  parsed = routedFollow.parsed;
   const now = opts.now;
 
   if (cls.kind === 'state_query') {
@@ -8993,6 +9130,24 @@ async function handleTextMessage(playerId, text, opts = {}) {
     console.log('[bot] targeted_question captain_display_source=final_only');
   }
   recentDisplay = mergePrependedTensionDisplayLogs(tensionTg, recentDisplay, locale);
+  try {
+    const ev0p = eventsForStore && eventsForStore[0];
+    const dkP = getDialogueLlmKind(eventsForStore);
+    const tgtP = ev0p?.target ? String(ev0p.target).toLowerCase() : null;
+    if (tgtP && (dkP === 'QUESTION' || dkP === 'THREATEN')) {
+      const capPersist =
+        cls.kind === 'targeted_question' && captainBodyForTq
+          ? captainBodyForTq
+          : stripLeadingCaptainBracketFromUserLine(String(text || '').trim(), locale) || String(text || '').trim();
+      const rr = extractCrewDialogueBodyFromDisplayLogs(recentDisplay, tgtP, locale);
+      await persistDialogueFocusMemory(matchId, {
+        targetRole: tgtP,
+        dialogueKind: dkP,
+        captainText: capPersist,
+        roleReply: rr
+      });
+    }
+  } catch (e) {}
   if (recentDisplay.length > 0) {
     reply += '\n\nRecent: ' + recentDisplay.map((e) => e.type).join(', ');
   }
@@ -9822,8 +9977,11 @@ async function processMessageApi(playerId, text, opts = {}) {
   }
 
   const resolvedApi = await resolveMiniappFreeClassification(text, locale);
-  const cls = resolvedApi.cls;
+  let cls = resolvedApi.cls;
   let parsed = resolvedApi.parsed;
+  const routedFollowApi = applyRolelessDialogueFollowupRouting(text, locale, cls, parsed, match);
+  cls = routedFollowApi.cls;
+  parsed = routedFollowApi.parsed;
   const freeInputIntentMeta = buildFreeInputIntentMetaSnapshot(cls, parsed, text, resolvedApi.route);
   const withMeta = (o) => (o && typeof o === 'object' ? { ...o, free_input_intent_meta: freeInputIntentMeta } : o);
 
@@ -10316,6 +10474,24 @@ async function processMessageApi(playerId, text, opts = {}) {
     console.log('[bot] targeted_question captain_display_source=final_only');
   }
   newDisplayLogs = mergePrependedTensionDisplayLogs(tension, newDisplayLogs, locale);
+  try {
+    const ev0p = eventsForStoreApi && eventsForStoreApi[0];
+    const dkP = getDialogueLlmKind(eventsForStoreApi);
+    const tgtP = ev0p?.target ? String(ev0p.target).toLowerCase() : null;
+    if (tgtP && (dkP === 'QUESTION' || dkP === 'THREATEN')) {
+      const capPersist =
+        cls.kind === 'targeted_question' && captainBodyForTq
+          ? captainBodyForTq
+          : stripLeadingCaptainBracketFromUserLine(String(text || '').trim(), locale) || String(text || '').trim();
+      const rr = extractCrewDialogueBodyFromDisplayLogs(newDisplayLogs, tgtP, locale);
+      await persistDialogueFocusMemory(matchId, {
+        targetRole: tgtP,
+        dialogueKind: dkP,
+        captainText: capPersist,
+        roleReply: rr
+      });
+    }
+  } catch (e) {}
   const updatedAfterDialogue = await matchStore.getMatch(matchId);
   const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
   const recentEvents = newDisplayLogs;
