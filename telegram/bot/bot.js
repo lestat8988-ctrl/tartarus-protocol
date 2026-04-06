@@ -4731,7 +4731,7 @@ function getFollowupTargetedDialoguePromptLines(locale, toneTargetRole) {
   const roleLine = {
     en: {
       doctor:
-        'FOLLOWUP_ROLE (doctor): FORBIDDEN: current patient, can provide information, more information, please tell me, ward-round framing. FORBIDDEN: any current-patient framing. REQUIRED: colder, withholding, records-only; no explanation beyond refusal or narrow clinical framing.',
+        'FOLLOWUP_ROLE (doctor): FORBIDDEN: current patient, can provide information, more information, please tell me, ward-round framing. FORBIDDEN: any current-patient framing. REQUIRED: colder, withholding, records-only; no explanation beyond refusal or narrow clinical framing. FORBIDDEN: opening with "Yes, Commander" or any agreement opener. FORBIDDEN: soft compliance, acknowledgment starters. REQUIRED: cold clinical reframe of captain statement. GOOD examples: "Speed does not rewrite the record." / "Accuracy before pace — I learned that." / "Faster decisions can help. If they are correct."',
       engineer:
         'FOLLOWUP_ROLE (engineer): FORBIDDEN: "Understood", "I will confirm", "I will fix it", obedient work-response tone, clean compliance language. REQUIRED: bitter humor, rough deflection, irritated systems talk; no soft agreement.',
       navigator:
@@ -4741,7 +4741,7 @@ function getFollowupTargetedDialoguePromptLines(locale, toneTargetRole) {
     },
     ko: {
       doctor:
-        'FOLLOWUP_ROLE(닥터): 금지: "현재 환자", "제공 가능합니다", "추가 정보", "말씀해 주십시오", 현재 환자 문진·병동·의무실 안내 톤 등 현재 환자 프레이밍 일체. 필수: 더 차갑게, 눌러쓰기, 기록·임상 명사만; 거부 또는 아주 좁은 임상 틀 외 설명 금지.',
+        'FOLLOWUP_ROLE(닥터): 금지: "현재 환자", "제공 가능합니다", "추가 정보", "말씀해 주십시오", 현재 환자 문진·병동·의무실 안내 톤 등 현재 환자 프레이밍 일체. 필수: 더 차갑게, 눌러쓰기, 기록·임상 명사만; 거부 또는 아주 좁은 임상 틀 외 설명 금지. 금지: "네, 함장님"으로 시작하는 문장. 금지: 동의·수긍·순응형 오프너 일체("맞습니다", "그렇습니다", "알겠습니다", "물론입니다"). 필수: 차갑고 비인격적인 임상 언어. 필수: 함장 발화를 의학적·기록적 프레임으로 비껴가기. 좋은 예: "시간이 해결해 주진 않습니다. 기록만 남습니다." / "속도보다 정확성이 먼저입니다." / "빠른 판단이 도움이 될 수는 있습니다. 틀리지 않는다면요."',
       engineer:
         'FOLLOWUP_ROLE(엔지니어): 금지: "알겠습니다", "확인해 보겠습니다", "문제를 해결하겠습니다", 순응·업무 복명 톤, 깔끔한 복종 말투. 필수: 쓴 유머, 거친 비껴감, 짜증 난 시스템 얘기; 부드러운 동의 금지.',
       navigator:
@@ -4767,6 +4767,12 @@ function isFollowupDoctorToneInvalid(crewText) {
   if (t.includes('제공 가능합니다')) return true;
   if (t.includes('현재 환자')) return true;
   if (t.includes('말씀해 주십시오')) return true;
+  if (t.includes('네, 함장님')) return true;
+  if (t.includes('그렇습니다, 함장님')) return true;
+  if (t.includes('물론입니다')) return true;
+  if (t.includes('맞습니다, 함장님')) return true;
+  if (t.includes('신속하게 진행')) return true;
+  if (t.includes('필요한 조치를 취하겠습니다')) return true;
   const lower = t.toLowerCase();
   if (lower.includes('more information')) return true;
   if (lower.includes('additional information')) return true;
@@ -4776,6 +4782,11 @@ function isFollowupDoctorToneInvalid(crewText) {
   if (lower.includes('please tell me')) return true;
   if (lower.includes('if you need')) return true;
   if (lower.includes('happy to help')) return true;
+  if (lower.includes('yes, commander')) return true;
+  if (lower.includes('of course')) return true;
+  if (lower.includes('certainly')) return true;
+  if (lower.includes('i will proceed')) return true;
+  if (lower.includes('i will take action')) return true;
   return false;
 }
 
