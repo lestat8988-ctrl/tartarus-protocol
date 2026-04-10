@@ -1550,7 +1550,40 @@ function tryClassifyTargetedSuspicionQuestion(raw, effParsed) {
   try {
     console.log('[bot][intent] targeted suspicion pattern -> suspicion_question (no single addressee)');
   } catch (e2) {}
-  return { kind: 'suspicion_question', parsed: effParsed };
+  return finalizeSuspicionQuestionClassification(raw, { kind: 'suspicion_question', parsed: effParsed });
+}
+
+function resolveCrewRoleForSuspicionTargetUpgrade(raw) {
+  const ex = extractTargetRoleFromTargetedSuspicionQuestion(raw);
+  if (ex && ex.role) return ex.role;
+  return detectCrewRoleForGameplayQuestion(raw);
+}
+
+/** suspicion_question 확정 직후 — 앞쪽에 역할/실명이 있으면 targeted_question + 단일 화자로 승격 */
+function finalizeSuspicionQuestionClassification(raw, cls) {
+  if (!cls || cls.kind !== 'suspicion_question') return cls;
+  const eff = cls.parsed && typeof cls.parsed === 'object' ? cls.parsed : {};
+  const role = resolveCrewRoleForSuspicionTargetUpgrade(raw);
+  if (!role || !['doctor', 'engineer', 'navigator', 'pilot'].includes(role)) return cls;
+  try {
+    console.log('[intent-fix] suspicion upgraded to targeted_question role=' + role);
+    console.log('[intent-fix] single speaker lock enforced role=' + role);
+  } catch (e) {}
+  const merged = {
+    ...eff,
+    intent_type: 'question',
+    target: role,
+    isSelfDefenseQuestion: false,
+    isTargetedAccusation: false
+  };
+  return {
+    kind: 'targeted_question',
+    parsed: merged,
+    crewGameplayTargetRole: role,
+    isSelfDefenseQuestion: false,
+    isTargetedAccusation: false,
+    targetedQuestionSingleSpeaker: true
+  };
 }
 
 /**
@@ -1921,7 +1954,7 @@ function classifyMiniappFreeText(text, parsed, localeOpt) {
       console.log('[bot][intent] urgent suspicion question detected');
       console.log('[bot][intent] final kind=suspicion_question');
     } catch (e) {}
-    return { kind: 'suspicion_question', parsed: effParsed };
+    return finalizeSuspicionQuestionClassification(raw, { kind: 'suspicion_question', parsed: effParsed });
   }
 
   const sq = matchStateQuerySubtype(lower);
@@ -1947,7 +1980,7 @@ function classifyMiniappFreeText(text, parsed, localeOpt) {
       console.log('[bot][intent] suspicion question detected');
       console.log('[bot][intent] final kind=suspicion_question');
     } catch (e) {}
-    return { kind: 'suspicion_question', parsed: effParsed };
+    return finalizeSuspicionQuestionClassification(raw, { kind: 'suspicion_question', parsed: effParsed });
   }
 
   if (isStandaloneCrewNameGroupQuestion(raw)) {
