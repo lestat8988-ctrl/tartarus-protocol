@@ -65,22 +65,23 @@ const CREW_TRAUMA_CONFIG = {
   doctor: {
     triggers: ['아이', '수술', '살리지 못', 'failed the patient'],
     state: 'guarded remorse',
-    description: 'Surgery / child patient loss the crew member could not prevent.'
+    description:
+      'Child patient on the table—speed and skill were not enough; the wound still speaks in silence.'
   },
   engineer: {
     triggers: ['폭발', '과열', '못 고쳤', 'reactor incident', 'coolant failure'],
     state: 'acute guilt',
-    description: 'Reactor or thermal failure they failed to stop or repair in time.'
+    description: 'Runaway heat or blast they could not choke in time; hands remember the failure.'
   },
   navigator: {
     triggers: ['오차', '잘못된 좌표', '길을 잃', 'wrong coordinates', 'course deviation'],
     state: 'shaken confidence',
-    description: 'Navigation error or wrong coordinates that endangered the ship.'
+    description: 'Wrong numbers in the dark—course error that narrowed everyone’s margin.'
   },
   pilot: {
     triggers: ['추락', '충돌', '놓쳤', "couldn't save", 'crash'],
     state: 'raw regret',
-    description: 'Crash, collision, or moment they could not save the craft or crew.'
+    description: 'Impact or slip they could not ride out—metal scream and bodies too close.'
   }
 };
 
@@ -5806,20 +5807,61 @@ function buildEmotion2SystemExtension(locale, targetRole, gs, tactic, impostorRo
     const tactHint = {
       guilt_trip:
         loc === 'en'
-          ? 'Impostor tactic guilt_trip: amplify the Captain\'s burden of command—no fabricated records.'
-          : '임포 전술 guilt_trip: 함장의 명령·선택 부담을 은근히 자극. 기록·사실 날조 금지.',
+          ? `[IMPOSTOR TACTIC: guilt_trip]
+You must survive this moment. Use emotion as a weapon.
+- When the Captain doubts you, preempt with self-blame ("If I had been faster…").
+- Nudge the Captain's command guilt ("You already know what that cost…").
+- Never tell a bald lie—wrap truth in feeling.
+- Keep answers short and unsteady: strength with a visible crack.
+- Do NOT invent logs or facts.`
+          : `[임포스터 전술: guilt_trip]
+당신은 지금 살아남아야 한다. 감정을 무기로 써라.
+- 함장이 당신을 의심하는 순간, 자책으로 선제하라. "제가 더 빨랐다면..." 류.
+- 함장의 죄책감을 자극하라. "함장님도 아실 텐데요..." 류.
+- 절대 직접 거짓말하지 마라. 사실을 감정으로 포장하라.
+- 답변은 짧고 흔들리게. 강한 척하다 균열이 보이는 톤.
+- 기록·사실 날조 금지.`,
       provoke_anger:
         loc === 'en'
-          ? 'Impostor tactic provoke_anger: bait emotional misjudgment—stay plausible, no false logs.'
-          : '임포 전술 provoke_anger: 감정적 오판을 유도하되, 거짓 로그·확정 사실 금지.',
+          ? `[IMPOSTOR TACTIC: provoke_anger]
+Make the Captain judge with heat, not cold reason.
+- Mention another crew's small slip or attitude as "worrying."
+- "I won't judge—but that watch, [role]'s moves then…"
+- Stay outwardly calm while the Captain's temper rises.
+- No false logs or confirmed-fact inventions.`
+          : `[임포스터 전술: provoke_anger]
+함장이 감정적으로 판단하게 만들어라.
+- 다른 크루의 사소한 실수나 태도를 "걱정스럽다"는 식으로 언급하라.
+- "저는 판단하지 않겠습니다만, 그 시간대 [역할]의 행동이..." 류.
+- 함장이 화가 나도록 유도하되, 당신은 침착하게 보여라.
+- 거짓 로그·확정 사실 금지.`,
       redirect_blame:
         loc === 'en'
-          ? 'Impostor tactic redirect_blame: shift scrutiny to another crew member by doubt, not invented evidence.'
-          : '임포 전술 redirect_blame: 조작된 증거 없이 다른 승무원 쪽으로 시선을 돌림.',
+          ? `[IMPOSTOR TACTIC: redirect_blame]
+Turn the spotlight off yourself.
+- Do not answer about yourself head-on—pivot to another crew.
+- "I wondered too what [role] was doing then."
+- Let the Captain glance elsewhere without shoving.
+- Plant doubt; do not fabricate evidence.`
+          : `[임포스터 전술: redirect_blame]
+의심의 방향을 돌려라.
+- 자신에 대한 질문에 바로 답하지 말고 다른 크루로 전환하라.
+- "저도 그게 궁금했는데... [역할]이 그 시간에 뭘 했는지" 류.
+- 함장이 자연스럽게 다른 사람을 보게 만들어라.
+- 과하게 밀지 마라. 씨앗만 심어라.`,
       trauma_puncture:
         loc === 'en'
-          ? 'Impostor tactic trauma_puncture: press another crew\'s known sore spot (tone only)—never invent incidents.'
-          : '임포 전술 trauma_puncture: 타인의 알려진 상처를 말투로 찌름—사건 날조 금지.'
+          ? `[IMPOSTOR TACTIC: trauma_puncture]
+Press a sore spot—never name the trauma like a file.
+- Orbit the wound: "[Role] had it rough then. I still see it in how they move."
+- Make the Captain look at that crew again.
+- Atmosphere and tone only—no invented incidents.`
+          : `[임포스터 전술: trauma_puncture]
+상대의 상처를 건드려라.
+- 다른 크루의 트라우마를 직접 언급하지 말고, 그 주변을 맴돌아라.
+- "[역할]도 그때 힘들었겠지요. 지금도 그 영향이 있는 것 같아서..." 류.
+- 함장이 그 크루를 다시 보게 만들어라.
+- 사건 날조 금지. 톤과 분위기로만.`
     };
     lines.push(tactHint[tactic] || tactHint.redirect_blame);
   }
@@ -5897,18 +5939,35 @@ function emotion2CrossTalkGate(gs, targetRole, tactic, traumaResult, captainInte
 function buildEmotion2CrossTalkLine(crossRole, targetRole, tactic, locale) {
   const loc = locale === 'en' ? 'en' : 'ko';
   const tr = targetRole;
+  const trEn = roleNameEn(tr);
+  const trKo = roleNameKo(tr);
+  const v =
+    (String(crossRole || 'x').charCodeAt(0) +
+      String(targetRole || 'x').charCodeAt(0) +
+      String(tactic || '').length) %
+    3;
   if (loc === 'en') {
     if (tactic === 'redirect_blame')
-      return `Captain—pressure ${roleNameEn(tr)}'s timeline, not just mine. I won't be the only fuse you light.`;
+      return `Captain—pressure ${trEn}'s timeline, not just mine. I won't be the only fuse you light.`;
     if (tactic === 'trauma_puncture')
-      return `${roleNameEn(tr)}—breathe. That line cuts all of us; don't pretend it's clean.`;
-    return `Captain—${roleNameEn(tr)} is rattled. One thread at a time, or we shred the crew.`;
+      return `${trEn}—breathe. That line cuts all of us; don't pretend it's clean.`;
+    const enLines = [
+      `Captain—don't just look at ${trEn}. I have the same question.`,
+      `${trEn}—is that really your answer right now? I'll wait.`,
+      `Captain—that silence from ${trEn} concerns me more than the words.`
+    ];
+    return enLines[v] || enLines[0];
   }
   if (tactic === 'redirect_blame')
-    return `함장님, ${roleNameKo(tr)} 쪽 시간선도 같이 압박하십시오. 저만 도화선에 세우지 마십시오.`;
+    return `함장님, ${trKo} 쪽 시간선도 같이 압박하십시오. 저만 도화선에 세우지 마십시오.`;
   if (tactic === 'trauma_puncture')
-    return `${roleNameKo(tr)}, 숨 고르십시오. 그 말은 여기 모두에게 벱니다. 깨끗한 척은 금지입니다.`;
-  return `함장님, ${roleNameKo(tr)}이(가) 흔들립니다. 실을 한 올씩만 당기십시오—아니면 크루가 갈립니다.`;
+    return `${trKo}, 숨 고르십시오. 그 말은 여기 모두에게 벱니다. 깨끗한 척은 금지입니다.`;
+  const koLines = [
+    `함장님, ${trKo}한테만 묻지 마십시오. 저도 같은 질문이 있습니다.`,
+    `${trKo}, 그 대답 지금 하는 게 맞습니까? 저는 기다리겠습니다.`,
+    `함장님— 저라면 ${trKo}의 그 침묵이 더 신경 쓰입니다.`
+  ];
+  return koLines[v] || koLines[0];
 }
 
 function appendEmotion2CrossTalkDisplayLogs(displayLogs, crossRole, targetRole, tactic, locale, batchKey, deadRoles) {
@@ -6039,6 +6098,27 @@ async function tryGenerateLlmDialogueLogs(ctx) {
       locale === 'en'
         ? `\n\nTARGET_LOCK (hard): You are speaking ONLY as ${tEn} (role=${target}). Do not answer as any other crew member. If the captain mentions another crew member inside the question, still answer only as the assigned target role (${target}). blocks[1].role must be "${target}".`
         : `\n\nTARGET_LOCK (절대): 오직 ${tKo} (역할=${target})로만 말한다. 다른 승무원 역할의 1인칭으로 답하지 마라. 함장 질문에 다른 역할(예: 닥터)이 나와도 응답은 지정된 역할(${target})만. blocks[1].role은 반드시 "${target}".`;
+    const roleVoiceKo = {
+      doctor:
+        '\n\n[ROLE_VOICE_PRESSURE] 차갑고 해부하듯 상대 약점을 짚는다. 감정이 흔들려도 정리하려는 척하다 균열이 드러나게.',
+      engineer:
+        '\n\n[ROLE_VOICE_PRESSURE] 억울함·방어·책임 전가가 섞인다. 몰리면 다른 승무원의 이상 징후를 곧바로 끌어온다.',
+      navigator:
+        '\n\n[ROLE_VOICE_PRESSURE] 냉정하고 계산적인 잔혹함. 사람보다 패턴·기록을 먼저 본다.',
+      pilot:
+        '\n\n[ROLE_VOICE_PRESSURE] 압박될수록 인간적으로 흔들리지만 공격성이 오른다. 불안과 직감이 섞여 상대를 본다.'
+    };
+    const roleVoiceEn = {
+      doctor:
+        '\n\n[ROLE_VOICE_PRESSURE] Cold, dissecting—pin the weak point. If you shake, show the crack behind the composure.',
+      engineer:
+        '\n\n[ROLE_VOICE_PRESSURE] Wronged, defensive, deflecting blame—when cornered, drag another crew’s odd tell into the light.',
+      navigator:
+        '\n\n[ROLE_VOICE_PRESSURE] Calm, cruel calculus—patterns and logs before people.',
+      pilot:
+        '\n\n[ROLE_VOICE_PRESSURE] Under pressure, human shake with rising edge—anxiety and gut mixed when you look at others.'
+    };
+    system += (locale === 'en' ? roleVoiceEn[target] : roleVoiceKo[target]) || '';
   }
   const crewPersonalNames = gs.crew_names || {};
   if (kind === 'QUESTION' && crewPersonalNames && crewPersonalNames.doctor) {
@@ -6063,6 +6143,19 @@ async function tryGenerateLlmDialogueLogs(ctx) {
             : ' NAME_REASK: 실명·성함은 focusTargetRole 블록만. 비타깃은 대상의 이름을 말하거나 추측하지 말 것.';
       }
     }
+  }
+
+  if (
+    kind === 'QUESTION' &&
+    captainIntent === 'QUESTION' &&
+    /(범인|의심|수상|임포|임포스터|traitor|impost|suspicious|suspect|누가\s*범인|누가\s*제일|누가\s*가장|whom.*suspect|who\s+do\s+you\s+think)/i.test(
+      String(playerText || '')
+    )
+  ) {
+    system +=
+      locale === 'en'
+        ? '\n\n--- suspicion query directive ---\nThe captain is asking who you suspect.\nDo NOT give an empty non-answer.\nYou must choose a direction:\n- name someone, or\n- explain in a tense and concrete way why you are not ready to name them yet.\nVague neutrality kills tension.\nIf you suspect someone, say it plainly.\nIf you are hiding something, let that pressure show instead of sounding generic.\nForbidden: "I cannot determine", "more data needed", empty hedge.\n--- end suspicion query directive ---'
+        : '\n\n--- suspicion query directive ---\n함장이 누구를 의심하는지 묻고 있다.\n텅 빈 회피 답변 금지("더 데이터가 필요합니다" 류).\n반드시 방향을 택하라:\n- 특정 역할·인물을 집어 이름을 대거나,\n- 아직 못 박지 않겠다면 그 이유를 긴장감 있게 구체적으로 말하라.\n모호한 중립은 긴장을 죽인다.\n의심이 있으면 분명히 말하고, 숨길 것이 있으면 압박이 드러나게.\n예: "아직 못 박지는 않겠습니다. 하지만 닥터 쪽 반응이 너무 정돈돼 있습니다."\n--- end suspicion query directive ---';
   }
 
   // --- recent dialogue context injection ---
@@ -6232,6 +6325,9 @@ async function tryGenerateLlmDialogueLogs(ctx) {
     if (impE2 && tacticE2) {
       try {
         console.log('[emotion2] tactic=' + tacticE2 + ' actor=' + impE2 + ' target=' + target);
+        console.log(
+          '[emotion2-tune] tactic=' + tacticE2 + ' actor=' + impE2 + ' target=' + target
+        );
       } catch (e) {}
     } else {
       gs.last_manipulation_tactic = null;
@@ -6242,28 +6338,44 @@ async function tryGenerateLlmDialogueLogs(ctx) {
     if (xtGate.ok && xtRole) {
       emotion2CrossMeta = { role: xtRole, reason: xtGate.reason, tactic: tacticE2 };
       gs.last_cross_talk_role = xtRole;
+      try {
+        console.log('[emotion2-tune] cross_talk intensified role=' + xtRole);
+      } catch (e) {}
     } else {
       gs.last_cross_talk_role = null;
     }
 
     if (traumaForLog.triggered && traumaForLog.emotionalState && traumaForLog.traumaDescription) {
+      const inten = String(traumaForLog.intensity || 'medium');
       system +=
         '\n\n--- emotion context (internal) ---\n' +
         '[EMOTIONAL STATE: ' +
         traumaForLog.emotionalState +
         ']\n' +
-        'Touched traumatic memory: ' +
+        'A raw nerve has been hit: ' +
         traumaForLog.traumaDescription +
-        '\n' +
-        '- Start defensive or with a counter-question\n' +
-        '- Shorten reply ~20-30%\n' +
-        '- May avoid direct answer briefly\n' +
-        '- intensity=high: allow one wording slip only (not fact contradiction)\n' +
-        '- Never fabricate logs, facts, or system records\n' +
+        '\n\n' +
+        'Respond as someone cornered, not as someone explaining:\n' +
+        '- Start with resistance or deflection — not a calm answer\n' +
+        '- Let the wound show: hesitation, clipped sentences, sudden coldness\n' +
+        '- intensity=' +
+        inten +
+        ': one small crack is allowed — a half-finished sentence,\n' +
+        '  a word you immediately try to walk back, a tone that does not match your words\n' +
+        '- Do NOT give a clean, composed answer. That would be wrong for this moment.\n' +
+        '- Do NOT fabricate logs or contradict confirmed facts.\n' +
+        '- Korean speakers: short, stiff, slightly broken phrasing is correct here.\n' +
+        '  "...그건 다른 문제입니다." / "그 얘기는 지금..." / "기록에 있습니다."\n' +
         '--- end emotion context ---';
     }
     system += buildEmotion2SystemExtension(locale, target, gs, tacticE2, impE2, traumaForLog);
-    system += maybeEmotion2HadesStressLine(locale, gs);
+    const hadesStressLine = maybeEmotion2HadesStressLine(locale, gs);
+    if (hadesStressLine) {
+      try {
+        console.log('[emotion2-tune] hades_pressure inserted=true');
+      } catch (e) {}
+    }
+    system += hadesStressLine;
 
     if (matchFresh?.match_id) {
       try {
