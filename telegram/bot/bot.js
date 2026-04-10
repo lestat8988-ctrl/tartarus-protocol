@@ -1750,6 +1750,15 @@ function isStandaloneCrewNameGroupQuestion(raw) {
   return false;
 }
 
+function shouldForceDeterministicGroupNameQuestion(playerText, targetedQuestionSingleSpeaker) {
+  if (targetedQuestionSingleSpeaker) return false;
+  const t = String(playerText || '').trim();
+  if (!t) return false;
+  if (isGroupGameplayQuestion(t) && detectGroupSubkind(t) === 'name') return true;
+  if (isStandaloneCrewNameGroupQuestion(t) && !detectCrewRoleForGameplayQuestion(t)) return true;
+  return false;
+}
+
 /** classifyMiniappFreeText 와 동일 — 외부에서 kind 조회용 */
 function classifyMiniappMessageKind(text, parsed) {
   return classifyMiniappFreeText(text, parsed);
@@ -2432,6 +2441,27 @@ function buildOpenQuestionCrewEvents(match, locale) {
   return events;
 }
 
+const CANONICAL_CREW_PERSONAL_NAMES_EN = {
+  doctor: 'Yuna',
+  engineer: 'Danny',
+  navigator: 'Owen',
+  pilot: 'Marcus'
+};
+
+function getCrewPersonalNameEnglishOrCanonical(crewNames, role) {
+  const r = String(role || '').toLowerCase();
+  const fb = CANONICAL_CREW_PERSONAL_NAMES_EN[r] || 'Crew';
+  const e = crewNames && crewNames[r];
+  if (!e) return fb;
+  if (typeof e === 'string') {
+    const s = String(e).trim();
+    return s || fb;
+  }
+  const en = e.en != null && String(e.en).trim();
+  if (en) return en;
+  return fb;
+}
+
 /** 집단 이름 질문 — 실명 우선, 역할 설명은 이름 뒤 1문장(존댓말). crew_names 는 호출 전 ensure. */
 function buildGroupNameQuestionCrewEvents(match, locale) {
   const loc = locale === 'en' ? 'en' : 'ko';
@@ -2470,7 +2500,7 @@ function buildGroupNameQuestionCrewEvents(match, locale) {
   const events = [{ type: 'CREW_DIALOGUE', role: 'captain', dialogue: captainLine }];
   for (const r of alive) {
     const fn = byRole[r];
-    const nm = getCrewDisplayName(cn, r, loc);
+    const nm = getCrewPersonalNameEnglishOrCanonical(cn, r);
     if (fn) events.push({ type: 'CREW_DIALOGUE', role: r, dialogue: fn(nm) });
   }
   return events;
@@ -5560,6 +5590,8 @@ async function tryGenerateLlmDialogueLogs(ctx) {
     toneTargetRole: target && ['doctor', 'engineer', 'navigator', 'pilot'].includes(target) ? target : null,
     is_followup_targeted_dialogue: !!ctx.isFollowupTargetedDialogue
   });
+  system +=
+    '\n\nCrew names are fixed. Do not generate new names.\ndoctor=Yuna, engineer=Danny, navigator=Owen, pilot=Marcus';
   if (kind === 'LORE_QUESTION') {
     system += '\n\n' + getLoreCanonSystemExtension(locale);
   }
@@ -7754,7 +7786,7 @@ function rewriteCheckLogPilotGeneric(text, loc) {
 function stabilizeNameQuestionCrewLine(text, role, loc, opts) {
   opts = opts || {};
   const cn = opts.crewPersonalNames || {};
-  const stable = getCrewDisplayName(cn, role, loc);
+  const stable = getCrewPersonalNameEnglishOrCanonical(cn, role);
   if (!stable || stable === '승무원' || stable === 'Crew') return { text, changed: false };
   const r = String(role || '').toLowerCase();
   let changed = false;
@@ -8080,6 +8112,24 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
       ? inferCaptainIntent(playerText || '', kind)
       : 'QUESTION';
 
+  if (
+    kind === 'QUESTION' &&
+    shouldForceDeterministicGroupNameQuestion(playerText, !!targetedQuestionSingleSpeaker)
+  ) {
+    let mG = match;
+    if (match?.match_id) {
+      mG = (await matchStore.getMatch(match.match_id)) || match;
+    }
+    const evs = buildGroupNameQuestionCrewEvents(mG, loc);
+    let det = dedupeDisplayLogs(toPlayerDisplayLogs(evs, { locale: loc }), loc);
+    det = sanitizeNameQuestionDisplayLogs(det, loc);
+    try {
+      console.log('[name-question] deterministic group response used');
+    } catch (e) {}
+    logDialogueTrace(actionSlug, apiProvider, modelStr, 'group_name_deterministic', eventsCount);
+    return applyCharacterToneToDisplayLogs(det, loc, toneOptsBase);
+  }
+
   if (kind === 'LORE_QUESTION') {
     try {
       console.log('[bot][warn] lore_question attempted to enter crew pipeline');
@@ -8379,7 +8429,7 @@ function buildTargetedNameQuestionDeterministicDisplayLogs(match, locale, target
   const t = String(targetRole || '').toLowerCase();
   if (!alive.includes(t)) return null;
   const names = gs.crew_names || {};
-  const displayName = getCrewDisplayName(names, t, loc);
+  const displayName = getCrewPersonalNameEnglishOrCanonical(names, t);
   const capHdr = captainHeader(loc);
   const capBody =
     String(captainSpokenLine || '').trim() ||
@@ -9152,7 +9202,12 @@ async function handleTextMessage(playerId, text, opts = {}) {
     console.log('[bot] message kind=group_question sub=' + sub);
     await clearPostOpeningWaitingForFirstCommanderInput(matchId);
     await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
-    if (sub === 'name') await ensureCrewPersonalNamesPersisted(matchId);
+    if (sub === 'name') {
+      try {
+        console.log('[name-question] deterministic group response used');
+      } catch (e) {}
+      await ensureCrewPersonalNamesPersisted(matchId);
+    }
     const matchAfterNames = sub === 'name' ? await matchStore.getMatch(matchId) : match;
     const events = resolveGroupCrewEvents(matchAfterNames || match, locale, sub);
     for (const ev of events) await matchStore.appendEvent(matchId, ev);
@@ -10431,7 +10486,12 @@ async function processMessageApi(playerId, text, opts = {}) {
     console.log('[bot] message kind=group_question sub=' + sub);
     await clearPostOpeningWaitingForFirstCommanderInput(matchId);
     await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
-    if (sub === 'name') await ensureCrewPersonalNamesPersisted(matchId);
+    if (sub === 'name') {
+      try {
+        console.log('[name-question] deterministic group response used');
+      } catch (e) {}
+      await ensureCrewPersonalNamesPersisted(matchId);
+    }
     const matchAfterNames = sub === 'name' ? await matchStore.getMatch(matchId) : match;
     const events = resolveGroupCrewEvents(matchAfterNames || match, locale, sub);
     for (const ev of events) await matchStore.appendEvent(matchId, ev);
