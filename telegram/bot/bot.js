@@ -1488,6 +1488,71 @@ function isStandaloneSuspicionQuestion(raw) {
   );
 }
 
+function isTargetedSuspicionToRoleQuestionText(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return false;
+  const p1 =
+    /(닥터|의사|엔지니어|네비게이터|항해사|파일럿|오웬|마커스|대니|유나|doctor|engineer|navigator|pilot|owen|marcus|danny|yuna).{0,20}?(의심|수상|임포스터|범인)/i.test(
+      s
+    );
+  const p2 = /(누가|누구|어느\s*쪽).{0,15}?(의심|수상|임포스터|범인)/i.test(s);
+  return p1 || p2;
+}
+
+/** 의심 질문 앞부분(첫 의심 키워드 이전)에서 역할 또는 실명으로 타깃 추출 */
+function extractTargetRoleFromTargetedSuspicionQuestion(raw) {
+  const s = String(raw || '');
+  const idxSusp = s.search(/(?:의심|수상|임포스터|범인)/i);
+  const head = idxSusp >= 0 ? s.slice(0, idxSusp) : s;
+  const personalFirst = [
+    [/오웬|owen/i, 'navigator'],
+    [/유나|yuna/i, 'doctor'],
+    [/대니|danny/i, 'engineer'],
+    [/마커스|marcus/i, 'pilot']
+  ];
+  for (const [rx, role] of personalFirst) {
+    if (rx.test(head)) return { role, source: 'personal_name' };
+  }
+  const roleTok = [
+    [/닥터|의사|doctor/i, 'doctor'],
+    [/엔지니어|engineer/i, 'engineer'],
+    [/네비게이터|항해사|navigator/i, 'navigator'],
+    [/파일럿|pilot/i, 'pilot']
+  ];
+  for (const [rx, role] of roleTok) {
+    if (rx.test(head)) return { role, source: 'role_token' };
+  }
+  return null;
+}
+
+function tryClassifyTargetedSuspicionQuestion(raw, effParsed) {
+  if (!isTargetedSuspicionToRoleQuestionText(raw)) return null;
+  const ex = extractTargetRoleFromTargetedSuspicionQuestion(raw);
+  if (ex) {
+    try {
+      console.log('[intent-fix] targeted suspicion role=' + ex.role + ' source=' + ex.source);
+    } catch (e) {}
+    const merged = {
+      ...effParsed,
+      intent_type: 'question',
+      target: ex.role,
+      isSelfDefenseQuestion: false,
+      isTargetedAccusation: false
+    };
+    return {
+      kind: 'targeted_question',
+      parsed: merged,
+      crewGameplayTargetRole: ex.role,
+      isSelfDefenseQuestion: false,
+      isTargetedAccusation: false
+    };
+  }
+  try {
+    console.log('[bot][intent] targeted suspicion pattern -> suspicion_question (no single addressee)');
+  } catch (e2) {}
+  return { kind: 'suspicion_question', parsed: effParsed };
+}
+
 /**
  * intentParser 결과를 보정 — 질문형이면 intent_type=question (unknown/observe/check_log 오분류 방지).
  */
@@ -1930,6 +1995,11 @@ function classifyMiniappFreeText(text, parsed, localeOpt) {
       console.log('[bot][route] lore pipeline selected');
     } catch (e) {}
     return { kind: 'lore_question', parsed: effParsed };
+  }
+
+  if ((intent === 'question' || intent === 'unknown') && !pinnedThreatIntent) {
+    const suspTgt = tryClassifyTargetedSuspicionQuestion(raw, effParsed);
+    if (suspTgt) return suspTgt;
   }
 
   if (intent === 'question') {
@@ -5733,20 +5803,19 @@ function emotion2CrossTalkGate(gs, targetRole, tactic, traumaResult, captainInte
 
 function buildEmotion2CrossTalkLine(crossRole, targetRole, tactic, locale) {
   const loc = locale === 'en' ? 'en' : 'ko';
-  const cr = crossRole;
   const tr = targetRole;
   if (loc === 'en') {
     if (tactic === 'redirect_blame')
-      return `${roleNameEn(cr)}: Captain—pressure ${roleNameEn(tr)}'s timeline, not just mine. I won't be the only fuse you light.`;
+      return `Captain—pressure ${roleNameEn(tr)}'s timeline, not just mine. I won't be the only fuse you light.`;
     if (tactic === 'trauma_puncture')
-      return `${roleNameEn(cr)}: ${roleNameEn(tr)}—breathe. That line cuts all of us; don't pretend it's clean.`;
-    return `${roleNameEn(cr)}: Captain—${roleNameEn(tr)} is rattled. One thread at a time, or we shred the crew.`;
+      return `${roleNameEn(tr)}—breathe. That line cuts all of us; don't pretend it's clean.`;
+    return `Captain—${roleNameEn(tr)} is rattled. One thread at a time, or we shred the crew.`;
   }
   if (tactic === 'redirect_blame')
-    return `${roleNameKo(cr)}: 함장님, ${roleNameKo(tr)} 쪽 시간선도 같이 압박하십시오. 저만 도화선에 세우지 마십시오.`;
+    return `함장님, ${roleNameKo(tr)} 쪽 시간선도 같이 압박하십시오. 저만 도화선에 세우지 마십시오.`;
   if (tactic === 'trauma_puncture')
-    return `${roleNameKo(cr)}: ${roleNameKo(tr)}, 숨 고르십시오. 그 말은 여기 모두에게 벱니다. 깨끗한 척은 금지입니다.`;
-  return `${roleNameKo(cr)}: 함장님, ${roleNameKo(tr)}이(가) 흔들립니다. 실을 한 올씩만 당기십시오—아니면 크루가 갈립니다.`;
+    return `${roleNameKo(tr)}, 숨 고르십시오. 그 말은 여기 모두에게 벱니다. 깨끗한 척은 금지입니다.`;
+  return `함장님, ${roleNameKo(tr)}이(가) 흔들립니다. 실을 한 올씩만 당기십시오—아니면 크루가 갈립니다.`;
 }
 
 function appendEmotion2CrossTalkDisplayLogs(displayLogs, crossRole, targetRole, tactic, locale, batchKey, deadRoles) {
@@ -5757,6 +5826,9 @@ function appendEmotion2CrossTalkDisplayLogs(displayLogs, crossRole, targetRole, 
   const h = headers[cr];
   if (!h) return displayLogs;
   const body = buildEmotion2CrossTalkLine(cr, String(targetRole || '').toLowerCase(), tactic, locale);
+  try {
+    console.log('[emotion2] cross_talk prefix stripped role=' + cr);
+  } catch (e) {}
   const k = `${batchKey}|e2xt`;
   const next = [
     ...(displayLogs || []),
