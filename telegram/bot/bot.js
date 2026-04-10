@@ -496,11 +496,15 @@ function serializeFreeInputRouteForMeta(route) {
 
 /** processMessageApi → dbPersist 재사용용 — 분류 재호출 금지 */
 function buildFreeInputIntentMetaSnapshot(cls, parsed, text, route) {
-  return {
+  const snap = {
     message_kind: getIntentLogKindForPayload(cls, parsed),
     consumes_free_prompt: shouldConsumeFreePromptForMessageKind(cls, parsed, text),
     route: serializeFreeInputRouteForMeta(route)
   };
+  if (cls && cls.kind === 'group_question' && cls.groupSubkind != null && String(cls.groupSubkind)) {
+    snap.group_subkind = String(cls.groupSubkind);
+  }
+  return snap;
 }
 
 async function enrichResultWithEntitlement(result, playerId) {
@@ -878,9 +882,11 @@ async function dbPersistAfterMessageResult(playerId, locale, inputText, result) 
     /** daily_free_prompt_used는 consumeFreePromptIfAllowed에서만 증가 */
     let messageKind = 'unknown';
     let consumesFreePrompt = false;
+    let intentMeta = null;
     try {
       const meta = result && result.free_input_intent_meta;
       if (meta && typeof meta === 'object') {
+        intentMeta = meta;
         messageKind =
           meta.message_kind != null && meta.message_kind !== ''
             ? String(meta.message_kind)
@@ -892,7 +898,9 @@ async function dbPersistAfterMessageResult(playerId, locale, inputText, result) 
         console.warn('[bot][intent] dbPersist free_input_intent_meta read warn ' + String(e?.message || e));
       } catch (e2) {}
     }
-    const persistKind = consumesFreePrompt ? 'lore_question' : messageKind;
+    const groupSubForDb =
+      intentMeta && intentMeta.group_subkind != null ? String(intentMeta.group_subkind) : '';
+    const persistKind = messageKind;
     const gs = result.match_state || {};
     await upsertMatchState({
       match_id: matchId,
@@ -910,11 +918,15 @@ async function dbPersistAfterMessageResult(playerId, locale, inputText, result) 
       payload: {
         text: String(inputText || '').slice(0, 4000),
         message_kind: messageKind,
-        consumes_free_prompt: consumesFreePrompt
+        consumes_free_prompt: consumesFreePrompt,
+        ...(groupSubForDb ? { group_subkind: groupSubForDb } : {})
       }
     });
     try {
       console.log('[bot][db] message_input persisted kind=' + persistKind);
+      if (messageKind === 'group_question' && groupSubForDb === 'name') {
+        console.log('[bot][persist-kind-fix] kind=group_question sub=name');
+      }
     } catch (e) {}
     const recentPayload = safeRecentEventsPayloadForDb(result);
     const resultPayload = {
@@ -8982,18 +8994,34 @@ function toPlayerDisplayLogs(rawEvents, opts = {}) {
             '[HADES]\nIt ends here. The moment you point at the wrong one, this ship is mine.';
         }
       }
+      const crewSrc =
+        t === 'CREW_DIALOGUE' && ev?.event_source ? { event_source: String(ev.event_source) } : {};
       const m = d.match(/^\[([^\]]+)\]\s*(.*)$/);
       const crewBody = m ? m[2].trim() : '';
       if (m && crewBody) {
-        out.push({ type: '[' + m[1] + ']', role: 'system', target: null, _key: baseKey + '|hdr' });
-        out.push({ type: crewBody, role: 'system', target: null, _key: baseKey + '|body' });
+        out.push({
+          type: '[' + m[1] + ']',
+          role: 'system',
+          target: null,
+          _key: baseKey + '|hdr',
+          ...crewSrc
+        });
+        out.push({
+          type: crewBody,
+          role: 'system',
+          target: null,
+          _key: baseKey + '|body',
+          ...crewSrc
+        });
       } else {
         text = d;
       }
     }
 
     if (text) {
-      out.push({ type: text, role: 'system', target: null, _key: baseKey });
+      const crewSrcTail =
+        t === 'CREW_DIALOGUE' && ev?.event_source ? { event_source: String(ev.event_source) } : {};
+      out.push({ type: text, role: 'system', target: null, _key: baseKey, ...crewSrcTail });
     }
   }
   return normalizePlayerFacingDisplayLogs(out, locale);
@@ -10113,6 +10141,8 @@ async function persistTimerTensionForMatch(matchId, match, locale, now) {
  * appendOpeningScriptCrewDialogueEvent → matchStore.appendEvent.
  */
 const OPENING_SCRIPT_EVENT_SOURCE = 'opening_script';
+/** opening 잠금 안내(미니앱 replay 억제용) — 스크립트 본편과 구분 */
+const OPENING_CHANNEL_GUARD_EVENT_SOURCE = 'opening_channel_guard';
 
 function appendOpeningScriptCrewDialogueEvent(matchId, role, dialogue) {
   return matchStore.appendEvent(matchId, {
@@ -10730,7 +10760,14 @@ async function processMessageApi(playerId, text, opts = {}) {
         free_input_intent_meta: { message_kind: 'opening_chat_blocked', consumes_free_prompt: false }
       };
     }
-    const rawOg = [{ type: 'CREW_DIALOGUE', role: 'system', dialogue: noticeOg }];
+    const rawOg = [
+      {
+        type: 'CREW_DIALOGUE',
+        role: 'system',
+        dialogue: noticeOg,
+        event_source: OPENING_CHANNEL_GUARD_EVENT_SOURCE
+      }
+    ];
     let dispOg = dedupeDisplayLogs(toPlayerDisplayLogs(rawOg, { locale }), locale);
     dispOg = mergePrependedTensionDisplayLogs(tension, dispOg, locale);
     const sumOg = summaryFromDisplayLogs(dispOg, locale);

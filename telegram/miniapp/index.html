@@ -2048,7 +2048,15 @@
         if (!data || !data.recent_events || !data.recent_events.length) return false;
         var mid = data.match_id != null ? String(data.match_id) : String(lastKnownMatchId || '');
         ensureTranscriptMatchForState(mid);
-        var n = applyEvents(data.recent_events, seenServerLogKeys);
+        var sg =
+          (data.game_state && typeof data.game_state === 'object' && data.game_state) ||
+          (data.match_state && typeof data.match_state === 'object' && data.match_state) ||
+          (lastGameStateSnapshot && lastGameStateSnapshot.game_state) ||
+          {};
+        var phase = sg.captain_phase != null ? String(sg.captain_phase) : '';
+        var openingStillPlaying = phase === 'opening_chat' && sg.opening_sequence_completed !== true;
+        var suppressOpeningReplay = !openingStillPlaying;
+        var n = applyEvents(data.recent_events, seenServerLogKeys, { suppressOpeningReplay: suppressOpeningReplay });
         if (n === 0) {
           try {
             console.log('[miniapp] recent_events_all_duplicate_skipped=true');
@@ -2164,7 +2172,8 @@
                     {
                       match_id: data.match_id,
                       recent_events: data.recent_events,
-                      remaining_sec: data.remaining_sec
+                      remaining_sec: data.remaining_sec,
+                      game_state: gs
                     },
                     'state'
                   );
@@ -2674,7 +2683,8 @@
                     {
                       match_id: data.match_id,
                       recent_events: data.recent_events,
-                      remaining_sec: data.remaining_sec
+                      remaining_sec: data.remaining_sec,
+                      game_state: gs
                     },
                     String(reason || 'immediate')
                   );
@@ -3729,7 +3739,22 @@
         return 'open|' + mid + '|n:' + parts.length + '|j:' + parts.join('\u0001');
       }
 
-      function applyEvents(events, seenSetOpt) {
+      /** opening_chat 종료 후 폴링·재동기화로 내려오는 스크립트/가드 줄만 억제(이름 질문 등 일반 로그는 유지) */
+      function isMiniappOpeningReplaySuppressedLine(ev, label, opts) {
+        if (!opts || !opts.suppressOpeningReplay) return false;
+        var src = ev && ev.event_source != null ? String(ev.event_source) : '';
+        if (src === 'opening_script' || src === 'opening_channel_guard') return true;
+        var t = String(label || '').replace(/\s+/g, ' ').trim();
+        if (t.indexOf('승무원 상태 확인이 끝난 뒤 지휘 채널이 열립니다') !== -1) return true;
+        if (/Command channel opens after crew status check completes/i.test(t)) return true;
+        if (t.indexOf('승무원 채널 연결') !== -1 && t.indexOf('기상 확인') !== -1) return true;
+        if (/Crew channel opening\. Revival confirmed/i.test(t)) return true;
+        if (/All visual and audio comms offline/i.test(t) && /PDA arm-unit group channel/i.test(t)) return true;
+        return false;
+      }
+
+      function applyEvents(events, seenSetOpt, opts) {
+        opts = opts || {};
         if (!events || !events.length) return 0;
         var n = 0;
         var i;
@@ -3742,6 +3767,14 @@
             if (bodyKey && seenSetOpt.has(bodyKey)) continue;
           }
           var key = buildEventDedupeKey(ev, i, nextEv);
+          var label = displayLogLineFromEvent(ev);
+          if (isMiniappOpeningReplaySuppressedLine(ev, label, opts)) {
+            if (seenSetOpt && key) seenSetOpt.add(key);
+            try {
+              console.log('[miniapp] suppressed replayed opening batch');
+            } catch (e) {}
+            continue;
+          }
           if (seenSetOpt && key && seenSetOpt.has(key)) {
             try {
               console.log('[miniapp] dedupe suppressed replayed batch event');
@@ -3749,7 +3782,6 @@
             continue;
           }
           if (seenSetOpt && key) seenSetOpt.add(key);
-          var label = displayLogLineFromEvent(ev);
           if (label) {
             appendLog(label, false, 'applyEvents');
             n++;
@@ -3787,11 +3819,15 @@
 
       function appendSummaryOrEvents(data) {
         if (data.recent_events && data.recent_events.length) {
+          var stGs = (data.game_state && typeof data.game_state === 'object' && data.game_state) || {};
+          var stMs = (data.match_state && typeof data.match_state === 'object' && data.match_state) || {};
+          var mergedMsgGs = Object.assign({}, stGs, stMs);
           appendRecentEventsIfFresh(
             {
               match_id: data.match_id != null ? data.match_id : lastKnownMatchId,
               recent_events: data.recent_events,
-              remaining_sec: data.remaining_sec
+              remaining_sec: data.remaining_sec,
+              game_state: mergedMsgGs
             },
             'message'
           );
