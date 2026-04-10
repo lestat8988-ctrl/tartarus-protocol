@@ -60,6 +60,59 @@ const OPENING_STORY_LINES = {
   ]
 };
 
+/** 크루별 트라우마 트리거(자유입력 단일 지목 QUESTION 후처리용). */
+const CREW_TRAUMA_CONFIG = {
+  doctor: {
+    triggers: ['아이', '수술', '살리지 못', 'failed the patient'],
+    state: 'guarded remorse',
+    description: 'Surgery / child patient loss the crew member could not prevent.'
+  },
+  engineer: {
+    triggers: ['폭발', '과열', '못 고쳤', 'reactor incident', 'coolant failure'],
+    state: 'acute guilt',
+    description: 'Reactor or thermal failure they failed to stop or repair in time.'
+  },
+  navigator: {
+    triggers: ['오차', '잘못된 좌표', '길을 잃', 'wrong coordinates', 'course deviation'],
+    state: 'shaken confidence',
+    description: 'Navigation error or wrong coordinates that endangered the ship.'
+  },
+  pilot: {
+    triggers: ['추락', '충돌', '놓쳤', "couldn't save", 'crash'],
+    state: 'raw regret',
+    description: 'Crash, collision, or moment they could not save the craft or crew.'
+  }
+};
+
+function detectTraumaTrigger(playerText, targetRole) {
+  const out = {
+    triggered: false,
+    intensity: 'none',
+    matchedKeywords: [],
+    emotionalState: null,
+    traumaDescription: null
+  };
+  const role = String(targetRole || '').toLowerCase();
+  const cfg = CREW_TRAUMA_CONFIG[role];
+  if (!cfg) return out;
+  const text = String(playerText || '');
+  const matched = [];
+  for (const kw of cfg.triggers || []) {
+    const k = String(kw);
+    if (!k) continue;
+    const latin = /[a-zA-Z]/.test(k);
+    if (latin ? text.toLowerCase().includes(k.toLowerCase()) : text.includes(k)) matched.push(k);
+  }
+  const n = matched.length;
+  if (n === 0) return out;
+  out.matchedKeywords = matched;
+  out.intensity = n >= 2 ? 'high' : 'medium';
+  out.triggered = true;
+  out.emotionalState = cfg.state;
+  out.traumaDescription = cfg.description;
+  return out;
+}
+
 /** -------------------------------------------------------------------------
  * DB persistence skeleton: user_entitlements / match_sessions / match_events
  * In-memory always; optional Supabase when SUPABASE_URL + key are set.
@@ -5656,6 +5709,45 @@ async function tryGenerateLlmDialogueLogs(ctx) {
   }
   if (recentContextBlock) system += recentContextBlock;
   // --- recent dialogue context injection end ---
+
+  const traumaEligible =
+    kind === 'QUESTION' &&
+    targetedQuestionSingleSpeaker &&
+    target &&
+    ['doctor', 'engineer', 'navigator', 'pilot'].includes(target) &&
+    !targetedNameQuestion;
+  let traumaForLog = null;
+  if (traumaEligible) {
+    traumaForLog = detectTraumaTrigger(playerText || '', target);
+    try {
+      console.log(
+        '[emotion] role=' +
+          target +
+          ' triggered=' +
+          traumaForLog.triggered +
+          ' intensity=' +
+          traumaForLog.intensity +
+          ' matched=' +
+          traumaForLog.matchedKeywords.join(',')
+      );
+    } catch (e) {}
+    if (traumaForLog.triggered && traumaForLog.emotionalState && traumaForLog.traumaDescription) {
+      system +=
+        '\n\n--- emotion context (internal) ---\n' +
+        '[EMOTIONAL STATE: ' +
+        traumaForLog.emotionalState +
+        ']\n' +
+        'Touched traumatic memory: ' +
+        traumaForLog.traumaDescription +
+        '\n' +
+        '- Start defensive or with a counter-question\n' +
+        '- Shorten reply ~20-30%\n' +
+        '- May avoid direct answer briefly\n' +
+        '- intensity=high: allow one wording slip only (not fact contradiction)\n' +
+        '- Never fabricate logs, facts, or system records\n' +
+        '--- end emotion context ---';
+    }
+  }
 
   const userBase = buildDialogueUserPayload({
     kind,
