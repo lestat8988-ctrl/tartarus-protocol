@@ -1668,7 +1668,7 @@ function isGameplayCrewQuestionPattern(raw) {
     /(엔지니어|네비게이터|파일럿|닥터|의사)\s*,\s*그때\s*어디/i.test(t) ||
     /(닥터|의사|엔지니어|네비게이터|파일럿)\s+그때\s*어디/i.test(t) ||
     /(닥터|의사|엔지니어|네비게이터|파일럿)[\s,]+.{0,40}?(?:봤지|있었지|했지)/i.test(t) ||
-    /(의사|닥터)\s*,?\s*.{0,12}?이름/i.test(t) ||
+    /(닥터|의사|엔지니어|기술자|네비게이터|항해사|파일럿|조종사)\s*,?\s*.{0,12}?이름/i.test(t) ||
     /(파일럿|네비게이터|엔지니어)\s*은?\s*뭘\s*봤지/i.test(t)
   );
 }
@@ -4358,6 +4358,14 @@ function isTargetedRoleNameQuestion(raw) {
   return /(이름|이름이|이름은|무엇이라\s*불|뭐라고\s*불|호출명|call\s*sign|your\s+name|what\s+is\s+.+\s+name|name\s+of\s+the)/i.test(
     t
   );
+}
+
+function resolveTargetRoleForNameQuestion(text, parsedTarget) {
+  const fromText = detectCrewRoleForGameplayQuestion(String(text || ''));
+  if (fromText && ['doctor', 'engineer', 'navigator', 'pilot'].includes(fromText)) return fromText;
+  const p = parsedTarget ? String(parsedTarget).toLowerCase() : '';
+  if (p && ['doctor', 'engineer', 'navigator', 'pilot'].includes(p)) return p;
+  return null;
 }
 
 function focusRoleAliasesKo(focus) {
@@ -8067,11 +8075,14 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
 
   const ev0 = rawEvents && rawEvents[0];
   const nameTargetRole =
-    targetedNameQuestion && kind === 'QUESTION' && ev0?.target
-      ? String(ev0.target).toLowerCase()
+    targetedNameQuestion && kind === 'QUESTION'
+      ? resolveTargetRoleForNameQuestion(playerText || '', ev0?.target)
       : null;
-  const tqSingle = !!targetedQuestionSingleSpeaker && kind === 'QUESTION' && ev0?.target;
-  const isolateRole = tqSingle ? String(ev0.target).toLowerCase() : null;
+  const tqSingle =
+    !!targetedQuestionSingleSpeaker && kind === 'QUESTION' && (ev0?.target || nameTargetRole);
+  const isolateRole = tqSingle
+    ? String(nameTargetRole || ev0?.target || '').toLowerCase()
+    : null;
   const generalTargetedQuestion =
     !!tqSingle &&
     !targetedNameQuestion &&
@@ -9242,18 +9253,21 @@ async function handleTextMessage(playerId, text, opts = {}) {
     const r = await runDeterministicGroupNameQuestionFlow(matchId, match, text, locale, tensionTg, now);
     return formatTelegramReplyFromDisplayLogs(r.recentDisplay, r.rem);
   }
-  if (cls.kind === 'targeted_question' && parsed.target && isTargetedRoleNameQuestion(String(text || ''))) {
-    const r = await runDeterministicTargetedNameQuestionFlow(
-      matchId,
-      match,
-      text,
-      locale,
-      parsed.target,
-      tensionTg,
-      now
-    );
-    if (r) {
-      return formatTelegramReplyFromDisplayLogs(r.recentDisplay, r.rem);
+  if (cls.kind === 'targeted_question' && isTargetedRoleNameQuestion(String(text || ''))) {
+    const nameTgt = resolveTargetRoleForNameQuestion(text, parsed.target);
+    if (nameTgt) {
+      const r = await runDeterministicTargetedNameQuestionFlow(
+        matchId,
+        match,
+        text,
+        locale,
+        nameTgt,
+        tensionTg,
+        now
+      );
+      if (r) {
+        return formatTelegramReplyFromDisplayLogs(r.recentDisplay, r.rem);
+      }
     }
   }
 
@@ -10527,28 +10541,31 @@ async function processMessageApi(playerId, text, opts = {}) {
       match_state: r.updated?.game_state || {}
     });
   }
-  if (cls.kind === 'targeted_question' && parsed.target && isTargetedRoleNameQuestion(String(text || ''))) {
-    const r = await runDeterministicTargetedNameQuestionFlow(
-      matchId,
-      match,
-      text,
-      locale,
-      parsed.target,
-      tension,
-      now
-    );
-    if (r) {
-      const summaryText = summaryFromDisplayLogs(r.recentDisplay, locale);
-      return withMeta({
-        ok: true,
-        summary: summaryText,
-        remaining_sec: r.rem,
-        game_over: false,
-        outcome: null,
-        events: r.recentDisplay,
-        recent_events: r.recentDisplay,
-        match_state: r.updated?.game_state || {}
-      });
+  if (cls.kind === 'targeted_question' && isTargetedRoleNameQuestion(String(text || ''))) {
+    const nameTgtApi = resolveTargetRoleForNameQuestion(text, parsed.target);
+    if (nameTgtApi) {
+      const r = await runDeterministicTargetedNameQuestionFlow(
+        matchId,
+        match,
+        text,
+        locale,
+        nameTgtApi,
+        tension,
+        now
+      );
+      if (r) {
+        const summaryText = summaryFromDisplayLogs(r.recentDisplay, locale);
+        return withMeta({
+          ok: true,
+          summary: summaryText,
+          remaining_sec: r.rem,
+          game_over: false,
+          outcome: null,
+          events: r.recentDisplay,
+          recent_events: r.recentDisplay,
+          match_state: r.updated?.game_state || {}
+        });
+      }
     }
   }
 

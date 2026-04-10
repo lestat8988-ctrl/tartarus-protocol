@@ -1786,6 +1786,8 @@
        * /api/state 폴링·백그라운드 동기화는 이 플래그를 절대 켜거나 끄지 않음(updateStatus fromPoll 전용 경로).
        */
       var userActionPending = false;
+      /** userActionPending 동안 잃어버리지 않도록 보관하는 자유입력 1슬롯(최신만 유지) */
+      var pendingQueuedFreeMessage = '';
       /** 잠금을 잡은 요청의 시퀀스; 늦게 도착한 응답의 idle 콜백은 불일치 시 무시 */
       var captainUserActionSeq = 0;
       var captainUserActionLockSeq = null;
@@ -1882,16 +1884,25 @@
        * 해당 lockSeq 사용자 요청의 로그 동기 append 이후 idle (appendLog 스크롤 rAF 이후).
        * 폴링·다른 요청은 lockSeq를 바꾸지 않으므로 여기서 잘못 해제되지 않음.
        */
-      function scheduleTryReleaseUserActionAfterLogRender(lockSeq) {
+      function scheduleTryReleaseUserActionAfterLogRender(lockSeq, onAfterLogRenderIdle) {
         cancelCaptainIdleBackup();
+        var invokeAfterIdle = function() {
+          if (typeof onAfterLogRenderIdle === 'function') {
+            try {
+              onAfterLogRenderIdle();
+            } catch (e) {}
+          }
+        };
         captainIdleBackupTimer = setTimeout(function() {
           captainIdleBackupTimer = null;
           tryReleaseUserActionLockForSeq(lockSeq);
+          invokeAfterIdle();
         }, 750);
 
         var finishIdle = function() {
           cancelCaptainIdleBackup();
           tryReleaseUserActionLockForSeq(lockSeq);
+          invokeAfterIdle();
         };
 
         var afterPaint = function() {
@@ -1918,6 +1929,7 @@
         captainUserActionSeq++;
         captainUserActionLockSeq = null;
         userActionPending = false;
+        pendingQueuedFreeMessage = '';
         applyCaptainInputChrome();
         refreshCaptainPhaseStatusUi();
         updateThreatConfirmEnabled();
@@ -3697,9 +3709,9 @@
           evId;
         if (isBracketOnlyRoleHeader) {
           key += '\u0001bracketHdr:' + String(indexInBatch != null ? indexInBatch : 0);
-          if (batchSeqOpt != null) {
-            key += '\u0001batch:' + String(batchSeqOpt);
-          }
+        }
+        if (batchSeqOpt != null) {
+          key += '\u0001batch:' + String(batchSeqOpt);
         }
         return key;
       }
@@ -3954,12 +3966,6 @@
           } catch (e) {}
           return;
         }
-        if (userActionPending) {
-          try {
-            console.log('[miniapp] blocked reason=userActionPending where=submitFreeMessage');
-          } catch (e) {}
-          return;
-        }
         if (promptEntitlementBlocked) {
           try {
             console.log('[miniapp] blocked reason=promptEntitlementBlocked where=submitFreeMessage');
@@ -3967,6 +3973,20 @@
           return;
         }
         var raw = (freeInput && freeInput.value || '').trim();
+        if (userActionPending) {
+          if (raw) {
+            pendingQueuedFreeMessage = raw;
+            try {
+              console.log('[miniapp] queued free message because userActionPending');
+            } catch (e) {}
+            if (freeInput) freeInput.value = '';
+            return;
+          }
+          try {
+            console.log('[miniapp] blocked reason=userActionPending where=submitFreeMessage');
+          } catch (e) {}
+          return;
+        }
         if (!raw) {
           try {
             console.log('[miniapp] blocked reason=empty_trimmed where=submitFreeMessage');
@@ -3995,6 +4015,13 @@
           return;
         }
         if (userActionPending) {
+          if (trimmed) {
+            pendingQueuedFreeMessage = trimmed;
+            try {
+              console.log('[miniapp] queued free message because userActionPending');
+            } catch (e) {}
+            return;
+          }
           try {
             console.log(
               '[miniapp] blocked reason=userActionPending where=doMessage userActionPending=' +
@@ -4095,7 +4122,23 @@
           .finally(function() {
             settledMessageRequestSeq = messageSeqThis;
             suspendStateTranscriptApply = false;
-            scheduleTryReleaseUserActionAfterLogRender(userTurnLockSeq);
+            var settleFlush = { stateDone: false, logIdleDone: false };
+            function tryFlushPendingQueuedFreeAfterMessageSettle() {
+              if (!settleFlush.stateDone || !settleFlush.logIdleDone) return;
+              if (userActionPending) return;
+              var q = pendingQueuedFreeMessage;
+              if (!q) return;
+              pendingQueuedFreeMessage = '';
+              try {
+                console.log('[miniapp] flushing queued free message text=' + JSON.stringify(q));
+              } catch (e) {}
+              doMessage(q);
+            }
+            var onLogRenderIdleForSettle = function() {
+              settleFlush.logIdleDone = true;
+              tryFlushPendingQueuedFreeAfterMessageSettle();
+            };
+            scheduleTryReleaseUserActionAfterLogRender(userTurnLockSeq, onLogRenderIdleForSettle);
             var stateP = fetchLatestStateImmediate('message-settled');
             if (stateP && typeof stateP.then === 'function') {
               stateP.finally(function() {
@@ -4105,8 +4148,13 @@
                       String(userTurnLockSeq)
                   );
                 } catch (e) {}
-                scheduleTryReleaseUserActionAfterLogRender(userTurnLockSeq);
+                scheduleTryReleaseUserActionAfterLogRender(userTurnLockSeq, onLogRenderIdleForSettle);
+                settleFlush.stateDone = true;
+                tryFlushPendingQueuedFreeAfterMessageSettle();
               });
+            } else {
+              settleFlush.stateDone = true;
+              tryFlushPendingQueuedFreeAfterMessageSettle();
             }
           });
       }
