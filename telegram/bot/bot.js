@@ -1586,6 +1586,23 @@ function finalizeSuspicionQuestionClassification(raw, cls) {
   };
 }
 
+/** 엔진/LLM ctx가 parsed.target 누락 시에도 crewGameplayTargetRole로 QUESTION 단일 화자 유지 */
+function syncTargetedQuestionParsedTargetFromCls(cls, parsed) {
+  if (!cls || cls.kind !== 'targeted_question' || !parsed || typeof parsed !== 'object') return parsed;
+  const fromCls =
+    cls.crewGameplayTargetRole != null ? String(cls.crewGameplayTargetRole).toLowerCase().trim() : '';
+  const fromParsed = parsed.target != null ? String(parsed.target).toLowerCase().trim() : '';
+  const r = ['doctor', 'engineer', 'navigator', 'pilot'].includes(fromCls)
+    ? fromCls
+    : ['doctor', 'engineer', 'navigator', 'pilot'].includes(fromParsed)
+      ? fromParsed
+      : '';
+  if (!r) return parsed;
+  const out = { ...parsed, target: r };
+  if (String(out.intent_type || '').toLowerCase() !== 'question') out.intent_type = 'question';
+  return out;
+}
+
 /**
  * intentParser 결과를 보정 — 질문형이면 intent_type=question (unknown/observe/check_log 오분류 방지).
  */
@@ -8518,7 +8535,8 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
   targetedQuestionSingleSpeaker,
   isSelfDefenseQuestion,
   isTargetedAccusation,
-  isFollowupTargetedDialogue
+  isFollowupTargetedDialogue,
+  singleSpeakerTargetRoleOverride
 }) {
   const loc = locale === 'en' ? 'en' : 'ko';
   const kind = getDialogueLlmKind(rawEvents);
@@ -8533,11 +8551,24 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
     targetedNameQuestion && kind === 'QUESTION'
       ? resolveTargetRoleForNameQuestion(playerText || '', ev0?.target)
       : null;
-  const tqSingle =
-    !!targetedQuestionSingleSpeaker && kind === 'QUESTION' && (ev0?.target || nameTargetRole);
-  const isolateRole = tqSingle
-    ? String(nameTargetRole || ev0?.target || '').toLowerCase()
-    : null;
+  const pickValidCrew = (x) => {
+    const t = String(x || '').toLowerCase().trim();
+    return ['doctor', 'engineer', 'navigator', 'pilot'].includes(t) ? t : '';
+  };
+  const evTr = pickValidCrew(ev0?.target);
+  const overrideTr = pickValidCrew(singleSpeakerTargetRoleOverride);
+  const nameTr =
+    nameTargetRole != null && String(nameTargetRole).trim()
+      ? pickValidCrew(nameTargetRole)
+      : '';
+  const mergedTarget = evTr || overrideTr || nameTr;
+  const tqSingle = !!targetedQuestionSingleSpeaker && kind === 'QUESTION' && !!mergedTarget;
+  const isolateRole = tqSingle ? mergedTarget : null;
+  if (tqSingle && mergedTarget && overrideTr && !evTr) {
+    try {
+      console.log('[intent-fix] single speaker lock applied in ctx role=' + mergedTarget);
+    } catch (e) {}
+  }
   const generalTargetedQuestion =
     !!tqSingle &&
     !targetedNameQuestion &&
@@ -9940,7 +9971,16 @@ async function handleTextMessage(playerId, text, opts = {}) {
   }
 
   if (cls.kind === 'targeted_question') {
+    parsed = syncTargetedQuestionParsedTargetFromCls(cls, parsed);
     console.log('[bot] message kind=targeted_question target=' + parsed.target);
+    if (cls.targetedQuestionSingleSpeaker === true && parsed.target) {
+      try {
+        console.log(
+          '[intent-fix] suspicion->targeted dialogue path confirmed role=' +
+            String(parsed.target).toLowerCase()
+        );
+      } catch (e) {}
+    }
   }
 
   const captainBodyForTq =
@@ -10021,6 +10061,10 @@ async function handleTextMessage(playerId, text, opts = {}) {
       console.log('[bot] targeted_name_question rules=true');
     } catch (e) {}
   }
+  const tqSingleSpeakerTg =
+    cls.kind === 'targeted_question' && cls.targetedQuestionSingleSpeaker !== false;
+  const tqSingleRoleOverrideTg =
+    cls.kind === 'targeted_question' ? cls.crewGameplayTargetRole || parsed.target || null : null;
   let recentDisplay = dedupeDisplayLogs(
     await maybeDialogueLogsFromLlmOrDeterministic({
       rawEvents: eventsForStore,
@@ -10033,10 +10077,11 @@ async function handleTextMessage(playerId, text, opts = {}) {
         cls.kind === 'targeted_question' && captainBodyForTq ? captainBodyForTq : undefined,
       targetedQuestionSideReactionRules: false,
       targetedNameQuestion: targetedNameQ,
-      targetedQuestionSingleSpeaker: cls.kind === 'targeted_question',
+      targetedQuestionSingleSpeaker: tqSingleSpeakerTg,
       isSelfDefenseQuestion: !!cls.isSelfDefenseQuestion,
       isTargetedAccusation: !!(cls.isTargetedAccusation || parsed.isTargetedAccusation),
-      isFollowupTargetedDialogue: !!cls.is_followup_targeted_dialogue
+      isFollowupTargetedDialogue: !!cls.is_followup_targeted_dialogue,
+      singleSpeakerTargetRoleOverride: tqSingleRoleOverrideTg
     }),
     locale
   );
@@ -11356,7 +11401,16 @@ async function processMessageApi(playerId, text, opts = {}) {
   }
 
   if (cls.kind === 'targeted_question') {
+    parsed = syncTargetedQuestionParsedTargetFromCls(cls, parsed);
     console.log('[bot] message kind=targeted_question target=' + parsed.target);
+    if (cls.targetedQuestionSingleSpeaker === true && parsed.target) {
+      try {
+        console.log(
+          '[intent-fix] suspicion->targeted dialogue path confirmed role=' +
+            String(parsed.target).toLowerCase()
+        );
+      } catch (e) {}
+    }
   }
 
   const captainBodyForTq =
@@ -11412,6 +11466,10 @@ async function processMessageApi(playerId, text, opts = {}) {
       console.log('[bot] targeted_name_question rules=true');
     } catch (e) {}
   }
+  const tqSingleSpeakerApi =
+    cls.kind === 'targeted_question' && cls.targetedQuestionSingleSpeaker !== false;
+  const tqSingleRoleOverrideApi =
+    cls.kind === 'targeted_question' ? cls.crewGameplayTargetRole || parsed.target || null : null;
   let newDisplayLogs = dedupeDisplayLogs(
     await maybeDialogueLogsFromLlmOrDeterministic({
       rawEvents: eventsForStoreApi,
@@ -11424,10 +11482,11 @@ async function processMessageApi(playerId, text, opts = {}) {
         cls.kind === 'targeted_question' && captainBodyForTq ? captainBodyForTq : undefined,
       targetedQuestionSideReactionRules: false,
       targetedNameQuestion: targetedNameQ,
-      targetedQuestionSingleSpeaker: cls.kind === 'targeted_question',
+      targetedQuestionSingleSpeaker: tqSingleSpeakerApi,
       isSelfDefenseQuestion: !!cls.isSelfDefenseQuestion,
       isTargetedAccusation: !!(cls.isTargetedAccusation || parsed.isTargetedAccusation),
-      isFollowupTargetedDialogue: !!cls.is_followup_targeted_dialogue
+      isFollowupTargetedDialogue: !!cls.is_followup_targeted_dialogue,
+      singleSpeakerTargetRoleOverride: tqSingleRoleOverrideApi
     }),
     locale
   );
