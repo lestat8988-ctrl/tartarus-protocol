@@ -2441,16 +2441,16 @@ function buildOpenQuestionCrewEvents(match, locale) {
   return events;
 }
 
-const CANONICAL_CREW_PERSONAL_NAMES_EN = {
-  doctor: 'Yuna',
-  engineer: 'Danny',
-  navigator: 'Owen',
-  pilot: 'Marcus'
+const CANONICAL_CREW_NAMES_STATE = {
+  doctor: { en: 'Yuna' },
+  engineer: { en: 'Danny' },
+  navigator: { en: 'Owen' },
+  pilot: { en: 'Marcus' }
 };
 
 function getCrewPersonalNameEnglishOrCanonical(crewNames, role) {
   const r = String(role || '').toLowerCase();
-  const fb = CANONICAL_CREW_PERSONAL_NAMES_EN[r] || 'Crew';
+  const fb = (CANONICAL_CREW_NAMES_STATE[r] && CANONICAL_CREW_NAMES_STATE[r].en) || 'Crew';
   const e = crewNames && crewNames[r];
   if (!e) return fb;
   if (typeof e === 'string') {
@@ -8357,57 +8357,33 @@ const EN_FAMILY_NAMES = [
   'Mercer'
 ];
 
-function hashStringToSeed(s) {
-  let h = 2166136261;
-  const str = String(s || '');
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-
-function mulberry32(seed) {
-  return function () {
-    let t = (seed += 0x6d2b79f5);
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-/**
- * 매치당 1회 고정되는 크루 personal name (ko/en). game_state.crew_names 에 저장.
- */
-function generateStableCrewPersonalNames(matchId) {
-  const rnd = mulberry32(hashStringToSeed('crew_names|' + String(matchId || '')));
-  const usedKo = new Set();
-  const usedEn = new Set();
+function cloneCanonicalCrewNamesGameState() {
   const out = {};
-  for (const role of CREW_ROLES_FOR_NAMES) {
-    let koFull = '';
-    for (let k = 0; k < 80; k++) {
-      const fi = Math.floor(rnd() * KO_FAMILY_NAMES.length);
-      const gi = Math.floor(rnd() * KO_GIVEN_NAMES.length);
-      koFull = KO_FAMILY_NAMES[fi] + KO_GIVEN_NAMES[gi];
-      if (!usedKo.has(koFull)) {
-        usedKo.add(koFull);
-        break;
-      }
-    }
-    let enFull = '';
-    for (let k = 0; k < 80; k++) {
-      const gn = EN_GIVEN_NAMES[Math.floor(rnd() * EN_GIVEN_NAMES.length)];
-      const fn = EN_FAMILY_NAMES[Math.floor(rnd() * EN_FAMILY_NAMES.length)];
-      enFull = `${gn} ${fn}`;
-      if (!usedEn.has(enFull)) {
-        usedEn.add(enFull);
-        break;
-      }
-    }
-    out[role] = { ko: koFull || '김민호', en: enFull || 'Ethan Cole' };
+  for (const r of CREW_ROLES_FOR_NAMES) {
+    out[r] = { en: CANONICAL_CREW_NAMES_STATE[r].en };
   }
   return out;
+}
+
+function crewNamesMatchCanonicalStored(cn) {
+  if (!cn || typeof cn !== 'object') return false;
+  for (const r of CREW_ROLES_FOR_NAMES) {
+    const wantEn = CANONICAL_CREW_NAMES_STATE[r].en;
+    const x = cn[r];
+    if (!x) return false;
+    if (typeof x === 'string') {
+      if (String(x).trim() !== wantEn) return false;
+    } else {
+      const en = x.en != null && String(x.en).trim();
+      if (en !== wantEn) return false;
+    }
+  }
+  return true;
+}
+
+/** game_state.crew_names 초기화용 — 캐논 고정명만 (랜덤 풀 미사용). */
+function generateStableCrewPersonalNames(_matchId) {
+  return cloneCanonicalCrewNamesGameState();
 }
 
 function getCrewDisplayName(crewNames, role, loc) {
@@ -8419,7 +8395,7 @@ function getCrewDisplayName(crewNames, role, loc) {
 }
 
 /**
- * game_state 에 crew_names 가 없으면 생성·저장. 있으면 재사용.
+ * game_state.crew_names — 캐논 고정명과 불일치 시 교정·저장.
  * @returns {Promise<object|null>} 갱신된 game_state 또는 null
  */
 async function ensureCrewPersonalNamesPersisted(matchId) {
@@ -8427,25 +8403,28 @@ async function ensureCrewPersonalNamesPersisted(matchId) {
   if (!m) return null;
   const gs = { ...(m.game_state || {}) };
   const cn = gs.crew_names;
-  let complete = false;
-  if (cn && typeof cn === 'object') {
-    complete = CREW_ROLES_FOR_NAMES.every((r) => {
-      const x = cn[r];
-      if (!x) return false;
-      if (typeof x === 'string') return x.length > 0;
-      return !!(x.ko && x.en);
-    });
-  }
-  if (complete) {
+  if (crewNamesMatchCanonicalStored(cn)) {
     try {
       console.log('[bot][state] crew names reused matchId=' + matchId);
     } catch (e) {}
     return gs;
   }
-  gs.crew_names = generateStableCrewPersonalNames(matchId);
+  const hadAny =
+    cn &&
+    typeof cn === 'object' &&
+    CREW_ROLES_FOR_NAMES.some((r) => {
+      const x = cn[r];
+      return x && (typeof x === 'string' ? String(x).trim().length > 0 : !!(x.en || x.ko));
+    });
+  gs.crew_names = cloneCanonicalCrewNamesGameState();
   await matchStore.updateMatch(matchId, { game_state: gs });
   try {
-    console.log('[bot][state] crew names initialized matchId=' + matchId);
+    if (hadAny) {
+      console.log('[crew-names] canonical names repaired');
+    } else {
+      console.log('[crew-names] canonical names enforced');
+      console.log('[bot][state] crew names initialized matchId=' + matchId);
+    }
   } catch (e) {}
   return gs;
 }
