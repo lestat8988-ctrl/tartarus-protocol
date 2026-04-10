@@ -8539,7 +8539,26 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
   singleSpeakerTargetRoleOverride
 }) {
   const loc = locale === 'en' ? 'en' : 'ko';
-  const kind = getDialogueLlmKind(rawEvents);
+  const pickValidCrew = (x) => {
+    const t = String(x || '').toLowerCase().trim();
+    return ['doctor', 'engineer', 'navigator', 'pilot'].includes(t) ? t : '';
+  };
+  const overrideTr = pickValidCrew(singleSpeakerTargetRoleOverride);
+  const evList = Array.isArray(rawEvents) ? rawEvents : [];
+  const qIdx = evList.findIndex((e) => String(e?.type || '').toUpperCase() === 'QUESTION');
+  const qEv = qIdx >= 0 ? evList[qIdx] : null;
+  let kind = getDialogueLlmKind(rawEvents);
+  if (!kind && qEv && pickValidCrew(qEv.target)) {
+    kind = 'QUESTION';
+  }
+  const suspicionTargetedPromoted =
+    !kind &&
+    !!targetedQuestionSingleSpeaker &&
+    qEv &&
+    !!overrideTr;
+  if (suspicionTargetedPromoted) {
+    kind = 'QUESTION';
+  }
   if (!kind) return deterministicLogs;
   const actionSlug = dialogueActionKindSlug(kind);
   const eventsCount = (rawEvents || []).length;
@@ -8549,19 +8568,14 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
   const ev0 = rawEvents && rawEvents[0];
   const nameTargetRole =
     targetedNameQuestion && kind === 'QUESTION'
-      ? resolveTargetRoleForNameQuestion(playerText || '', ev0?.target)
+      ? resolveTargetRoleForNameQuestion(playerText || '', qEv?.target ?? ev0?.target)
       : null;
-  const pickValidCrew = (x) => {
-    const t = String(x || '').toLowerCase().trim();
-    return ['doctor', 'engineer', 'navigator', 'pilot'].includes(t) ? t : '';
-  };
-  const evTr = pickValidCrew(ev0?.target);
-  const overrideTr = pickValidCrew(singleSpeakerTargetRoleOverride);
+  const evTr = pickValidCrew(qEv?.target);
   const nameTr =
     nameTargetRole != null && String(nameTargetRole).trim()
       ? pickValidCrew(nameTargetRole)
       : '';
-  const mergedTarget = evTr || overrideTr || nameTr;
+  const mergedTarget = overrideTr || evTr || nameTr;
   const tqSingle = !!targetedQuestionSingleSpeaker && kind === 'QUESTION' && !!mergedTarget;
   const isolateRole = tqSingle ? mergedTarget : null;
   if (tqSingle && mergedTarget && overrideTr && !evTr) {
@@ -8704,16 +8718,29 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
     if (tqSingle && isolateRole) {
       detTone = filterDisplayLogsToTargetedSingleSpeaker(detTone, isolateRole, loc);
     }
-    return applyCharacterToneToDisplayLogs(detTone, loc, toneOptsBase);
+    detTone = applyCharacterToneToDisplayLogs(detTone, loc, toneOptsBase);
+    if (tqSingle && isolateRole) {
+      detTone = filterDisplayLogsToTargetedSingleSpeaker(detTone, isolateRole, loc);
+      try {
+        console.log('[intent-fix] isolateRole filter applied role=' + isolateRole);
+      } catch (e) {}
+    }
+    return detTone;
   }
 
   const forcedCaptainText =
     forcedCaptainTextOverride != null && String(forcedCaptainTextOverride).trim()
       ? String(forcedCaptainTextOverride).trim()
       : extractCaptainSpokenFromDisplayLogs(deterministicLogs, loc);
+  let rawEventsForLlm = rawEvents;
+  if (kind === 'QUESTION' && tqSingle && mergedTarget && qIdx >= 0) {
+    const arr = [...evList];
+    rawEventsForLlm = arr;
+    rawEventsForLlm[qIdx] = { ...arr[qIdx], target: mergedTarget };
+  }
   const llmLogs = await tryGenerateLlmDialogueLogs({
     kind,
-    rawEvents,
+    rawEvents: rawEventsForLlm,
     match,
     playerText: playerText || '',
     clueText: clueTextFromEvent != null ? clueTextFromEvent : undefined,
@@ -8747,7 +8774,19 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
     if (tqSingle && isolateRole) {
       outL = filterDisplayLogsToTargetedSingleSpeaker(outL, isolateRole, loc);
     }
-    return applyCharacterToneToDisplayLogs(outL, loc, toneOptsBase);
+    outL = applyCharacterToneToDisplayLogs(outL, loc, toneOptsBase);
+    if (tqSingle && isolateRole) {
+      outL = filterDisplayLogsToTargetedSingleSpeaker(outL, isolateRole, loc);
+      try {
+        console.log('[intent-fix] isolateRole filter applied role=' + isolateRole);
+      } catch (e) {}
+    }
+    if (suspicionTargetedPromoted && outL && outL.length) {
+      try {
+        console.log('[intent-fix] suspicion targeted dialogue generated role=' + mergedTarget);
+      } catch (e) {}
+    }
+    return outL;
   }
   logDialogueTrace(actionSlug, apiProvider, modelStr, 'fallback', eventsCount);
   if (kind === 'THREATEN' || kind === 'TAKE_PISTOL') {
@@ -8781,7 +8820,14 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
   if (tqSingle && isolateRole) {
     detOut = filterDisplayLogsToTargetedSingleSpeaker(detOut, isolateRole, loc);
   }
-  return applyCharacterToneToDisplayLogs(detOut, loc, toneOptsBase);
+  detOut = applyCharacterToneToDisplayLogs(detOut, loc, toneOptsBase);
+  if (tqSingle && isolateRole) {
+    detOut = filterDisplayLogsToTargetedSingleSpeaker(detOut, isolateRole, loc);
+    try {
+      console.log('[intent-fix] isolateRole filter applied role=' + isolateRole);
+    } catch (e) {}
+  }
+  return detOut;
 }
 
 function log(tag, msg, data) {
