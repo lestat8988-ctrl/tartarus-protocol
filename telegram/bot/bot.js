@@ -1505,25 +1505,46 @@ function extractTargetRoleFromTargetedSuspicionQuestion(raw) {
   const s = String(raw || '');
   const idxSusp = s.search(/(?:의심|수상|임포스터|범인)/i);
   const head = idxSusp >= 0 ? s.slice(0, idxSusp) : s;
+  const candidates = [];
   const personalFirst = [
-    [/오웬|owen/i, 'navigator'],
-    [/유나|yuna/i, 'doctor'],
-    [/대니|danny/i, 'engineer'],
-    [/마커스|marcus/i, 'pilot']
+    [/오웬|owen/i, 'navigator', 'personal_name'],
+    [/유나|yuna/i, 'doctor', 'personal_name'],
+    [/대니|danny/i, 'engineer', 'personal_name'],
+    [/마커스|marcus/i, 'pilot', 'personal_name']
   ];
-  for (const [rx, role] of personalFirst) {
-    if (rx.test(head)) return { role, source: 'personal_name' };
+  for (const [rx, role, source] of personalFirst) {
+    const idx = head.search(rx);
+    if (typeof idx === 'number' && idx >= 0) candidates.push({ idx, role, source });
   }
   const roleTok = [
-    [/닥터|의사|doctor/i, 'doctor'],
-    [/엔지니어|engineer/i, 'engineer'],
-    [/네비게이터|항해사|navigator/i, 'navigator'],
-    [/파일럿|pilot/i, 'pilot']
+    [/닥터|의사|doctor/i, 'doctor', 'role_token'],
+    [/엔지니어|engineer/i, 'engineer', 'role_token'],
+    [/네비게이터|항해사|navigator/i, 'navigator', 'role_token'],
+    [/파일럿|pilot/i, 'pilot', 'role_token']
   ];
-  for (const [rx, role] of roleTok) {
-    if (rx.test(head)) return { role, source: 'role_token' };
+  for (const [rx, role, source] of roleTok) {
+    const idx = head.search(rx);
+    if (typeof idx === 'number' && idx >= 0) candidates.push({ idx, role, source });
   }
-  return null;
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => a.idx - b.idx || a.role.localeCompare(b.role));
+  const win = candidates[0];
+  let referencedRole = null;
+  for (let i = 1; i < candidates.length; i++) {
+    if (candidates[i].role !== win.role) {
+      referencedRole = candidates[i].role;
+      break;
+    }
+  }
+  try {
+    console.log(
+      '[intent-fix] addressed_role=' +
+        win.role +
+        (referencedRole != null ? ' referenced_role=' + referencedRole : '')
+    );
+    console.log('[intent-fix] first-role-wins targetRole=' + win.role);
+  } catch (e) {}
+  return { role: win.role, source: win.source, referencedRole: referencedRole || undefined };
 }
 
 function tryClassifyTargetedSuspicionQuestion(raw, effParsed) {
@@ -1687,6 +1708,10 @@ function containsLoreCanonSubject(raw) {
 function detectCrewRoleForGameplayQuestion(raw) {
   const t = String(raw || '');
   const pairs = [
+    [/유나|yuna/i, 'doctor'],
+    [/대니|danny/i, 'engineer'],
+    [/오웬|owen/i, 'navigator'],
+    [/마커스|marcus/i, 'pilot'],
     [/\bdoctor\b|닥터|의사/i, 'doctor'],
     [/\bengineer\b|엔지니어|기술자/i, 'engineer'],
     [/\bnavigator\b|네비게이터|항해사/i, 'navigator'],
