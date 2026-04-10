@@ -5515,6 +5515,245 @@ async function callChatCompletionsJson({ system, user, timeoutMs, maxTokens }) {
   return content != null ? String(content) : '';
 }
 
+const EMOTION2_CREW_ROLES = ['doctor', 'engineer', 'navigator', 'pilot'];
+
+function clampEmotion2Score(n) {
+  const x = Math.floor(Number(n) || 0);
+  return Math.max(0, Math.min(5, x));
+}
+
+function ensureEmotion2GameState(gs) {
+  if (!gs || typeof gs !== 'object') return;
+  if (!gs.crew_suspicion || typeof gs.crew_suspicion !== 'object') {
+    gs.crew_suspicion = {};
+    for (const r of EMOTION2_CREW_ROLES) {
+      gs.crew_suspicion[r] = {};
+      for (const o of EMOTION2_CREW_ROLES) {
+        if (o !== r) gs.crew_suspicion[r][o] = 0;
+      }
+    }
+  }
+  if (!gs.trauma_exposure || typeof gs.trauma_exposure !== 'object') {
+    gs.trauma_exposure = {};
+    for (const r of EMOTION2_CREW_ROLES) gs.trauma_exposure[r] = 0;
+  }
+}
+
+function emotion2TraumaExposureDelta(intensity) {
+  if (intensity === 'high') return 2;
+  if (intensity === 'medium') return 1;
+  return 0;
+}
+
+function emotion2BumpSuspicion(gs, fromRole, towardRole, delta) {
+  ensureEmotion2GameState(gs);
+  const a = String(fromRole || '').toLowerCase();
+  const b = String(towardRole || '').toLowerCase();
+  if (a === b || !EMOTION2_CREW_ROLES.includes(a) || !EMOTION2_CREW_ROLES.includes(b)) return;
+  if (!gs.crew_suspicion[a]) gs.crew_suspicion[a] = {};
+  gs.crew_suspicion[a][b] = clampEmotion2Score((gs.crew_suspicion[a][b] || 0) + delta);
+}
+
+function emotion2TopSuspectedByOthers(gs, accused) {
+  let who = null;
+  let best = -1;
+  const t = String(accused || '').toLowerCase();
+  for (const a of EMOTION2_CREW_ROLES) {
+    if (a === t) continue;
+    const v = gs.crew_suspicion[a]?.[t] || 0;
+    if (v > best) {
+      best = v;
+      who = a;
+    }
+  }
+  return { who, score: best };
+}
+
+function emotion2WhoWatcherSuspectsMost(gs, watcher) {
+  let who = null;
+  let best = -1;
+  const w = String(watcher || '').toLowerCase();
+  for (const o of EMOTION2_CREW_ROLES) {
+    if (o === w) continue;
+    const v = gs.crew_suspicion[w]?.[o] || 0;
+    if (v > best) {
+      best = v;
+      who = o;
+    }
+  }
+  return { who, score: best };
+}
+
+function pickEmotion2ImpostorTactic(targetRole, impostorRole, gs, captainIntent) {
+  const t = String(targetRole || '').toLowerCase();
+  const imp = impostorRole != null ? String(impostorRole).toLowerCase() : '';
+  if (!imp || !EMOTION2_CREW_ROLES.includes(t) || !EMOTION2_CREW_ROLES.includes(imp)) return null;
+  if (imp === t) {
+    return captainIntent === 'INTERROGATE' || captainIntent === 'THREAT' ? 'provoke_anger' : 'guilt_trip';
+  }
+  const otherHigh = EMOTION2_CREW_ROLES.some(
+    (r) => r !== t && r !== imp && (gs.trauma_exposure[r] || 0) >= 2
+  );
+  if (otherHigh && (gs.trauma_exposure[t] || 0) < 3) return 'trauma_puncture';
+  return 'redirect_blame';
+}
+
+function buildEmotion2SystemExtension(locale, targetRole, gs, tactic, impostorRole, traumaResult) {
+  ensureEmotion2GameState(gs);
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const t = String(targetRole || '').toLowerCase();
+  if (!EMOTION2_CREW_ROLES.includes(t)) return '';
+  const peer = emotion2TopSuspectedByOthers(gs, t);
+  const selfSus = emotion2WhoWatcherSuspectsMost(gs, t);
+  const te = gs.trauma_exposure[t] || 0;
+  const lines = [];
+  if (peer.who != null && peer.score >= 0) {
+    lines.push(
+      loc === 'en'
+        ? `Peer tension: ${roleNameEn(peer.who)} leans suspicious of ${roleNameEn(t)} (score ${peer.score}/5).`
+        : `동료 긴장: ${roleNameKo(peer.who)}이(가) ${roleNameKo(t)} 쪽을 유심히 봄(수치 ${peer.score}/5).`
+    );
+  }
+  if (selfSus.who != null && selfSus.score > 0) {
+    lines.push(
+      loc === 'en'
+        ? `As ${roleNameEn(t)}, you privately distrust ${roleNameEn(selfSus.who)} most (score ${selfSus.score}/5).`
+        : `${roleNameKo(t)}으로서, 사적으로는 ${roleNameKo(selfSus.who)}을(를) 가장 의심(수치 ${selfSus.score}/5).`
+    );
+  }
+  lines.push(
+    loc === 'en'
+      ? `Trauma exposure (${roleNameEn(t)}): ${te}/5.`
+      : `트라우마 노출(${roleNameKo(t)}): ${te}/5.`
+  );
+  const imp = impostorRole != null ? String(impostorRole).toLowerCase() : '';
+  if (imp && tactic) {
+    const tactHint = {
+      guilt_trip:
+        loc === 'en'
+          ? 'Impostor tactic guilt_trip: amplify the Captain\'s burden of command—no fabricated records.'
+          : '임포 전술 guilt_trip: 함장의 명령·선택 부담을 은근히 자극. 기록·사실 날조 금지.',
+      provoke_anger:
+        loc === 'en'
+          ? 'Impostor tactic provoke_anger: bait emotional misjudgment—stay plausible, no false logs.'
+          : '임포 전술 provoke_anger: 감정적 오판을 유도하되, 거짓 로그·확정 사실 금지.',
+      redirect_blame:
+        loc === 'en'
+          ? 'Impostor tactic redirect_blame: shift scrutiny to another crew member by doubt, not invented evidence.'
+          : '임포 전술 redirect_blame: 조작된 증거 없이 다른 승무원 쪽으로 시선을 돌림.',
+      trauma_puncture:
+        loc === 'en'
+          ? 'Impostor tactic trauma_puncture: press another crew\'s known sore spot (tone only)—never invent incidents.'
+          : '임포 전술 trauma_puncture: 타인의 알려진 상처를 말투로 찌름—사건 날조 금지.'
+    };
+    lines.push(tactHint[tactic] || tactHint.redirect_blame);
+  }
+  const weakBits = [];
+  for (const r of EMOTION2_CREW_ROLES) {
+    if (r === t) continue;
+    const cfg = CREW_TRAUMA_CONFIG[r];
+    if (cfg && cfg.description)
+      weakBits.push(
+        loc === 'en' ? `${roleNameEn(r)}: ${cfg.description}` : `${roleNameKo(r)}: ${cfg.description}`
+      );
+  }
+  if (weakBits.length && (tactic === 'trauma_puncture' || tactic === 'redirect_blame')) {
+    lines.push(
+      (loc === 'en' ? 'Soft spots (tone only, no new facts): ' : '약점 힌트(톤만, 새 사실 금지): ') +
+        weakBits.join(' | ')
+    );
+  }
+  if (traumaResult && traumaResult.triggered) {
+    lines.push(
+      loc === 'en'
+        ? 'You may deflect, counter-question, or show fracture—do not contradict verified ship facts.'
+        : '방어·역질문·균열은 가능—검증된 함선 사실과 모순은 금지.'
+    );
+  }
+  return '\n\n--- emotion2 context (internal) ---\n' + lines.join('\n') + '\n--- end emotion2 ---';
+}
+
+function maybeEmotion2HadesStressLine(locale, gs) {
+  ensureEmotion2GameState(gs);
+  const maxT = Math.max(...EMOTION2_CREW_ROLES.map((r) => gs.trauma_exposure[r] || 0));
+  const sumT = EMOTION2_CREW_ROLES.reduce((s, r) => s + (gs.trauma_exposure[r] || 0), 0);
+  if (maxT < 4 && sumT < 10) return '';
+  const loc = locale === 'en' ? 'en' : 'ko';
+  return loc === 'en'
+    ? '\n[HADES/STRESS] Trust integrity soft—delay judgment; anchor to verifiable records only.'
+    : '\n[HADES/스트레스] 신뢰 지표 흔들림—판단 지연, 검증 가능한 기록에만 고정.';
+}
+
+function emotion2PickCrossTalkRole(gs, targetRole, impostorRole, deadRoles) {
+  const dead = new Set((deadRoles || []).map((r) => String(r).toLowerCase()));
+  const t = String(targetRole || '').toLowerCase();
+  const alive = EMOTION2_CREW_ROLES.filter((r) => !dead.has(r) && r !== t);
+  if (!alive.length) return null;
+  const imp = impostorRole != null ? String(impostorRole).toLowerCase() : '';
+  if (imp && imp !== t && alive.includes(imp)) return imp;
+  const peer = emotion2TopSuspectedByOthers(gs, t);
+  if (peer.who && alive.includes(peer.who)) return peer.who;
+  return alive[0];
+}
+
+function emotion2CrossTalkGate(gs, targetRole, tactic, traumaResult, captainIntent) {
+  ensureEmotion2GameState(gs);
+  const t = String(targetRole || '').toLowerCase();
+  if (!EMOTION2_CREW_ROLES.includes(t)) return { ok: false, reason: 'no_target' };
+  const te = gs.trauma_exposure[t] || 0;
+  const { score: maxSus } = emotion2TopSuspectedByOthers(gs, t);
+  const cond =
+    te >= 2 ||
+    maxSus >= 2 ||
+    tactic === 'trauma_puncture' ||
+    tactic === 'redirect_blame';
+  if (!cond) return { ok: false, reason: 'gates_closed' };
+  if (Math.random() > 0.38) return { ok: false, reason: 'rng_skip' };
+  let reason = 'context';
+  if (te >= 2) reason = 'target_trauma_exposed';
+  else if (maxSus >= 2) reason = 'suspicion_threshold';
+  else if (tactic === 'trauma_puncture') reason = 'tactic_trauma_puncture';
+  else if (tactic === 'redirect_blame') reason = 'tactic_redirect_blame';
+  if (traumaResult && traumaResult.triggered && traumaResult.intensity === 'high') reason = 'target_trauma_high';
+  if (captainIntent === 'INTERROGATE' && reason === 'context') reason = 'captain_interrogate';
+  return { ok: true, reason };
+}
+
+function buildEmotion2CrossTalkLine(crossRole, targetRole, tactic, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const cr = crossRole;
+  const tr = targetRole;
+  if (loc === 'en') {
+    if (tactic === 'redirect_blame')
+      return `${roleNameEn(cr)}: Captain—pressure ${roleNameEn(tr)}'s timeline, not just mine. I won't be the only fuse you light.`;
+    if (tactic === 'trauma_puncture')
+      return `${roleNameEn(cr)}: ${roleNameEn(tr)}—breathe. That line cuts all of us; don't pretend it's clean.`;
+    return `${roleNameEn(cr)}: Captain—${roleNameEn(tr)} is rattled. One thread at a time, or we shred the crew.`;
+  }
+  if (tactic === 'redirect_blame')
+    return `${roleNameKo(cr)}: 함장님, ${roleNameKo(tr)} 쪽 시간선도 같이 압박하십시오. 저만 도화선에 세우지 마십시오.`;
+  if (tactic === 'trauma_puncture')
+    return `${roleNameKo(cr)}: ${roleNameKo(tr)}, 숨 고르십시오. 그 말은 여기 모두에게 벱니다. 깨끗한 척은 금지입니다.`;
+  return `${roleNameKo(cr)}: 함장님, ${roleNameKo(tr)}이(가) 흔들립니다. 실을 한 올씩만 당기십시오—아니면 크루가 갈립니다.`;
+}
+
+function appendEmotion2CrossTalkDisplayLogs(displayLogs, crossRole, targetRole, tactic, locale, batchKey, deadRoles) {
+  const cr = String(crossRole || '').toLowerCase();
+  const dead = new Set((deadRoles || []).map((r) => String(r).toLowerCase()));
+  if (!cr || dead.has(cr) || cr === String(targetRole || '').toLowerCase()) return displayLogs;
+  const headers = getLlmRoleHeaders(locale);
+  const h = headers[cr];
+  if (!h) return displayLogs;
+  const body = buildEmotion2CrossTalkLine(cr, String(targetRole || '').toLowerCase(), tactic, locale);
+  const k = `${batchKey}|e2xt`;
+  const next = [
+    ...(displayLogs || []),
+    { type: h, role: 'system', target: null, _key: `${k}|h` },
+    { type: body, role: 'system', target: null, _key: `${k}|t` }
+  ];
+  return normalizePlayerFacingDisplayLogs(next, locale);
+}
+
 /**
  * @returns {Promise<object[]|null>} display log rows or null → caller uses deterministic
  */
@@ -5757,6 +5996,7 @@ async function tryGenerateLlmDialogueLogs(ctx) {
     ['doctor', 'engineer', 'navigator', 'pilot'].includes(target) &&
     !targetedNameQuestion;
   let traumaForLog = null;
+  let emotion2CrossMeta = null;
   if (traumaEligible) {
     traumaForLog = detectTraumaTrigger(playerText || '', target);
     try {
@@ -5771,6 +6011,64 @@ async function tryGenerateLlmDialogueLogs(ctx) {
           traumaForLog.matchedKeywords.join(',')
       );
     } catch (e) {}
+
+    ensureEmotion2GameState(gs);
+    if (traumaForLog.triggered) {
+      const dExp = emotion2TraumaExposureDelta(traumaForLog.intensity);
+      if (dExp > 0) {
+        gs.trauma_exposure[target] = clampEmotion2Score((gs.trauma_exposure[target] || 0) + dExp);
+        try {
+          console.log('[emotion2] trauma_exposure ' + target + '=' + gs.trauma_exposure[target]);
+        } catch (e) {}
+      }
+      for (const a of EMOTION2_CREW_ROLES) {
+        if (a === target) continue;
+        emotion2BumpSuspicion(gs, a, target, 1);
+        try {
+          console.log('[emotion2] suspicion ' + a + '->' + target + '=' + gs.crew_suspicion[a][target]);
+        } catch (e) {}
+      }
+    }
+    const strongPressure = captainIntent === 'INTERROGATE' || captainIntent === 'THREAT';
+    if (strongPressure && !traumaForLog.triggered) {
+      for (const a of EMOTION2_CREW_ROLES) {
+        if (a === target) continue;
+        emotion2BumpSuspicion(gs, a, target, 1);
+        try {
+          console.log('[emotion2] suspicion ' + a + '->' + target + '=' + gs.crew_suspicion[a][target]);
+        } catch (e) {}
+      }
+    }
+    if (captainIntent === 'INTERROGATE') {
+      const toward = emotion2WhoWatcherSuspectsMost(gs, target).who;
+      if (toward) {
+        emotion2BumpSuspicion(gs, target, toward, 1);
+        try {
+          console.log('[emotion2] suspicion ' + target + '->' + toward + '=' + gs.crew_suspicion[target][toward]);
+        } catch (e) {}
+      }
+    }
+
+    const impE2 = pickAuthoritativeImpostorRole(matchFresh);
+    const tacticE2 = pickEmotion2ImpostorTactic(target, impE2, gs, captainIntent);
+    gs.last_manipulation_tactic = tacticE2;
+    if (impE2 && tacticE2) {
+      try {
+        console.log('[emotion2] tactic=' + tacticE2 + ' actor=' + impE2 + ' target=' + target);
+      } catch (e) {}
+    } else {
+      gs.last_manipulation_tactic = null;
+    }
+
+    const xtGate = emotion2CrossTalkGate(gs, target, tacticE2, traumaForLog, captainIntent);
+    const xtRole = xtGate.ok ? emotion2PickCrossTalkRole(gs, target, impE2, deadRoles) : null;
+    if (xtGate.ok && xtRole) {
+      emotion2CrossMeta = { role: xtRole, reason: xtGate.reason, tactic: tacticE2 };
+      gs.last_cross_talk_role = xtRole;
+    } else {
+      gs.last_cross_talk_role = null;
+    }
+
     if (traumaForLog.triggered && traumaForLog.emotionalState && traumaForLog.traumaDescription) {
       system +=
         '\n\n--- emotion context (internal) ---\n' +
@@ -5786,6 +6084,14 @@ async function tryGenerateLlmDialogueLogs(ctx) {
         '- intensity=high: allow one wording slip only (not fact contradiction)\n' +
         '- Never fabricate logs, facts, or system records\n' +
         '--- end emotion context ---';
+    }
+    system += buildEmotion2SystemExtension(locale, target, gs, tacticE2, impE2, traumaForLog);
+    system += maybeEmotion2HadesStressLine(locale, gs);
+
+    if (matchFresh?.match_id) {
+      try {
+        await matchStore.updateMatch(matchFresh.match_id, { game_state: gs });
+      } catch (e) {}
     }
   }
 
@@ -5983,6 +6289,22 @@ async function tryGenerateLlmDialogueLogs(ctx) {
       if (kind === 'FIND_CLUE' && clueText) {
         const clueIdOpt = ev0?.clue_id != null ? String(ev0.clue_id) : '';
         logs = mergeFindClueDeterministicClue(logs, clueText, batchKey, locale, clueIdOpt);
+      }
+      if (traumaEligible && emotion2CrossMeta && emotion2CrossMeta.role) {
+        logs = appendEmotion2CrossTalkDisplayLogs(
+          logs,
+          emotion2CrossMeta.role,
+          target,
+          emotion2CrossMeta.tactic,
+          locale,
+          batchKey,
+          deadRoles
+        );
+        try {
+          console.log(
+            '[emotion2] cross_talk role=' + emotion2CrossMeta.role + ' reason=' + emotion2CrossMeta.reason
+          );
+        } catch (e) {}
       }
       return logs.length ? logs : null;
     }
