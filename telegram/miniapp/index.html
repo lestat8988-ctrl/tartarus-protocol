@@ -1753,8 +1753,6 @@
       var lastRenderedRecentEventsSig = '';
       /** /api/state 누적 recent_events: poll마다 동일 이벤트 재append 방지 — role·text·narration·인덱스 기반 안정 키 */
       var seenServerLogKeys = new Set();
-      /** applyEvents 호출마다 증가 — bracket-only 헤더가 서로 다른 배치에서 동일 인덱스로 충돌하지 않게 함 */
-      var applyEventsBatchSeq = 0;
       var renderedLogKeysMatchId = '';
       /** 마지막으로 트랜스크립트를 바인딩한 match_id — 변경 시 DOM·dedupe 전부 리셋 */
       var lastAppliedTranscriptMatchId = '';
@@ -3663,7 +3661,11 @@
       }
 
       /** 서버가 보낸 동일 display 이벤트를 poll마다 다시 append하지 않도록 안정 키 (인덱스·turn·id가 있으면 포함) */
-      function buildEventDedupeKey(ev, indexInBatch, batchSeqOpt) {
+      /**
+       * 서버 display dedupe 안정 키. batch 시퀀스는 폴링 재전송 시 키가 매번 달라져 opening 등이 재append되므로 넣지 않음.
+       * bracket-only 헤더는 동일 텍스트·동일 인덱스가 다른 본문과 짝일 수 있어 다음 줄(paired)을 포함.
+       */
+      function buildEventDedupeKey(ev, indexInBatch, nextEvOpt) {
         if (!ev || typeof ev !== 'object') return '';
         var t = ev.type != null ? String(ev.type) : '';
         var role = ev.role != null ? String(ev.role) : '';
@@ -3709,9 +3711,9 @@
           evId;
         if (isBracketOnlyRoleHeader) {
           key += '\u0001bracketHdr:' + String(indexInBatch != null ? indexInBatch : 0);
-        }
-        if (batchSeqOpt != null) {
-          key += '\u0001batch:' + String(batchSeqOpt);
+          var paired =
+            nextEvOpt && typeof nextEvOpt === 'object' ? displayLogLineFromEvent(nextEvOpt) : '';
+          key += '\u0001paired:' + paired;
         }
         return key;
       }
@@ -3729,19 +3731,23 @@
 
       function applyEvents(events, seenSetOpt) {
         if (!events || !events.length) return 0;
-        applyEventsBatchSeq += 1;
-        var batchSeq = applyEventsBatchSeq;
         var n = 0;
         var i;
         for (i = 0; i < events.length; i++) {
           var ev = events[i];
+          var nextEv = i + 1 < events.length ? events[i + 1] : null;
           if (isBracketOnlyHeaderEvent(ev) && seenSetOpt) {
             if (i + 1 >= events.length) continue;
-            var bodyKey = buildEventDedupeKey(events[i + 1], i + 1);
+            var bodyKey = buildEventDedupeKey(events[i + 1], i + 1, i + 2 < events.length ? events[i + 2] : null);
             if (bodyKey && seenSetOpt.has(bodyKey)) continue;
           }
-          var key = buildEventDedupeKey(ev, i, batchSeq);
-          if (seenSetOpt && key && seenSetOpt.has(key)) continue;
+          var key = buildEventDedupeKey(ev, i, nextEv);
+          if (seenSetOpt && key && seenSetOpt.has(key)) {
+            try {
+              console.log('[miniapp] dedupe suppressed replayed batch event');
+            } catch (e) {}
+            continue;
+          }
           if (seenSetOpt && key) seenSetOpt.add(key);
           var label = displayLogLineFromEvent(ev);
           if (label) {
