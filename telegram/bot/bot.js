@@ -8138,6 +8138,37 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
     return buildLoreQuestionSystemOnlyDisplayLogs(locale, playerText || '');
   }
 
+  if (
+    kind === 'QUESTION' &&
+    targetedNameQuestion &&
+    tqSingle &&
+    nameTargetRole &&
+    match?.match_id
+  ) {
+    const mN = await matchStore.getMatch(match.match_id);
+    const capLineTq =
+      forcedCaptainTextOverride != null && String(forcedCaptainTextOverride).trim()
+        ? String(forcedCaptainTextOverride).trim()
+        : extractCaptainSpokenFromDisplayLogs(deterministicLogs, loc);
+    const fbTq = buildTargetedNameQuestionDeterministicDisplayLogs(
+      mN || match,
+      loc,
+      nameTargetRole,
+      capLineTq
+    );
+    if (fbTq && fbTq.length) {
+      try {
+        console.log('[name-question] deterministic targeted response used role=' + nameTargetRole);
+      } catch (e) {}
+      logDialogueTrace(actionSlug, apiProvider, modelStr, 'targeted_name_deterministic', eventsCount);
+      let outTq = fbTq;
+      if (tqSingle && isolateRole) {
+        outTq = filterDisplayLogsToTargetedSingleSpeaker(outTq, isolateRole, loc);
+      }
+      return applyCharacterToneToDisplayLogs(outTq, loc, toneOptsBase);
+    }
+  }
+
   if (!isDialogueLlmConfigured()) {
     logDialogueTrace(actionSlug, 'deterministic', modelStr, 'fallback', eventsCount);
     if (kind === 'THREATEN' || kind === 'TAKE_PISTOL') {
@@ -9024,6 +9055,99 @@ async function handleStart(playerId, opts = {}) {
   );
 }
 
+async function runDeterministicGroupNameQuestionFlow(matchId, match, text, locale, tensionLogs, now) {
+  await clearPostOpeningWaitingForFirstCommanderInput(matchId);
+  await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
+  try {
+    console.log('[name-question] deterministic group response used');
+  } catch (e) {}
+  await ensureCrewPersonalNamesPersisted(matchId);
+  const matchAfter = (await matchStore.getMatch(matchId)) || match;
+  const events = buildGroupNameQuestionCrewEvents(matchAfter, locale);
+  for (const ev of events) await matchStore.appendEvent(matchId, ev);
+  const updated = await matchStore.getMatch(matchId);
+  const captainBody =
+    stripLeadingCaptainBracketFromUserLine(String(text || '').trim(), locale) ||
+    String(text || '').trim();
+  let recentDisplay = dedupeDisplayLogs(toPlayerDisplayLogs(events, { locale }), locale);
+  if (captainBody) {
+    recentDisplay = applyTargetedQuestionCaptainDisplayBody(recentDisplay, captainBody, locale);
+    recentDisplay = dedupeDisplayLogs(recentDisplay, locale);
+  }
+  const timer = ep1Engine.getTimerStatus(updated, now);
+  const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
+  const gsTone = updated?.game_state || {};
+  recentDisplay = applyCharacterToneToDisplayLogs(recentDisplay, locale, {
+    playerText: String(text || ''),
+    crewPersonalNames: updated?.game_state?.crew_names || null,
+    remainingSec: rem,
+    deadRolesCount: Array.isArray(gsTone.dead_roles) ? gsTone.dead_roles.length : 0,
+    gameOver: !!gsTone.game_over
+  });
+  recentDisplay = mergePrependedTensionDisplayLogs(tensionLogs, recentDisplay, locale);
+  recentDisplay = sanitizeNameQuestionDisplayLogs(recentDisplay, locale);
+  return { updated, recentDisplay, rem };
+}
+
+async function runDeterministicTargetedNameQuestionFlow(matchId, match, text, locale, targetRole, tensionLogs, now) {
+  const tr = String(targetRole || '').toLowerCase();
+  if (!tr || !['doctor', 'engineer', 'navigator', 'pilot'].includes(tr)) return null;
+  await clearPostOpeningWaitingForFirstCommanderInput(matchId);
+  await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
+  try {
+    console.log('[name-question] deterministic targeted response used role=' + tr);
+  } catch (e) {}
+  await ensureCrewPersonalNamesPersisted(matchId);
+  const m2 = (await matchStore.getMatch(matchId)) || match;
+  const captainBody =
+    stripLeadingCaptainBracketFromUserLine(String(text || '').trim(), locale) ||
+    String(text || '').trim();
+  let det = buildTargetedNameQuestionDeterministicDisplayLogs(m2, locale, tr, captainBody);
+  if (!det || !det.length) return null;
+  const toStore = displayLogsToCrewDialogueEvents(det, locale);
+  for (const ev of toStore) await matchStore.appendEvent(matchId, ev);
+  const updated = await matchStore.getMatch(matchId);
+  let recentDisplay = dedupeDisplayLogs(det, locale);
+  if (captainBody) {
+    recentDisplay = applyTargetedQuestionCaptainDisplayBody(recentDisplay, captainBody, locale);
+  }
+  recentDisplay = dedupeTargetedQuestionCaptainDisplayLogs(recentDisplay, locale);
+  recentDisplay = collapseDuplicateCaptainBlocks(recentDisplay, locale);
+  const timer = ep1Engine.getTimerStatus(updated, now);
+  const rem = Math.max(0, Math.floor(timer.remaining_sec ?? 0));
+  const gsTone = updated?.game_state || {};
+  recentDisplay = applyCharacterToneToDisplayLogs(recentDisplay, locale, {
+    playerText: String(text || ''),
+    crewPersonalNames: updated?.game_state?.crew_names || null,
+    remainingSec: rem,
+    deadRolesCount: Array.isArray(gsTone.dead_roles) ? gsTone.dead_roles.length : 0,
+    gameOver: !!gsTone.game_over,
+    targetedNameQuestion: true,
+    targetedNameFocusRole: tr,
+    targetedQuestionSingleSpeaker: true,
+    selfDefenseIsolateRole: tr
+  });
+  recentDisplay = mergePrependedTensionDisplayLogs(tensionLogs, recentDisplay, locale);
+  try {
+    const rr = extractCrewDialogueBodyFromDisplayLogs(recentDisplay, tr, locale);
+    await persistDialogueFocusMemory(matchId, {
+      targetRole: tr,
+      dialogueKind: 'QUESTION',
+      captainText: captainBody,
+      roleReply: rr
+    });
+  } catch (e) {}
+  return { updated, recentDisplay, rem };
+}
+
+function formatTelegramReplyFromDisplayLogs(recentDisplay, rem) {
+  let reply = recentDisplay.map((e) => e.type).filter(Boolean).join('\n') || '…';
+  const m = Math.floor(rem / 60);
+  const sec = rem % 60;
+  reply += '\n⏱ ' + m + ':' + String(sec).padStart(2, '0') + ' left';
+  return reply;
+}
+
 /**
  * 일반 텍스트 입력 처리
  * @param {string} playerId - telegram user id
@@ -9135,6 +9259,25 @@ async function handleTextMessage(playerId, text, opts = {}) {
     return reply;
   }
 
+  if (cls.kind === 'group_question' && (cls.groupSubkind || 'suspicion') === 'name') {
+    const r = await runDeterministicGroupNameQuestionFlow(matchId, match, text, locale, tensionTg, now);
+    return formatTelegramReplyFromDisplayLogs(r.recentDisplay, r.rem);
+  }
+  if (cls.kind === 'targeted_question' && parsed.target && isTargetedRoleNameQuestion(String(text || ''))) {
+    const r = await runDeterministicTargetedNameQuestionFlow(
+      matchId,
+      match,
+      text,
+      locale,
+      parsed.target,
+      tensionTg,
+      now
+    );
+    if (r) {
+      return formatTelegramReplyFromDisplayLogs(r.recentDisplay, r.rem);
+    }
+  }
+
   const consumesFreePromptTg = shouldConsumeFreePromptForMessageKind(cls, parsed, text);
   logIntentPromptDecision(cls, parsed, consumesFreePromptTg);
   if (consumesFreePromptTg) {
@@ -9197,19 +9340,12 @@ async function handleTextMessage(playerId, text, opts = {}) {
     return reply;
   }
 
-  if (cls.kind === 'group_question') {
+  if (cls.kind === 'group_question' && (cls.groupSubkind || 'suspicion') !== 'name') {
     const sub = cls.groupSubkind || 'suspicion';
     console.log('[bot] message kind=group_question sub=' + sub);
     await clearPostOpeningWaitingForFirstCommanderInput(matchId);
     await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
-    if (sub === 'name') {
-      try {
-        console.log('[name-question] deterministic group response used');
-      } catch (e) {}
-      await ensureCrewPersonalNamesPersisted(matchId);
-    }
-    const matchAfterNames = sub === 'name' ? await matchStore.getMatch(matchId) : match;
-    const events = resolveGroupCrewEvents(matchAfterNames || match, locale, sub);
+    const events = resolveGroupCrewEvents(match, locale, sub);
     for (const ev of events) await matchStore.appendEvent(matchId, ev);
     const updated = await matchStore.getMatch(matchId);
     const captainBodyForGroup =
@@ -9231,9 +9367,6 @@ async function handleTextMessage(playerId, text, opts = {}) {
       gameOver: !!gsToneG.game_over
     });
     recentDisplay = mergePrependedTensionDisplayLogs(tensionTg, recentDisplay, locale);
-    if (sub === 'name') {
-      recentDisplay = sanitizeNameQuestionDisplayLogs(recentDisplay, locale);
-    }
     let reply = recentDisplay.map((e) => e.type).filter(Boolean).join('\n') || '…';
     const m = Math.floor(rem / 60);
     const sec = rem % 60;
@@ -10401,6 +10534,45 @@ async function processMessageApi(playerId, text, opts = {}) {
     });
   }
 
+  if (cls.kind === 'group_question' && (cls.groupSubkind || 'suspicion') === 'name') {
+    const r = await runDeterministicGroupNameQuestionFlow(matchId, match, text, locale, tension, now);
+    const summaryText = summaryFromDisplayLogs(r.recentDisplay, locale);
+    return withMeta({
+      ok: true,
+      summary: summaryText,
+      remaining_sec: r.rem,
+      game_over: false,
+      outcome: null,
+      events: r.recentDisplay,
+      recent_events: r.recentDisplay,
+      match_state: r.updated?.game_state || {}
+    });
+  }
+  if (cls.kind === 'targeted_question' && parsed.target && isTargetedRoleNameQuestion(String(text || ''))) {
+    const r = await runDeterministicTargetedNameQuestionFlow(
+      matchId,
+      match,
+      text,
+      locale,
+      parsed.target,
+      tension,
+      now
+    );
+    if (r) {
+      const summaryText = summaryFromDisplayLogs(r.recentDisplay, locale);
+      return withMeta({
+        ok: true,
+        summary: summaryText,
+        remaining_sec: r.rem,
+        game_over: false,
+        outcome: null,
+        events: r.recentDisplay,
+        recent_events: r.recentDisplay,
+        match_state: r.updated?.game_state || {}
+      });
+    }
+  }
+
   const consumesFreePromptApi = shouldConsumeFreePromptForMessageKind(cls, parsed, text);
   logIntentPromptDecision(cls, parsed, consumesFreePromptApi);
   let freePromptConsumedThisApi = false;
@@ -10481,19 +10653,12 @@ async function processMessageApi(playerId, text, opts = {}) {
     });
   }
 
-  if (cls.kind === 'group_question') {
+  if (cls.kind === 'group_question' && (cls.groupSubkind || 'suspicion') !== 'name') {
     const sub = cls.groupSubkind || 'suspicion';
     console.log('[bot] message kind=group_question sub=' + sub);
     await clearPostOpeningWaitingForFirstCommanderInput(matchId);
     await matchStore.updateMatch(matchId, { turn: (match.turn || 1) + 1 });
-    if (sub === 'name') {
-      try {
-        console.log('[name-question] deterministic group response used');
-      } catch (e) {}
-      await ensureCrewPersonalNamesPersisted(matchId);
-    }
-    const matchAfterNames = sub === 'name' ? await matchStore.getMatch(matchId) : match;
-    const events = resolveGroupCrewEvents(matchAfterNames || match, locale, sub);
+    const events = resolveGroupCrewEvents(match, locale, sub);
     for (const ev of events) await matchStore.appendEvent(matchId, ev);
     const updated = await matchStore.getMatch(matchId);
     const captainBodyForGroup =
@@ -10515,9 +10680,6 @@ async function processMessageApi(playerId, text, opts = {}) {
       gameOver: !!gsToneG.game_over
     });
     newDisplayLogs = mergePrependedTensionDisplayLogs(tension, newDisplayLogs, locale);
-    if (sub === 'name') {
-      newDisplayLogs = sanitizeNameQuestionDisplayLogs(newDisplayLogs, locale);
-    }
     const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
     return withMeta({
       ok: true,
