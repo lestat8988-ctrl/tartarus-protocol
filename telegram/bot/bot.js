@@ -1932,6 +1932,33 @@ function classifyMiniappFreeText(text, parsed, localeOpt) {
   }
 
   if (effParsed.target && isRoleOpinionQuestion(text, effParsed)) {
+    if (isTargetedSuspicionToRoleQuestionText(raw)) {
+      try {
+        const exR = extractTargetRoleFromTargetedSuspicionQuestion(raw);
+        const rLog =
+          exR && exR.role
+            ? exR.role
+            : String(effParsed.target || '')
+                .toLowerCase()
+                .trim();
+        if (rLog && ['doctor', 'engineer', 'navigator', 'pilot'].includes(rLog)) {
+          console.log('[intent-fix] role_opinion rerouted to suspicion finalize role=' + rLog);
+        }
+      } catch (e) {}
+      const out = finalizeSuspicionQuestionClassification(raw, {
+        kind: 'suspicion_question',
+        parsed: effParsed
+      });
+      try {
+        const r = out?.crewGameplayTargetRole || out?.parsed?.target;
+        if (out?.kind === 'targeted_question' && r) {
+          console.log(
+            '[intent-fix] targeted suspicion returned from classify role=' + String(r).toLowerCase()
+          );
+        }
+      } catch (e2) {}
+      return out;
+    }
     return { kind: 'role_opinion_question', parsed: effParsed };
   }
 
