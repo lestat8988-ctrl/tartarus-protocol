@@ -4020,6 +4020,22 @@ async function maybeResolveAmbiguousFreeInputRoute(rawText, locale, guardedParse
   const originalInput = String(rawText || '');
   const normalizedText = normalizeFreeInputForRouting(originalInput);
   const shadowCls = classifyMiniappFreeText(normalizedText, guardedParsed, locale);
+  if (shadowCls.kind === 'targeted_question') {
+    const rawTr =
+      shadowCls.crewGameplayTargetRole != null
+        ? shadowCls.crewGameplayTargetRole
+        : shadowCls.parsed && shadowCls.parsed.target;
+    const trResolved = normalizeRouteRoleKeyForFreeInput(rawTr);
+    if (trResolved) {
+      try {
+        console.log(
+          '[intent-fix] free-input-route override skipped: targeted_question already resolved role=' +
+            trResolved
+        );
+      } catch (e) {}
+      return buildEmptyFreeInputRouteResult(normalizedText, originalInput, shadowCls);
+    }
+  }
   if (shadowCls.kind === 'state_query') {
     return buildEmptyFreeInputRouteResult(normalizedText, originalInput, shadowCls);
   }
