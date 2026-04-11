@@ -6095,18 +6095,45 @@ function buildEmotion2CrossTalkLine(crossRole, targetRole, tactic, locale) {
   return koLines[v] || koLines[0];
 }
 
-function appendEmotion2CrossTalkDisplayLogs(displayLogs, crossRole, targetRole, tactic, locale, batchKey, deadRoles) {
+function appendEmotion2CrossTalkDisplayLogs(
+  displayLogs,
+  crossRole,
+  targetRole,
+  tactic,
+  locale,
+  batchKey,
+  deadRoles,
+  crossTalkReason,
+  matchIdOpt
+) {
   const cr = String(crossRole || '').toLowerCase();
+  const tr = String(targetRole || '').toLowerCase();
   const dead = new Set((deadRoles || []).map((r) => String(r).toLowerCase()));
-  if (!cr || dead.has(cr) || cr === String(targetRole || '').toLowerCase()) return displayLogs;
+  if (!cr || dead.has(cr) || cr === tr) return displayLogs;
   const headers = getLlmRoleHeaders(locale);
   const h = headers[cr];
   if (!h) return displayLogs;
-  const body = buildEmotion2CrossTalkLine(cr, String(targetRole || '').toLowerCase(), tactic, locale);
+  const body = buildEmotion2CrossTalkLine(cr, tr, tactic, locale);
   try {
     console.log('[emotion2] cross_talk prefix stripped role=' + cr);
   } catch (e) {}
-  const k = `${batchKey}|e2xt`;
+  const normalizedLine = String(body || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const reason = String(crossTalkReason || '');
+  const mid =
+    matchIdOpt != null && String(matchIdOpt).trim() !== '' ? String(matchIdOpt).trim() + '|' : '';
+  const k = `${mid}${batchKey}|e2xt|${cr}|${tr}|${reason}|${normalizedLine}`;
+  try {
+    console.log(
+      '[emotion2-display] stable cross-talk key assigned cross=' +
+        cr +
+        ' target=' +
+        tr +
+        ' reason=' +
+        reason
+    );
+  } catch (e2) {}
   const next = [
     ...(displayLogs || []),
     { type: h, role: 'system', target: null, _key: `${k}|h` },
@@ -7071,7 +7098,9 @@ async function tryGenerateLlmDialogueLogs(ctx) {
           emotion2CrossMeta.tactic,
           locale,
           batchKey,
-          deadRoles
+          deadRoles,
+          emotion2CrossMeta.reason,
+          matchFresh?.match_id ?? match?.match_id
         );
         try {
           console.log(
