@@ -6198,6 +6198,92 @@ function targetedNonSuspicionFallbackLine(role, loc) {
   return m[r] || m.doctor;
 }
 
+/** 단일 화자 QUESTION: LLM 블록이 비었거나 타깃 역할 블록이 없으면 함장+타깃 골격을 만들고 finalize */
+function coerceTargetedSingleSpeakerBlocksBeforeGuard(blocksOut, ctx) {
+  const { kind, targetedQuestionSingleSpeaker, target, locale, captainForced, expectedCrew } = ctx;
+  if (kind !== 'QUESTION' || !targetedQuestionSingleSpeaker || !target) return blocksOut;
+  const t = String(target).toLowerCase();
+  if (!['doctor', 'engineer', 'navigator', 'pilot'].includes(t)) return blocksOut;
+  const arr = Array.isArray(blocksOut) ? blocksOut.map((b) => ({ ...b })) : [];
+  const hasT = arr.some((b) => String(b.role || '').toLowerCase() === t);
+  if (arr.length > 0 && hasT) return blocksOut;
+  try {
+    console.log('[dialogue-guard] empty blocks before guard, forcing fallback role=' + t);
+  } catch (e) {}
+  let next;
+  if (arr.length === 0) {
+    const capT = String(captainForced || '').trim() || (locale === 'en' ? 'Captain.' : '함장님.');
+    next = [
+      { role: 'captain', text: capT, narration: '' },
+      { role: t, text: '', narration: '' }
+    ];
+  } else {
+    next = [...arr, { role: t, text: '', narration: '' }];
+  }
+  let sorted = sortLlmBlocksByExpected(next, expectedCrew);
+  sorted = applyForcedCaptainToSorted(sorted, captainForced, locale);
+  return finalizeNormalizedLlmBlocks(sorted, locale, kind);
+}
+
+function displayLogsRoleHeaderSet(locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const h = getLlmRoleHeaders(loc);
+  return new Set([captainHeader(loc), systemHeader(loc), ...Object.values(h)]);
+}
+
+function hasTargetSpeakerBodyInDisplayLogs(logs, target, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const t = String(target || '').toLowerCase();
+  const crewH = getLlmRoleHeaders(loc)[t];
+  if (!crewH || !logs || !logs.length) return false;
+  const hdrs = displayLogsRoleHeaderSet(loc);
+  for (let i = 0; i < logs.length; i++) {
+    if (String(logs[i].type || '').trim() !== crewH) continue;
+    const nxt = logs[i + 1];
+    if (!nxt) return false;
+    const nt = String(nxt.type || '').trim();
+    if (!nt || hdrs.has(nt)) return false;
+    return true;
+  }
+  return false;
+}
+
+/** 타깃 역할 헤더 다음 본문이 비어 있으면 삽입/치환 (llmBlocksToDisplayLogs 이후) */
+function repairTargetSpeakerBodyInDisplayLogs(logs, target, locale, playerText, captainIntent, batchKey) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const t = String(target || '').toLowerCase();
+  const crewH = getLlmRoleHeaders(loc)[t];
+  if (!crewH) return logs;
+  const hdrs = displayLogsRoleHeaderSet(loc);
+  const suspicionQ =
+    isSuspicionQueryPlayerTextForDirective(playerText || '') && captainIntent === 'QUESTION';
+  const line = suspicionQ ? suspicionDirectedFallbackLine(t, loc) : targetedNonSuspicionFallbackLine(t, loc);
+  const keyFb = `${batchKey}|tsfb`;
+  const out = [...(logs || [])];
+  let i;
+  for (i = 0; i < out.length; i++) {
+    if (String(out[i].type || '').trim() === crewH) break;
+  }
+  if (i < out.length) {
+    const nxt = out[i + 1];
+    const nt = nxt ? String(nxt.type || '').trim() : '';
+    if (nxt && nt && !hdrs.has(nt)) {
+      out[i + 1] = { ...nxt, type: line, _key: `${keyFb}|t` };
+    } else {
+      out.splice(i + 1, 0, { type: line, role: 'system', target: null, _key: `${keyFb}|t` });
+    }
+    return normalizePlayerFacingDisplayLogs(out, loc);
+  }
+  return normalizePlayerFacingDisplayLogs(
+    [
+      ...out,
+      { type: crewH, role: 'system', target: null, _key: `${keyFb}|h` },
+      { type: line, role: 'system', target: null, _key: `${keyFb}|t2` }
+    ],
+    loc
+  );
+}
+
 /**
  * targeted single-speaker QUESTION: 타깃 본답 공백·회피 시 보정; 본답 누락 시 cross-talk 억제.
  */
@@ -6215,7 +6301,22 @@ function applyTargetedSpeakerReplyGuards(blocks, ctx) {
   }
   const idx = out.findIndex((b) => String(b.role || '').toLowerCase() === target);
   if (idx < 0) {
-    return { blocks: out, suppressCrossTalk: true };
+    const suspicionQEarly =
+      isSuspicionQueryPlayerTextForDirective(ctx.playerText || '') && ctx.captainIntent === 'QUESTION';
+    const lineEarly = suspicionQEarly
+      ? suspicionDirectedFallbackLine(target, loc)
+      : targetedNonSuspicionFallbackLine(target, loc);
+    out.push({ role: target, text: lineEarly, narration: '' });
+    const ec = ctx.expectedCrew || [target];
+    let sortedEarly = sortLlmBlocksByExpected(out, ec);
+    sortedEarly = applyForcedCaptainToSorted(sortedEarly, ctx.captainForced || '', loc);
+    try {
+      console.log('[dialogue-guard] target speaker missing, fallback injected role=' + target);
+    } catch (e) {}
+    return {
+      blocks: finalizeNormalizedLlmBlocks(sortedEarly, loc, ctx.kind || 'QUESTION'),
+      suppressCrossTalk: true
+    };
   }
   const tb = out[idx];
   const text0 = String(tb.text || '').trim();
@@ -6857,13 +6958,25 @@ async function tryGenerateLlmDialogueLogs(ctx) {
         blocksOut = applyThreatTakePistolNarrationPolicy(blocksOut, kind);
       }
       if (kind === 'QUESTION') {
+        if (targetedQuestionSingleSpeaker && target) {
+          blocksOut = coerceTargetedSingleSpeakerBlocksBeforeGuard(blocksOut, {
+            kind,
+            targetedQuestionSingleSpeaker,
+            target,
+            locale,
+            captainForced,
+            expectedCrew
+          });
+        }
         const g = applyTargetedSpeakerReplyGuards(blocksOut, {
           target,
           locale,
           playerText,
           kind,
           targetedQuestionSingleSpeaker,
-          captainIntent
+          captainIntent,
+          captainForced,
+          expectedCrew
         });
         blocksOut = g.blocks;
         if (g.suppressCrossTalk) {
@@ -6874,6 +6987,23 @@ async function tryGenerateLlmDialogueLogs(ctx) {
         }
       }
       let logs = llmBlocksToDisplayLogs(blocksOut, batchKey, locale);
+      if (
+        kind === 'QUESTION' &&
+        targetedQuestionSingleSpeaker &&
+        target &&
+        ['doctor', 'engineer', 'navigator', 'pilot'].includes(String(target).toLowerCase())
+      ) {
+        if (!hasTargetSpeakerBodyInDisplayLogs(logs, target, locale)) {
+          try {
+            console.log(
+              '[dialogue-guard] target speaker missing after llm, forcing fallback role=' +
+                String(target).toLowerCase()
+            );
+          } catch (e3) {}
+          emotion2CrossMeta = null;
+          logs = repairTargetSpeakerBodyInDisplayLogs(logs, target, locale, playerText, captainIntent, batchKey);
+        }
+      }
       if (kind === 'FIND_CLUE' && clueText) {
         const clueIdOpt = ev0?.clue_id != null ? String(ev0.clue_id) : '';
         logs = mergeFindClueDeterministicClue(logs, clueText, batchKey, locale, clueIdOpt);
@@ -6899,6 +7029,51 @@ async function tryGenerateLlmDialogueLogs(ctx) {
     log('LLM_DIALOGUE', 'validate_failed', { kind, attempt });
   }
   log('LLM_DIALOGUE', 'aborted_after_retry', { kind, rawHead: String(lastRaw).slice(0, 120) });
+  if (
+    kind === 'QUESTION' &&
+    targetedQuestionSingleSpeaker &&
+    target &&
+    ['doctor', 'engineer', 'navigator', 'pilot'].includes(String(target).toLowerCase())
+  ) {
+    let blocksFb = coerceTargetedSingleSpeakerBlocksBeforeGuard([], {
+      kind,
+      targetedQuestionSingleSpeaker,
+      target,
+      locale,
+      captainForced,
+      expectedCrew
+    });
+    const gFb = applyTargetedSpeakerReplyGuards(blocksFb, {
+      target,
+      locale,
+      playerText,
+      kind,
+      targetedQuestionSingleSpeaker,
+      captainIntent,
+      captainForced,
+      expectedCrew
+    });
+    blocksFb = gFb.blocks;
+    emotion2CrossMeta = null;
+    let logsFb = llmBlocksToDisplayLogs(blocksFb, batchKey + '|fbail', locale);
+    if (!hasTargetSpeakerBodyInDisplayLogs(logsFb, target, locale)) {
+      try {
+        console.log(
+          '[dialogue-guard] target speaker missing after llm, forcing fallback role=' +
+            String(target).toLowerCase()
+        );
+      } catch (e4) {}
+      logsFb = repairTargetSpeakerBodyInDisplayLogs(
+        logsFb,
+        target,
+        locale,
+        playerText,
+        captainIntent,
+        batchKey + '|fbail'
+      );
+    }
+    return logsFb.length ? logsFb : null;
+  }
   return null;
 }
 
