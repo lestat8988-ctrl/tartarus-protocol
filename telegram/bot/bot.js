@@ -63,27 +63,57 @@ const OPENING_STORY_LINES = {
 /** 크루별 트라우마 트리거(자유입력 단일 지목 QUESTION 후처리용). */
 const CREW_TRAUMA_CONFIG = {
   doctor: {
-    triggers: ['아이', '수술', '살리지 못', 'failed the patient'],
+    triggers: [
+      '아이',
+      '수술',
+      '살리지 못',
+      'failed the patient',
+      'the child',
+      "couldn't save",
+      'operating table',
+      'you failed'
+    ],
     state: 'guarded remorse',
     description:
       'Child patient on the table—speed and skill were not enough; the wound still speaks in silence.'
   },
   engineer: {
-    triggers: ['폭발', '과열', '못 고쳤', 'reactor incident', 'coolant failure'],
+    triggers: [
+      '폭발',
+      '과열',
+      '못 고쳤',
+      'reactor incident',
+      'coolant failure',
+      'overheated',
+      "couldn't stop it",
+      'the explosion'
+    ],
     state: 'acute guilt',
     description: 'Runaway heat or blast they could not choke in time; hands remember the failure.'
   },
   navigator: {
-    triggers: ['오차', '잘못된 좌표', '길을 잃', 'wrong coordinates', 'course deviation'],
+    triggers: [
+      '오차',
+      '잘못된 좌표',
+      '길을 잃',
+      'wrong coordinates',
+      'course deviation',
+      'wrong course',
+      'off by',
+      'the deviation'
+    ],
     state: 'shaken confidence',
     description: 'Wrong numbers in the dark—course error that narrowed everyone’s margin.'
   },
   pilot: {
-    triggers: ['추락', '충돌', '놓쳤', "couldn't save", 'crash'],
+    triggers: ['추락', '충돌', '놓쳤', 'crash', 'the crash', 'you missed', "couldn't pull"],
     state: 'raw regret',
     description: 'Impact or slip they could not ride out—metal scream and bodies too close.'
   }
 };
+try {
+  console.log('[emotion-en] trauma trigger set expanded');
+} catch (e) {}
 
 function detectTraumaTrigger(playerText, targetRole) {
   const out = {
@@ -1492,25 +1522,54 @@ function isStandaloneSuspicionQuestion(raw) {
 function isTargetedSuspicionToRoleQuestionText(raw) {
   const s = String(raw || '').trim();
   if (!s) return false;
-  const p1 =
-    /(닥터|의사|엔지니어|네비게이터|항해사|파일럿|오웬|마커스|대니|유나|doctor|engineer|navigator|pilot|owen|marcus|danny|yuna).{0,20}?(의심|수상|임포스터|범인)/i.test(
+  const addr =
+    '(?:닥터|의사|엔지니어|네비게이터|항해사|파일럿|오웬|마커스|대니|유나|doctor|engineer|navigator|pilot|owen|marcus|danny|yuna)';
+  const p1 = new RegExp(addr + '.{0,20}?(?:의심|수상|임포스터|범인)', 'i').test(s);
+  const p1En = new RegExp(
+    addr +
+      '.{0,96}?(?:\\bsuspects?\\b|\\bsuspicious\\b|\\bkiller\\b|\\btraitor\\b|\\bculprit\\b)',
+    'i'
+  ).test(s);
+  const p2 = /(누가|누구|어느\s*쪽).{0,15}?(의심|수상|임포스터|범인)/i.test(s);
+  const p2En =
+    /\b(?:who|which\s+(?:one|crewmember|crew))\b.{0,96}?(?:\bsuspects?\b|\bsuspicious\b|\bkiller\b|\btraitor\b|\bculprit\b|looks\s+like\s+(?:the\s+)?(?:killer|traitor))/i.test(
       s
     );
-  const p2 = /(누가|누구|어느\s*쪽).{0,15}?(의심|수상|임포스터|범인)/i.test(s);
-  return p1 || p2;
+  return p1 || p1En || p2 || p2En;
+}
+
+/** 의심 질문에서 첫 한·영 의심 키워드 위치(가장 이른 인덱스) */
+function firstTargetedSuspicionKeywordIndex(s) {
+  const str = String(s || '');
+  const patterns = [
+    /(?:의심|수상|임포스터|범인)/,
+    /\bsuspects?\b/i,
+    /\bsuspicious\b/i,
+    /\bkiller\b/i,
+    /\btraitor\b/i,
+    /\bculprit\b/i
+  ];
+  let min = -1;
+  for (const re of patterns) {
+    const m = str.match(re);
+    if (m && typeof m.index === 'number' && m.index >= 0) {
+      if (min < 0 || m.index < min) min = m.index;
+    }
+  }
+  return min;
 }
 
 /** 의심 질문 앞부분(첫 의심 키워드 이전)에서 역할 또는 실명으로 타깃 추출 */
 function extractTargetRoleFromTargetedSuspicionQuestion(raw) {
   const s = String(raw || '');
-  const idxSusp = s.search(/(?:의심|수상|임포스터|범인)/i);
+  const idxSusp = firstTargetedSuspicionKeywordIndex(s);
   const head = idxSusp >= 0 ? s.slice(0, idxSusp) : s;
   const candidates = [];
   const personalFirst = [
-    [/오웬|owen/i, 'navigator', 'personal_name'],
-    [/유나|yuna/i, 'doctor', 'personal_name'],
-    [/대니|danny/i, 'engineer', 'personal_name'],
-    [/마커스|marcus/i, 'pilot', 'personal_name']
+    [/오웬|(?<![a-zA-Z])owen(?![a-zA-Z])/i, 'navigator', 'personal_name'],
+    [/유나|(?<![a-zA-Z])yuna(?![a-zA-Z])/i, 'doctor', 'personal_name'],
+    [/대니|(?<![a-zA-Z])danny(?![a-zA-Z])/i, 'engineer', 'personal_name'],
+    [/마커스|(?<![a-zA-Z])marcus(?![a-zA-Z])/i, 'pilot', 'personal_name']
   ];
   for (const [rx, role, source] of personalFirst) {
     const idx = head.search(rx);
@@ -1543,6 +1602,12 @@ function extractTargetRoleFromTargetedSuspicionQuestion(raw) {
         (referencedRole != null ? ' referenced_role=' + referencedRole : '')
     );
     console.log('[intent-fix] first-role-wins targetRole=' + win.role);
+    if (
+      win.source === 'personal_name' &&
+      /(?:\bsuspects?\b|\bsuspicious\b|\bkiller\b|\btraitor\b|\bculprit\b)/i.test(s)
+    ) {
+      console.log('[intent-fix] english personal-name target resolved role=' + win.role);
+    }
   } catch (e) {}
   return { role: win.role, source: win.source, referencedRole: referencedRole || undefined };
 }
@@ -9250,6 +9315,32 @@ function roleWithObjectParticle(roleKey) {
  * @param {string} [opts.questionCaptainBodyOverride] - QUESTION 본문 강제(선택). targeted_question 표시는 bot에서 forcedCaptainTextOverride+applyTargetedQuestionCaptainDisplayBody로만 맞춤.
  * @returns {object[]} { type: string, role?, target?: null, _key?: string } - 표시용
  */
+function sanitizePlayerDisplayLogType(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'boolean') {
+    try {
+      console.log('[display-guard] suppressed boolean-like text=' + String(value));
+    } catch (e) {}
+    return null;
+  }
+  if (typeof value !== 'string') {
+    try {
+      console.log('[display-guard] suppressed boolean-like text=' + String(value));
+    } catch (e) {}
+    return null;
+  }
+  const t = value.trim();
+  if (!t) return null;
+  const low = t.toLowerCase();
+  if (low === 'false' || low === 'true' || low === 'null' || low === 'undefined') {
+    try {
+      console.log('[display-guard] suppressed boolean-like text=' + low);
+    } catch (e) {}
+    return null;
+  }
+  return t;
+}
+
 function toPlayerDisplayLogs(rawEvents, opts = {}) {
   if (!rawEvents || !Array.isArray(rawEvents)) return [];
   const locale = opts.locale === 'en' ? 'en' : 'ko';
@@ -9431,7 +9522,13 @@ function toPlayerDisplayLogs(rawEvents, opts = {}) {
       out.push({ type: text, role: 'system', target: null, _key: baseKey, ...crewSrcTail });
     }
   }
-  return normalizePlayerFacingDisplayLogs(out, locale);
+  const guarded = [];
+  for (const row of out) {
+    const clean = sanitizePlayerDisplayLogType(row.type);
+    if (clean === null) continue;
+    guarded.push(row.type === clean ? row : { ...row, type: clean });
+  }
+  return normalizePlayerFacingDisplayLogs(guarded, locale);
 }
 
 /** 내부 요약/debug 문장 패턴 (플레이어 로그에서 제외) */
