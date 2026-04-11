@@ -2817,11 +2817,40 @@
         return false;
       }
 
+      function shouldSuppressBooleanLikeDisplayText(val) {
+        if (val === false || val === true) {
+          try {
+            console.log('[display-guard] suppressed boolean-like text=' + String(val));
+          } catch (e) {}
+          return true;
+        }
+        if (val === null || val === undefined) return true;
+        if (typeof val !== 'string') return false;
+        var s = val.replace(/\s+/g, ' ').trim();
+        if (!s) return false;
+        var low = s.toLowerCase();
+        if (low === 'false' || low === 'true' || low === 'null' || low === 'undefined') {
+          try {
+            console.log('[display-guard] suppressed boolean-like text=' + low);
+          } catch (e) {}
+          return true;
+        }
+        return false;
+      }
+
       /** @param {string} [source] - doMessage | applyEvents | … (디버그 추적용, 동작 변경 없음) */
       function appendLog(text, isError, source) {
         if (source === void 0) source = '';
+        if (text === false || text === true) {
+          try {
+            console.log('[display-guard] suppressed boolean-like text=' + String(text));
+          } catch (e) {}
+          return;
+        }
+        if (text === null || text === undefined) return;
         var raw = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
         if (!raw || raw === '\u200b') return;
+        if (shouldSuppressBooleanLikeDisplayText(raw)) return;
         if (!isError && isCaptainTraceCandidate(raw, source)) {
           try {
             console.log('[miniapp] appendLog source=' + (source || 'unknown') + ' text=' + JSON.stringify(raw));
@@ -3632,17 +3661,29 @@
        */
       function displayLogLineFromEvent(ev) {
         if (!ev) return '';
-        var t = ev.type != null ? String(ev.type).replace(/\s+/g, ' ').trim() : '';
-        var text = ev.text != null ? String(ev.text).replace(/\s+/g, ' ').trim() : '';
-        var dlg = ev.dialogue != null ? String(ev.dialogue).replace(/\s+/g, ' ').trim() : '';
-        var msg = ev.message != null ? String(ev.message).replace(/\s+/g, ' ').trim() : '';
-        var roleFb = ev.role != null ? String(ev.role).trim() : '';
+        function fieldStr(v) {
+          if (v === false || v === true || v === null || v === undefined) return '';
+          return String(v).replace(/\s+/g, ' ').trim();
+        }
+        var t = ev.type != null ? fieldStr(ev.type) : '';
+        var text = ev.text != null ? fieldStr(ev.text) : '';
+        var dlg = ev.dialogue != null ? fieldStr(ev.dialogue) : '';
+        var msg = ev.message != null ? fieldStr(ev.message) : '';
+        var roleFb = ev.role != null ? fieldStr(ev.role) : '';
         var base = t || text || dlg || msg || roleFb;
         if (!base) return '';
+        var out = base;
         if (ev.target != null && ev.target !== '') {
-          return (base + ' -> ' + String(ev.target)).replace(/\s+/g, ' ').trim();
+          var tg = fieldStr(ev.target);
+          if (tg) out = (base + ' -> ' + tg).replace(/\s+/g, ' ').trim();
         }
-        return base;
+        if (shouldSuppressBooleanLikeDisplayText(out)) return '';
+        var segs = out.split('->');
+        var si;
+        for (si = 0; si < segs.length; si++) {
+          if (shouldSuppressBooleanLikeDisplayText(segs[si].replace(/\s+/g, ' ').trim())) return '';
+        }
+        return out;
       }
 
       /** display가 [역할] 한 줄뿐이고 본문 필드가 비어 있으면 true (applyEvents·dedupe 키 공통) */
