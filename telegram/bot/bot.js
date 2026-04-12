@@ -1201,6 +1201,69 @@ function resolveRequestLocale(body, urlQuery, reqHeaders) {
   return 'ko';
 }
 
+/**
+ * HTTP에서 locale이 명시된 경우만 반환(쿼리/본문/Accept-Language). 없으면 null → 매치·세션 로케일로 폴백.
+ */
+function peekExplicitRequestLocaleFromHttp(body, urlQuery, reqHeaders) {
+  const q = body && typeof body === 'object' ? body : {};
+  const fromBody = normalizeLocaleToken(q.lang) ?? normalizeLocaleToken(q.locale);
+  if (fromBody) return fromBody;
+  if (urlQuery) {
+    const fromQuery =
+      normalizeLocaleToken(urlQuery.get('lang')) ?? normalizeLocaleToken(urlQuery.get('locale'));
+    if (fromQuery) return fromQuery;
+  }
+  const h = reqHeaders && typeof reqHeaders === 'object' ? reqHeaders : {};
+  const accept = h['accept-language'] || h['Accept-Language'];
+  const fromAccept = normalizeLocaleToken(accept);
+  if (fromAccept) return fromAccept;
+  return null;
+}
+
+function normalizeExplicitOptsLocale(raw) {
+  if (raw === 'en' || raw === 'ko') return raw;
+  const t = normalizeLocaleToken(raw);
+  return t || null;
+}
+
+/**
+ * request.locale → match.game_state.locale → db match_sessions 메모리 → ko
+ * @returns {{ locale: 'en'|'ko', source: string }}
+ */
+function resolvePlayingMessageLocale(explicitRequestLocale, match) {
+  const req = normalizeExplicitOptsLocale(explicitRequestLocale);
+  if (req === 'en') return { locale: 'en', source: 'request' };
+  if (req === 'ko') return { locale: 'ko', source: 'request' };
+
+  const gs = match?.game_state || {};
+  const gsl = gs.locale;
+  if (gsl === 'en' || String(gsl).toLowerCase() === 'en') return { locale: 'en', source: 'match_state' };
+  if (gsl === 'ko' || String(gsl).toLowerCase() === 'ko') return { locale: 'ko', source: 'match_state' };
+
+  const mid = match?.match_id != null ? String(match.match_id).trim() : '';
+  if (mid) {
+    const row = dbMatchSessionsMemory.get(mid);
+    const sl = row && row.locale;
+    if (sl === 'en') return { locale: 'en', source: 'stored' };
+    if (sl === 'ko') return { locale: 'ko', source: 'stored' };
+  }
+
+  return { locale: 'ko', source: 'fallback' };
+}
+
+async function ensureGameStateLocalePersisted(matchId, locale) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  const mid = matchId != null ? String(matchId).trim() : '';
+  if (!mid) return;
+  try {
+    const m = await matchStore.getMatch(mid);
+    if (!m?.game_state) return;
+    const gs = m.game_state;
+    if (gs.locale === loc) return;
+    await matchStore.updateMatch(mid, { game_state: { ...gs, locale: loc } });
+  } catch (e) {}
+}
+
 function getLlmRoleHeaders(locale) {
   if (locale === 'en') {
     return {
@@ -6410,6 +6473,15 @@ async function tryGenerateLlmDialogueLogs(ctx) {
   const deadRoles = gs.dead_roles || [];
   const ev0 = rawEvents && rawEvents[0];
   const target = ev0?.target ? String(ev0.target).toLowerCase() : null;
+  if (
+    kind === 'QUESTION' &&
+    target &&
+    ['doctor', 'engineer', 'navigator', 'pilot'].includes(target)
+  ) {
+    try {
+      console.log('[locale-guard] locale passed to llm=' + locale + ' target=' + target);
+    } catch (e) {}
+  }
   const expectedCrew = expectedCrewOrderForLlm(kind, target, deadRoles, rawEvents, {
     targetedQuestionSingleSpeaker
   });
@@ -9427,6 +9499,11 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
         console.log('[intent-fix] isolateRole filter applied role=' + isolateRole);
       } catch (e) {}
     }
+    if (kind === 'QUESTION' && isolateRole) {
+      try {
+        console.log('[locale-guard] locale passed to fallback=' + loc + ' target=' + isolateRole);
+      } catch (e) {}
+    }
     return detTone;
   }
 
@@ -9491,6 +9568,11 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
     return outL;
   }
   logDialogueTrace(actionSlug, apiProvider, modelStr, 'fallback', eventsCount);
+  if (kind === 'QUESTION' && isolateRole) {
+    try {
+      console.log('[locale-guard] locale passed to fallback=' + loc + ' target=' + isolateRole);
+    } catch (e) {}
+  }
   if (kind === 'THREATEN' || kind === 'TAKE_PISTOL') {
     try {
       console.log(
@@ -10429,25 +10511,31 @@ function formatTelegramReplyFromDisplayLogs(recentDisplay, rem) {
  */
 async function handleTextMessage(playerId, text, opts = {}) {
   // 1. player → match
-  const locale = opts.locale === 'en' ? 'en' : 'ko';
   let player = await playerStore.getPlayer(playerId);
   let matchId = player?.match_id;
+  let match = matchId ? await matchStore.getMatch(matchId) : null;
   if (!matchId) {
+    const { locale: locInit } = resolvePlayingMessageLocale(opts.locale, null);
     const userKey = resolveUserKey(playerId, null);
-    const ticket = await consumeDailyTicketIfAllowed(userKey, { locale });
+    const ticket = await consumeDailyTicketIfAllowed(userKey, { locale: locInit });
     if (!ticket.allowed) {
-      return locale === 'en'
+      return locInit === 'en'
         ? 'You have used all daily entry tickets. Please try again tomorrow or use a higher clearance tier.'
         : '오늘의 입장권을 모두 사용했습니다. 내일 다시 시도하거나 상위 보안등급을 이용하세요.';
     }
-    const match = await matchStore.getOrCreateMatch('match_' + playerId + '_' + Date.now(), {});
-    matchId = match.match_id;
+    const matchNew = await matchStore.getOrCreateMatch('match_' + playerId + '_' + Date.now(), {});
+    matchId = matchNew.match_id;
     await playerStore.setPlayer(playerId, { match_id: matchId, role: 'captain' });
-    await kickOpeningChatForNewMatch(matchId, locale);
+    await kickOpeningChatForNewMatch(matchId, locInit);
+    await ensureGameStateLocalePersisted(matchId, locInit);
+    match = await matchStore.getMatch(matchId);
   }
 
-  let match = await matchStore.getMatch(matchId);
   if (!match) return 'Match not found. Send /start to begin.';
+  const localeResolutionTg = resolvePlayingMessageLocale(opts.locale, match);
+  let locale = localeResolutionTg.locale;
+  const localeResolutionSource = localeResolutionTg.source;
+  await ensureGameStateLocalePersisted(matchId, locale);
 
   const tensionNowTg =
     opts.now instanceof Date ? opts.now : opts.now != null ? new Date(opts.now) : new Date();
@@ -10753,6 +10841,14 @@ async function handleTextMessage(playerId, text, opts = {}) {
   if (cls.kind === 'targeted_question') {
     parsed = syncTargetedQuestionParsedTargetFromCls(cls, parsed);
     console.log('[bot] message kind=targeted_question target=' + parsed.target);
+    try {
+      console.log(
+        '[locale-guard] locale resolved=' +
+          locale +
+          ' route=targeted_question source=' +
+          localeResolutionSource
+      );
+    } catch (e) {}
     if (cls.targetedQuestionSingleSpeaker === true && parsed.target) {
       try {
         console.log(
@@ -10786,7 +10882,7 @@ async function handleTextMessage(playerId, text, opts = {}) {
     target: parsed.target
   };
 
-  const result = await ep1Engine.applyAction(match, action, opts);
+  const result = await ep1Engine.applyAction(match, action, { ...opts, locale });
   if (!result.ok) {
     return 'Error: ' + (result.error || 'unknown');
   }
@@ -10795,6 +10891,7 @@ async function handleTextMessage(playerId, text, opts = {}) {
     ...result.next_state,
     turn: (match.turn || 1) + 1
   });
+  await ensureGameStateLocalePersisted(matchId, locale);
   await clearPostOpeningWaitingForFirstCommanderInput(matchId);
   let eventsForStore = result.events || [];
   if (cls.kind === 'targeted_question' && parsed.target) {
@@ -11621,21 +11718,23 @@ async function getStartStateApi(playerId, opts = {}) {
   const nowStart = opts.now instanceof Date ? opts.now : opts.now != null ? new Date(opts.now) : new Date();
   const tensionStart = await persistTimerTensionForMatch(matchId, match, locale, nowStart);
   const matchForStart = tensionStart.match || match;
-  const timer = ep1Engine.getTimerStatus ? ep1Engine.getTimerStatus(matchForStart, nowStart) : { remaining_sec: 420 };
-  const gs = matchForStart?.game_state || {};
-  let displayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(matchForStart?.events || [], { locale }), locale);
-  displayLogs = ensureInitialSystemDisplayLogs(displayLogs, matchForStart, locale);
+  await ensureGameStateLocalePersisted(matchId, locale);
+  const matchForOut = (await matchStore.getMatch(matchId)) || matchForStart;
+  const timer = ep1Engine.getTimerStatus ? ep1Engine.getTimerStatus(matchForOut, nowStart) : { remaining_sec: 420 };
+  const gs = matchForOut?.game_state || {};
+  let displayLogs = dedupeDisplayLogs(toPlayerDisplayLogs(matchForOut?.events || [], { locale }), locale);
+  displayLogs = ensureInitialSystemDisplayLogs(displayLogs, matchForOut, locale);
   const out = {
     ok: true,
     match_id: matchId,
     remaining_sec: timer.remaining_sec ?? 420,
     game_state: gs,
-    deadline_at: matchForStart?.deadline_at,
+    deadline_at: matchForOut?.deadline_at,
     events: displayLogs
   };
   if (gs.game_over) {
-    attachActualImposterIfGameOverResult(out, matchForStart);
-    const evs = matchForStart?.events || [];
+    attachActualImposterIfGameOverResult(out, matchForOut);
+    const evs = matchForOut?.events || [];
     if (evs.some((e) => e && e.type === 'TIMEOUT')) out.is_timeout = true;
   }
   await dbPersistAfterStartState(playerId, locale, out);
@@ -11652,14 +11751,15 @@ async function getStartStateApi(playerId, opts = {}) {
  * @returns {Promise<object>}
  */
 async function processMessageApi(playerId, text, opts = {}) {
-  const locale = opts.locale === 'en' ? 'en' : 'ko';
   let player = await playerStore.getPlayer(playerId);
   let matchId = player?.match_id;
+  let match = matchId ? await matchStore.getMatch(matchId) : null;
   if (!matchId) {
+    const { locale: locInit } = resolvePlayingMessageLocale(opts.locale, null);
     const userKey = resolveUserKey(playerId, null);
-    const ticket = await consumeDailyTicketIfAllowed(userKey, { locale });
+    const ticket = await consumeDailyTicketIfAllowed(userKey, { locale: locInit });
     if (!ticket.allowed) {
-      return buildEntitlementBlockedResponse(locale, 'daily_ticket_limit_reached', ticket.entitlement, {
+      return buildEntitlementBlockedResponse(locInit, 'daily_ticket_limit_reached', ticket.entitlement, {
         remaining_sec: 0,
         game_over: false,
         outcome: null,
@@ -11671,10 +11771,15 @@ async function processMessageApi(playerId, text, opts = {}) {
     const match0 = await matchStore.getOrCreateMatch('match_' + playerId + '_' + Date.now(), {});
     matchId = match0.match_id;
     await playerStore.setPlayer(playerId, { match_id: matchId, role: 'captain' });
-    await kickOpeningChatForNewMatch(matchId, locale);
+    await kickOpeningChatForNewMatch(matchId, locInit);
+    await ensureGameStateLocalePersisted(matchId, locInit);
+    match = await matchStore.getMatch(matchId);
   }
-  let match = await matchStore.getMatch(matchId);
   if (!match) return { ok: false, error: 'Match not found' };
+  const localeResolution = resolvePlayingMessageLocale(opts.locale, match);
+  let locale = localeResolution.locale;
+  const localeResolutionSource = localeResolution.source;
+  await ensureGameStateLocalePersisted(matchId, locale);
 
   const tensionNow =
     opts.now instanceof Date ? opts.now : opts.now != null ? new Date(opts.now) : new Date();
@@ -12183,6 +12288,14 @@ async function processMessageApi(playerId, text, opts = {}) {
   if (cls.kind === 'targeted_question') {
     parsed = syncTargetedQuestionParsedTargetFromCls(cls, parsed);
     console.log('[bot] message kind=targeted_question target=' + parsed.target);
+    try {
+      console.log(
+        '[locale-guard] locale resolved=' +
+          locale +
+          ' route=targeted_question source=' +
+          localeResolutionSource
+      );
+    } catch (e) {}
     if (cls.targetedQuestionSingleSpeaker === true && parsed.target) {
       try {
         console.log(
@@ -12210,10 +12323,11 @@ async function processMessageApi(playerId, text, opts = {}) {
   }
 
   const action = { actor: 'captain', role: 'captain', action: parsed.intent_type, target: parsed.target };
-  const result = await ep1Engine.applyAction(match, action, opts);
+  const result = await ep1Engine.applyAction(match, action, { ...opts, locale });
   if (!result.ok) return withMeta({ ok: false, error: result.error || 'unknown' });
 
   await matchStore.updateMatch(matchId, { ...result.next_state, turn: (match.turn || 1) + 1 });
+  await ensureGameStateLocalePersisted(matchId, locale);
   await clearPostOpeningWaitingForFirstCommanderInput(matchId);
   let eventsForStoreApi = result.events || [];
   if (cls.kind === 'targeted_question' && parsed.target) {
@@ -12954,8 +13068,12 @@ function createLocalApiServer() {
         const data = body ? JSON.parse(body) : {};
         const playerId = data.playerId;
         const text = data.text || '';
-        const locale = resolveRequestLocale(data, url.searchParams, req.headers);
-        console.log('[bot] LOCALE_RESOLVED locale=' + locale + ' action=message');
+        const explicitLocale = peekExplicitRequestLocaleFromHttp(data, url.searchParams, req.headers);
+        console.log(
+          '[bot] LOCALE_RESOLVED locale=' +
+            (explicitLocale != null ? explicitLocale : '(implicit→session)') +
+            ' action=message'
+        );
         if (!playerId) {
           console.log('[bot] api action=message match_id= playerId=(missing)');
           res.writeHead(400);
@@ -12966,10 +13084,12 @@ function createLocalApiServer() {
         console.log(
           '[bot] api action=message match_id=' + String(preMsg?.match_id || '') + ' playerId=' + String(playerId)
         );
-        const result = await processMessageApi(playerId, text, { locale });
+        const result = await processMessageApi(playerId, text, { locale: explicitLocale });
         await enrichResultWithEntitlement(result, playerId);
-        await dbPersistAfterMessageResult(playerId, locale, text, result);
         const postMsg = await playerStore.getPlayer(playerId);
+        const postMatch = postMsg?.match_id ? await matchStore.getMatch(postMsg.match_id) : null;
+        const persistLoc = resolvePlayingMessageLocale(explicitLocale, postMatch).locale;
+        await dbPersistAfterMessageResult(playerId, persistLoc, text, result);
         console.log(
           '[bot] api action complete ok=' +
             String(!!result?.ok) +
