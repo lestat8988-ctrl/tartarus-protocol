@@ -80,6 +80,11 @@ const CREW_TRAUMA_CONFIG = {
   engineer: {
     triggers: [
       '폭발',
+      '원자로 사고',
+      '원자로 폭발',
+      '막지 못',
+      '못 막았',
+      '그때 폭발',
       '과열',
       '못 고쳤',
       'reactor incident',
