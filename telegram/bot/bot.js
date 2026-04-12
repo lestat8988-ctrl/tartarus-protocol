@@ -9310,9 +9310,11 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
   isSelfDefenseQuestion,
   isTargetedAccusation,
   isFollowupTargetedDialogue,
-  singleSpeakerTargetRoleOverride
+  singleSpeakerTargetRoleOverride,
+  localeGuardActionPrefix
 }) {
   const loc = locale === 'en' ? 'en' : 'ko';
+  const fbTag = localeGuardActionPrefix ? '[action-locale-guard]' : '[locale-guard]';
   const pickValidCrew = (x) => {
     const t = String(x || '').toLowerCase().trim();
     return ['doctor', 'engineer', 'navigator', 'pilot'].includes(t) ? t : '';
@@ -9501,7 +9503,7 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
     }
     if (kind === 'QUESTION' && isolateRole) {
       try {
-        console.log('[locale-guard] locale passed to fallback=' + loc + ' target=' + isolateRole);
+        console.log(fbTag + ' locale passed to fallback=' + loc + ' target=' + isolateRole);
       } catch (e) {}
     }
     return detTone;
@@ -9570,7 +9572,7 @@ async function maybeDialogueLogsFromLlmOrDeterministic({
   logDialogueTrace(actionSlug, apiProvider, modelStr, 'fallback', eventsCount);
   if (kind === 'QUESTION' && isolateRole) {
     try {
-      console.log('[locale-guard] locale passed to fallback=' + loc + ' target=' + isolateRole);
+      console.log(fbTag + ' locale passed to fallback=' + loc + ' target=' + isolateRole);
     } catch (e) {}
   }
   if (kind === 'THREATEN' || kind === 'TAKE_PISTOL') {
@@ -12541,8 +12543,30 @@ async function processAccuseApi(playerId, targetRaw, opts = {}) {
  * @param {object} [opts] - { now? }
  * @returns {Promise<object>}
  */
+function localizeActionQuestionCrewEventsIfNeeded(events, locale, questionTargetRole) {
+  const loc = locale === 'en' ? 'en' : 'ko';
+  if (loc !== 'en') return events || [];
+  const t = String(questionTargetRole || '').toLowerCase().trim();
+  if (!['doctor', 'engineer', 'navigator', 'pilot'].includes(t)) return events || [];
+  const enByRole = {
+    doctor:
+      '[Doctor/Yuna] I was in medbay monitoring crew vitals. It is on the record.',
+    engineer:
+      '[Engineer/Danny] I was in the engine room running a core check. Access logs cover that window.',
+    navigator:
+      '[Navigator/Owen] I was on the bridge recalculating course and auditing nav data. Check the nav logs.',
+    pilot: '[Pilot/Marcus] I was on the bridge on gauges and pressure bands.'
+  };
+  const line = enByRole[t];
+  if (!line) return events || [];
+  return (events || []).map((ev) => {
+    if (String(ev?.type || '').toUpperCase() !== 'CREW_DIALOGUE') return ev;
+    if (String(ev?.role || '').toLowerCase() !== t) return ev;
+    return { ...ev, dialogue: line };
+  });
+}
+
 async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
-  const locale = opts.locale === 'en' ? 'en' : 'ko';
   const rawKey = String(actionRaw || '').toLowerCase().trim();
   const resolvedActionKey =
     rawKey === 'execute'
@@ -12579,11 +12603,13 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
 
   let player = await playerStore.getPlayer(playerId);
   let matchId = player?.match_id;
+  let match = matchId ? await matchStore.getMatch(matchId) : null;
   if (!matchId) {
+    const { locale: locInit } = resolvePlayingMessageLocale(opts.locale, null);
     const userKey = resolveUserKey(playerId, null);
-    const ticket = await consumeDailyTicketIfAllowed(userKey, { locale });
+    const ticket = await consumeDailyTicketIfAllowed(userKey, { locale: locInit });
     if (!ticket.allowed) {
-      return buildEntitlementBlockedResponse(locale, 'daily_ticket_limit_reached', ticket.entitlement, {
+      return buildEntitlementBlockedResponse(locInit, 'daily_ticket_limit_reached', ticket.entitlement, {
         remaining_sec: 0,
         game_over: false,
         outcome: null,
@@ -12595,9 +12621,26 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
     const match0 = await matchStore.getOrCreateMatch('match_' + playerId + '_' + Date.now(), {});
     matchId = match0.match_id;
     await playerStore.setPlayer(playerId, { match_id: matchId, role: 'captain' });
+    await ensureGameStateLocalePersisted(matchId, locInit);
+    match = await matchStore.getMatch(matchId);
   }
-  let match = await matchStore.getMatch(matchId);
   if (!match) return { ok: false, error: 'Match not found' };
+
+  const localeResolution = resolvePlayingMessageLocale(opts.locale, match);
+  let locale = localeResolution.locale;
+  const actionLocaleSource = localeResolution.source;
+  await ensureGameStateLocalePersisted(matchId, locale);
+
+  if (rawKey === 'question' && String(mapped.action || '').toUpperCase() === 'QUESTION') {
+    try {
+      console.log(
+        '[action-locale-guard] action=interrogate_crew locale resolved=' +
+          locale +
+          ' source=' +
+          actionLocaleSource
+      );
+    } catch (e) {}
+  }
 
   await clearPostOpeningWaitingForFirstCommanderInput(matchId);
   match = await matchStore.getMatch(matchId);
@@ -12628,10 +12671,11 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
     return ret;
   }
 
-  const result = await ep1Engine.applyAction(match, action, opts);
+  const result = await ep1Engine.applyAction(match, action, { ...opts, locale });
   if (!result.ok) return { ok: false, error: result.error || 'unknown' };
 
   await matchStore.updateMatch(matchId, { ...result.next_state, turn: (match.turn || 1) + 1 });
+  await ensureGameStateLocalePersisted(matchId, locale);
   if (result.events?.length > 0) {
     for (const ev of result.events) await matchStore.appendEvent(matchId, ev);
   }
@@ -12639,6 +12683,15 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
   const updated = await matchStore.getMatch(matchId);
   const gameOver = result.game_over || updated?.game_state?.game_over;
   const actU = String(mapped.action || '').toUpperCase();
+  const questionTargetRole =
+    actU === 'QUESTION' && (targetNorm || mapped.target)
+      ? String(targetNorm || mapped.target).toLowerCase()
+      : null;
+  const eventsForDialogue =
+    actU === 'QUESTION'
+      ? localizeActionQuestionCrewEventsIfNeeded(result.events || [], locale, questionTargetRole)
+      : result.events || [];
+
   let checkLogCaptainInputLine;
   if (actU === 'CHECK_LOG' && rawKey === 'cctv') {
     checkLogCaptainInputLine = locale === 'en' ? 'Checking CCTV logs' : 'CCTV 로그를 확인한다';
@@ -12646,7 +12699,7 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
     checkLogCaptainInputLine = locale === 'en' ? 'Checking the engine room' : '엔진실을 확인한다';
   }
   const deterministicLogs = dedupeDisplayLogs(
-    toPlayerDisplayLogs(result.events || [], {
+    toPlayerDisplayLogs(eventsForDialogue, {
       locale,
       ...(checkLogCaptainInputLine != null ? { captainInputLine: checkLogCaptainInputLine } : {})
     }),
@@ -12672,37 +12725,47 @@ async function processActionApi(playerId, actionRaw, targetRaw, opts = {}) {
           : locale === 'en'
             ? `[${actU.toLowerCase()} action]`
             : `[${actU.toLowerCase()} action]`;
-  let newDisplayLogs;
+
+  let newDisplayLogs = dedupeDisplayLogs(
+    await maybeDialogueLogsFromLlmOrDeterministic({
+      rawEvents: eventsForDialogue,
+      deterministicLogs,
+      match: updated,
+      playerText: actionHint,
+      clueTextFromEvent,
+      locale,
+      isFollowupTargetedDialogue: false,
+      targetedQuestionSideReactionRules: false,
+      targetedNameQuestion: false,
+      targetedQuestionSingleSpeaker: actU === 'QUESTION',
+      isSelfDefenseQuestion: false,
+      isTargetedAccusation: false,
+      singleSpeakerTargetRoleOverride: actU === 'QUESTION' ? questionTargetRole : null,
+      localeGuardActionPrefix: actU === 'QUESTION'
+    }),
+    locale
+  );
+
   if (actU === 'QUESTION') {
-    let qLogs = dedupeDisplayLogs(deterministicLogs, locale);
     await ensureCrewPersonalNamesPersisted(matchId);
     const mNames = await matchStore.getMatch(matchId);
     const crewPersonalNames = mNames?.game_state?.crew_names || {};
-    qLogs = sanitizeActionResponseNoPersonalNames(qLogs, locale, {
+    newDisplayLogs = sanitizeActionResponseNoPersonalNames(newDisplayLogs, locale, {
       dialogueLlmKind: 'QUESTION',
       crewPersonalNames,
       threatTargetRole: null
     });
-    qLogs = sanitizeActionResponseHonorificKo(qLogs, locale, {
+    newDisplayLogs = sanitizeActionResponseHonorificKo(newDisplayLogs, locale, {
       dialogueLlmKind: 'QUESTION',
       threatTargetRole: null
     });
-    newDisplayLogs = dedupeDisplayLogs(qLogs, locale);
-  } else {
-    newDisplayLogs = dedupeDisplayLogs(
-      await maybeDialogueLogsFromLlmOrDeterministic({
-        rawEvents: result.events || [],
-        deterministicLogs,
-        match: updated,
-        playerText: actionHint,
-        clueTextFromEvent,
-        locale,
-        isFollowupTargetedDialogue: false
-      }),
-      locale
-    );
+    newDisplayLogs = dedupeDisplayLogs(newDisplayLogs, locale);
   }
+
   newDisplayLogs = mergePrependedTensionDisplayLogs(tensionAct, newDisplayLogs, locale);
+  try {
+    console.log('[action-locale-guard] locale passed to action response=' + locale);
+  } catch (e) {}
   const summaryText = summaryFromDisplayLogs(newDisplayLogs, locale);
   const recentEvents = newDisplayLogs;
   const ret = {
@@ -13142,8 +13205,12 @@ function createLocalApiServer() {
         const playerId = data.playerId;
         const actionName = data.action;
         const targetOpt = data.target;
-        const locale = resolveRequestLocale(data, url.searchParams, req.headers);
-        console.log('[bot] LOCALE_RESOLVED locale=' + locale + ' action=api_action');
+        const explicitLocaleAct = peekExplicitRequestLocaleFromHttp(data, url.searchParams, req.headers);
+        console.log(
+          '[bot] LOCALE_RESOLVED locale=' +
+            (explicitLocaleAct != null ? explicitLocaleAct : '(implicit→session)') +
+            ' action=api_action'
+        );
         if (!playerId) {
           console.log('[bot] api action=(none) match_id= playerId=(missing)');
           res.writeHead(400);
@@ -13168,10 +13235,12 @@ function createLocalApiServer() {
             ' playerId=' +
             String(playerId)
         );
-        const result = await processActionApi(playerId, actionName, targetOpt, { locale });
+        const result = await processActionApi(playerId, actionName, targetOpt, { locale: explicitLocaleAct });
         await enrichResultWithEntitlement(result, playerId);
-        await dbPersistAfterActionResult(playerId, locale, an, an, targetOpt, result);
         const postAct = await playerStore.getPlayer(playerId);
+        const postMatchAct = postAct?.match_id ? await matchStore.getMatch(postAct.match_id) : null;
+        const persistLocAct = resolvePlayingMessageLocale(explicitLocaleAct, postMatchAct).locale;
+        await dbPersistAfterActionResult(playerId, persistLocAct, an, an, targetOpt, result);
         console.log(
           '[bot] api action complete ok=' +
             String(!!result?.ok) +
