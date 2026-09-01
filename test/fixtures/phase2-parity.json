@@ -1,0 +1,45 @@
+{
+  "checkpoint": "d7d7f998b44b83ab1d1a61cf5d2814ad7c9f78ed",
+  "items": {
+    "directSuspect": {
+      "currentBehavior": "A direct SUSPECT action is normalized to OBSERVE and mutates the input action.",
+      "intended": "UNKNOWN",
+      "v2Candidate": "Define SUSPECT as a first-class non-terminal command, or remove it explicitly; never silently reinterpret it."
+    },
+    "autoKill240": {
+      "currentBehavior": "No auto-kill at exactly 240 seconds; the 240 mark fires at 239 seconds or below.",
+      "intended": "UNKNOWN",
+      "v2Candidate": "Keep the strict boundary only if product confirms it, and encode it as an explicit threshold policy."
+    },
+    "autoKill60": {
+      "currentBehavior": "No auto-kill at exactly 60 seconds; the 60 mark fires at 59 seconds or below.",
+      "intended": "UNKNOWN",
+      "v2Candidate": "Keep the strict boundary only if product confirms it, and encode it as an explicit threshold policy."
+    },
+    "missingThreatTarget": {
+      "currentBehavior": "core applyAction returns ok:true with a system dialogue, while the Telegram application rejects the same request with ok:false.",
+      "intended": "UNKNOWN",
+      "v2Candidate": "Canonical command validation returns a typed rejection; transport maps it without changing semantics."
+    },
+    "timerFloor": {
+      "currentBehavior": "One millisecond after start reports 419 seconds because the remaining duration is floored.",
+      "intended": "UNKNOWN",
+      "v2Candidate": "Represent time in milliseconds internally and define the public countdown rounding rule separately."
+    },
+    "fallbackZeroWidth": {
+      "currentBehavior": "A dialogue fallback with visible log lines returns U+200B as its summary.",
+      "intended": "UNKNOWN",
+      "v2Candidate": "Keep summaries out of the domain engine; presentation may preserve this only for V1 compatibility."
+    },
+    "commandMutation": {
+      "currentBehavior": "core applyAction overwrites action.action and action.target on the caller-owned object.",
+      "intended": "UNKNOWN",
+      "v2Candidate": "Reject input mutation; normalize into a new command value before reduction."
+    },
+    "directMathRandom": {
+      "currentBehavior": "FIND_CLUE calls Math.random directly.",
+      "intended": "UNKNOWN",
+      "v2Candidate": "Consume only context.random or a serializable rngState transition and record the draw in replay metadata."
+    }
+  }
+}

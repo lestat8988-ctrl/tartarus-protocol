@@ -4,8 +4,9 @@
   "description": "",
   "main": "server.js",
   "scripts": {
-    "test": "node --test --test-concurrency=1 test/phase1-characterization.test.js",
+    "test": "node --test --test-concurrency=1 test/phase1-characterization.test.js test/phase2-engine-parity.test.js",
     "test:phase1": "node --test --test-concurrency=1 test/phase1-characterization.test.js",
+    "test:phase2": "node --test --test-concurrency=1 test/phase2-engine-parity.test.js",
     "bot": "node telegram/bot/bot.js"
   },
   "keywords": [],
