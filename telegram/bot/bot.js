@@ -13381,6 +13381,7 @@ module.exports = {
   processMessageApi,
   processAccuseApi,
   processActionApi,
+  createLocalApiServer,
   resolveUserKey,
   upsertUserEntitlement,
   upsertMatchState,

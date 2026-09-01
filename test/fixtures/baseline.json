@@ -1,0 +1,12 @@
+{
+  "branchPoint": "telegram-v1",
+  "baselineCommit": "0f06d4f875373eaf26ab8c2c56d9836e0492f549",
+  "v2Branch": "codex/tartarus-v2",
+  "productionAccessAllowed": false,
+  "externalAiAllowed": false,
+  "telegramPollingAllowed": false,
+  "protectedUntrackedFiles": [
+    "erssejooDocuments바탕 화면Tartarus-Project",
+    "telegram/miniapp/assets/yuna.mp4"
+  ]
+}

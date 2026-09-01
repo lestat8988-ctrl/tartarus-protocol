@@ -1,0 +1,39 @@
+{
+  "question": {
+    "summary": "Captain questioned doctor.",
+    "eventTypes": ["QUESTION", "CREW_DIALOGUE"],
+    "eventRoles": ["captain", "doctor"]
+  },
+  "suspectViaAccuseHint": {
+    "summary": "Captain suspects navigator.",
+    "eventCount": 9,
+    "firstEvent": { "type": "SUSPECT", "role": "captain", "target": "navigator" }
+  },
+  "directSuspectNormalization": {
+    "summary": "Captain observed the bridge.",
+    "event": { "type": "OBSERVE", "role": "captain", "target": "navigator" }
+  },
+  "accuseWin": {
+    "summary": "Captain accused engineer. Outcome: crew_win",
+    "outcome": "crew_win",
+    "gameOver": true
+  },
+  "accuseFailure": {
+    "summary": "Captain accused doctor. Outcome: accuse_failed",
+    "outcome": "accuse_failed",
+    "gameOver": true
+  },
+  "takePistol": {
+    "summary": "Captain took the pistol.",
+    "holder": "captain"
+  },
+  "firstClue": {
+    "summary": "Captain collected a clue.",
+    "id": "bridge_log_gap",
+    "text": "교량 감시 로그 02:14~02:18 구간이 공백으로 남아 있다."
+  },
+  "invalidThreat": {
+    "summary": "Threat requires a valid crew target.",
+    "dialogue": "[시스템] 위협 대상 승무원을 지정해야 한다."
+  }
+}

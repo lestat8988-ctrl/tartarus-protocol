@@ -1,0 +1,25 @@
+{
+  "ko": {
+    "summary": "​",
+    "eventTypes": [
+      "[함장]",
+      "닥터, 그때 어디 있었지?",
+      "[닥터/유나]",
+      "그때 저는 의무실에서 승무원 생체 신호를 확인하고 있었습니다. 기록에 남아 있습니다."
+    ]
+  },
+  "en": {
+    "summary": "​",
+    "eventTypes": [
+      "[Captain]",
+      "Doctor, where were you then?",
+      "[Doctor/Yuna]",
+      "I was in medbay monitoring crew vitals. It is on the record."
+    ]
+  },
+  "englishStartEventTypes": [
+    "[System]",
+    "Tartarus Protocol initialized."
+  ],
+  "fakeAiAttempts": 3
+}

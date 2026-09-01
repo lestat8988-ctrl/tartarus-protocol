@@ -4,7 +4,8 @@
   "description": "",
   "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test --test-concurrency=1 test/phase1-characterization.test.js",
+    "test:phase1": "node --test --test-concurrency=1 test/phase1-characterization.test.js",
     "bot": "node telegram/bot/bot.js"
   },
   "keywords": [],

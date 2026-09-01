@@ -1,0 +1,42 @@
+[
+  {
+    "name": "empty input",
+    "input": "",
+    "expected": { "target": null, "intent_type": "unknown", "tone": "neutral" }
+  },
+  {
+    "name": "Korean targeted question",
+    "input": "닥터, 그때 어디 있었어?",
+    "expected": { "target": "doctor", "intent_type": "question", "tone": "neutral" }
+  },
+  {
+    "name": "question precedence over engine log",
+    "input": "엔진 로그가 왜 이상하지?",
+    "expected": { "target": "engineer", "intent_type": "question", "tone": "neutral" }
+  },
+  {
+    "name": "Korean engine log check",
+    "input": "엔진 로그 확인",
+    "expected": { "target": "engineer", "intent_type": "check_log", "tone": "neutral" }
+  },
+  {
+    "name": "accusation hint is not execution",
+    "input": "당장 네비게이터를 처형!",
+    "expected": { "target": "navigator", "intent_type": "accuse_hint", "tone": "urgent" }
+  },
+  {
+    "name": "English observation",
+    "input": "observe the pilot",
+    "expected": { "target": "pilot", "intent_type": "observe", "tone": "neutral" }
+  },
+  {
+    "name": "threat with urgent tone",
+    "input": "지금 엔지니어를 위협해!",
+    "expected": { "target": "engineer", "intent_type": "threat", "tone": "urgent" }
+  },
+  {
+    "name": "hesitant unknown",
+    "input": "흠... 파일럿",
+    "expected": { "target": "pilot", "intent_type": "unknown", "tone": "hesitant" }
+  }
+]

@@ -1,0 +1,28 @@
+{
+  "startResponseKeys": [
+    "deadline_at",
+    "entitlement",
+    "events",
+    "game_state",
+    "match_id",
+    "ok",
+    "remaining_sec"
+  ],
+  "actionResponseKeys": [
+    "events",
+    "game_over",
+    "match_state",
+    "ok",
+    "outcome",
+    "recent_events",
+    "remaining_sec",
+    "summary"
+  ],
+  "http": {
+    "health": { "status": 200, "body": { "ok": true, "service": "telegram-bot-local-api" } },
+    "missingStatePlayer": { "status": 400, "body": { "ok": false, "error": "playerId required" } },
+    "missingMessagePlayer": { "status": 400, "body": { "ok": false, "error": "playerId required" } },
+    "missingAccuseTarget": { "status": 400, "body": { "ok": false, "error": "target required" } },
+    "missingAction": { "status": 400, "body": { "ok": false, "error": "action required" } }
+  }
+}
