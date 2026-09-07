@@ -7,7 +7,8 @@
     "test": "node --test --test-concurrency=1 test/phase1-characterization.test.js test/phase2-engine-parity.test.js",
     "test:phase1": "node --test --test-concurrency=1 test/phase1-characterization.test.js",
     "test:phase2": "node --test --test-concurrency=1 test/phase2-engine-parity.test.js",
-    "bot": "node telegram/bot/bot.js"
+    "bot": "node telegram/bot/bot.js",
+    "bot:v2": "node telegram/bot/v2/index.js"
   },
   "keywords": [],
   "author": "",
